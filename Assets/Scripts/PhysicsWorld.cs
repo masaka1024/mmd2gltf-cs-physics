@@ -347,6 +347,10 @@ namespace BulletPhysics
             t2 = Vec3.Cross(n, t1);
         }
 
+        // 検証用の読み取り専用診断フック。null (既定) の間は何もせず、挙動・性能に影響しない。
+        // 回帰テスト (非貫入押し出しの検出など) が接触の Distance/法線インパルスを参照するために使う。
+        public System.Collections.Generic.List<(string a, string b, float dist, float ni)> DebugContacts;
+
         // 蓄積インパルスを manifold へ書き戻し、次フレームのウォームスタートに使う。
         private void StoreImpulses()
         {
@@ -359,6 +363,7 @@ namespace BulletPhysics
                 cp.TangentImpulse1 = c.TangentImpulse1;
                 cp.TangentImpulse2 = c.TangentImpulse2;
                 c.Manifold.Points[c.PointRef] = cp;
+                DebugContacts?.Add((c.A.Name, c.B.Name, cp.Distance, c.NormalImpulse));
             }
         }
 

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>CompileCheck</AssemblyName>
+    <StartupObject>Harness</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 検証ハーネス本体 + UnityEngine 最小シム -->
+    <Compile Include="UnityShim.cs" />
+    <Compile Include="Harness.cs" />
+    <!-- 検証対象のエンジン本体 (リポジトリ相対) -->
+    <Compile Include="..\..\Assets\Scripts\**\*.cs" />
+  </ItemGroup>
+</Project>

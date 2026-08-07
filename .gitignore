@@ -1,5 +1,4 @@
-# build/検証用一時物
-scratchpad/
+# build 生成物 (どこでも無視。scratchpad/compilecheck のソースは追跡する)
 bin/
 obj/
 *.user

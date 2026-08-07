@@ -1,0 +1,65 @@
+// 最小 UnityEngine シム (Unity 非依存のコンパイル/検証専用。Unity 実行時には使用しない)。
+// Assets/Scripts が参照する UnityEngine の型だけを最小限で満たす。
+using System;
+
+namespace UnityEngine
+{
+    public struct Vector3
+    {
+        public float x, y, z;
+        public Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
+        public static Vector3 one => new Vector3(1, 1, 1);
+        public static Vector3 zero => new Vector3(0, 0, 0);
+        public static Vector3 operator *(Vector3 a, float s) => new Vector3(a.x * s, a.y * s, a.z * s);
+    }
+
+    public struct Quaternion
+    {
+        public float x, y, z, w;
+        public Quaternion(float x, float y, float z, float w) { this.x = x; this.y = y; this.z = z; this.w = w; }
+    }
+
+    public struct Matrix4x4
+    {
+        public float m00, m01, m02, m03, m10, m11, m12, m13, m20, m21, m22, m23, m30, m31, m32, m33;
+        public static Matrix4x4 TRS(Vector3 p, Quaternion q, Vector3 s) => new Matrix4x4();
+    }
+
+    public struct Color
+    {
+        public float r, g, b, a;
+        public static Color cyan => new Color();
+        public static Color green => new Color();
+        public static Color yellow => new Color();
+    }
+
+    public class Component
+    {
+        public Transform[] GetComponentsInChildren<T>() => new Transform[0];
+    }
+
+    public class Transform : Component
+    {
+        public string name;
+        public Vector3 position;
+        public Quaternion rotation;
+    }
+
+    public class MonoBehaviour : Component { }
+
+    public static class Gizmos
+    {
+        public static Color color;
+        public static Matrix4x4 matrix;
+        public static void DrawWireSphere(Vector3 c, float r) { }
+        public static void DrawWireCube(Vector3 c, Vector3 s) { }
+    }
+
+    public static class Time
+    {
+        public static float fixedDeltaTime = 1f / 60f;
+    }
+
+    public class TooltipAttribute : Attribute { public TooltipAttribute(string s) { } }
+    public class HeaderAttribute : Attribute { public HeaderAttribute(string s) { } }
+}
