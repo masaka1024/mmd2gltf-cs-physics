@@ -62,6 +62,15 @@ builder.World.Gravity = new Vec3(0, -98f, 0);   // MMD スケール
 builder.World.StepSimulation(Time.fixedDeltaTime);
 ```
 
+## 時間刻み (リファレンス: 30Hz・1サブ)
+
+既定は `FixedTimeStep = 1/30`, `SubSteps = 1` です。MMD 本家は 30fps で
+1 描画フレーム = 1 物理ステップとして Bullet を回しており、PMX エディタのベイク出力も
+その系譜にあります。本プロジェクトはこの **30Hz・1サブを再現対象 (リファレンス)** とし、
+回帰・検証も本番と同じ刻みで行う設計方針です。より滑らかにしたい場合は
+`FixedTimeStep`/`SubSteps` を上げられます (細かい刻みほど貫入は浅く安定しますが本家挙動から離れます)。
+`MmdPhysicsBehaviour` では `FixedTimeStep`/`SubSteps` を Inspector から設定できます。
+
 ## 座標系
 
 エンジンは PMX ネイティブ座標で計算し、境界 (`MmdPhysicsBehaviour`) で Unity へ変換します

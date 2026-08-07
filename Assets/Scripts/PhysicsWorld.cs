@@ -28,9 +28,11 @@ namespace BulletPhysics
         public Vec3 Gravity = new(0f, -9.8f * 10f, 0f); // MMD スケール: 重力は約 98
 
         // ソルバ設定。
+        // リファレンスは 30Hz・1サブ (MMD本家は 30fps で 1描画フレーム=1物理ステップ。
+        // その刻みを再現対象とする設計方針)。
         public int SolverIterations = 10;
-        public int SubSteps = 2;
-        public float FixedTimeStep = 1f / 60f;
+        public int SubSteps = 1;
+        public float FixedTimeStep = 1f / 30f;
 
         public float PenetrationSlop = 0.005f;
         public float BaumgarteFactor = 0.2f;

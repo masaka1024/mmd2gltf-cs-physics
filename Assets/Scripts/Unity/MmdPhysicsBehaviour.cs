@@ -25,7 +25,9 @@ namespace BulletPhysics.Unity
         [Header("Solver")]
         public float Gravity = 98f;         // MMD スケール重力 (約 9.8 * 10)
         public int SolverIterations = 10;
-        public int SubSteps = 2;
+        // リファレンスは 30Hz・1サブ (MMD本家の刻みを再現対象とする設計方針)。
+        public int SubSteps = 1;
+        public float FixedTimeStep = 1f / 30f;
 
         [Header("Debug")]
         public bool DrawGizmos = true;
@@ -47,6 +49,7 @@ namespace BulletPhysics.Unity
             _builder.World.Gravity = new Vec3(0f, -Gravity, 0f);
             _builder.World.SolverIterations = SolverIterations;
             _builder.World.SubSteps = SubSteps;
+            _builder.World.FixedTimeStep = FixedTimeStep;
             ResolveBones();
         }
 
