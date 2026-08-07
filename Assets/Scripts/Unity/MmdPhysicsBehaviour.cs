@@ -19,6 +19,9 @@ namespace BulletPhysics.Unity
         [Tooltip("剛体 BoneIndex -> ボーン Transform のマップ (ボーン名で解決)")]
         public Transform ModelRoot;
 
+        [Tooltip("エンジン(PMXネイティブ単位) -> Unity 配置スケール。Unity側モデルが縮小配置される運用向け")]
+        public float UnitScale = 0.08f;
+
         [Header("Solver")]
         public float Gravity = 98f;         // MMD スケール重力 (約 9.8 * 10)
         public int SolverIterations = 10;
@@ -109,10 +112,11 @@ namespace BulletPhysics.Unity
             return new RigidTransform(UnityToMmdRot(tr.rotation), UnityToMmdPos(tr.position));
         }
 
-        // --- 座標変換 (MMD 左手系 <-> Unity 左手系, Z 反転) ---
-        // PMX/MMD と Unity はどちらも左手系だが Z の向きが逆。
-        public static Vector3 MmdToUnityPos(Vec3 v) => new(v.x, v.y, -v.z);
-        public static Vec3 UnityToMmdPos(Vector3 v) => new(v.x, v.y, -v.z);
+        // --- 座標変換 (MMD 左手系 <-> Unity 左手系, Z 反転 + 単位スケール) ---
+        // PMX/MMD と Unity はどちらも左手系だが Z の向きが逆。位置は UnitScale で換算。
+        // (回転はスケール無関係なので static のまま)
+        public Vector3 MmdToUnityPos(Vec3 v) => new(v.x * UnitScale, v.y * UnitScale, -v.z * UnitScale);
+        public Vec3 UnityToMmdPos(Vector3 v) => new(v.x / UnitScale, v.y / UnitScale, -v.z / UnitScale);
         public static Quaternion MmdToUnityRot(Quat q) => new(-q.x, -q.y, q.z, q.w);
         public static Quat UnityToMmdRot(Quaternion q) => new(-q.x, -q.y, q.z, q.w);
 
@@ -130,10 +134,11 @@ namespace BulletPhysics.Unity
             }
         }
 
-        private static void DrawShape(CollisionShape shape, Vector3 pos, Quaternion rot)
+        private void DrawShape(CollisionShape shape, Vector3 pos, Quaternion rot)
         {
             var m = Gizmos.matrix;
-            Gizmos.matrix = UnityEngine.Matrix4x4.TRS(pos, rot, Vector3.one);
+            // 形状サイズは PMX ネイティブ単位なので UnitScale を掛けて位置と揃える。
+            Gizmos.matrix = UnityEngine.Matrix4x4.TRS(pos, rot, Vector3.one * UnitScale);
             switch (shape)
             {
                 case SphereShape s:

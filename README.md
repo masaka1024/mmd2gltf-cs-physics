@@ -67,6 +67,10 @@ builder.World.StepSimulation(Time.fixedDeltaTime);
 エンジンは PMX ネイティブ座標で計算し、境界 (`MmdPhysicsBehaviour`) で Unity へ変換します
 (PMX/Unity はどちらも左手系ですが Z 向きが逆のため Z を反転)。
 
+さらに、Unity 側のモデルが縮小配置される運用に合わせ、位置は `UnitScale`
+(既定 0.08) で換算します (`MmdToUnityPos` で乗算、`UnityToMmdPos` で除算)。
+回転はスケールに無関係なので変換しません。`UnitScale` は Inspector で調整可能です。
+
 ## 既知の制限
 
 - SoftBody のクラスタ / AeroModel は簡易対応 (PMX 仕様でも「精度・速度に問題あり・非対応も選択肢」と明記)。
