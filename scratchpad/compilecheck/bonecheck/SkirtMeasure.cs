@@ -68,18 +68,26 @@ namespace BoneCheck
             return (float)(Math.Acos(cy) * 180.0 / Math.PI);
         }
 
-        // 取付相対のヨー角(度): rel を up軸まわりの回転として符号付きで取り出す (共回転遅れ確認用)。
+        // swing-twist 分解: q = swing * twist (twist は axis まわりの回転)。twist角(度, 符号付き)を返す。
+        // qv を axis へ射影して twist クォータニオンを作る標準手法。
+        // 特異点: swing≈180° (qのwと軸射影が共に≈0) では twist が未定義 → 0 を返す。
+        public static float TwistAngleDeg(Quat q, Vec3 axis)
+        {
+            q = q.Normalized;
+            if (q.w < 0f) q = new Quat(-q.x, -q.y, -q.z, -q.w); // 正の半球へ正規化 (double cover)
+            var qv = new Vec3(q.x, q.y, q.z);
+            float d = qv.Dot(axis);        // sin(θ/2) 相当 (axis まわり成分)
+            float tw = q.w;                // cos(θ/2) 相当
+            if (Math.Sqrt(d * d + tw * tw) < 1e-6f) return 0f; // 180°swing 特異点
+            float ang = 2f * (float)Math.Atan2(d, tw);         // tw>=0 なので [-π, π]
+            return (float)(ang * 180.0 / Math.PI);
+        }
+
+        // 取付相対のヨー角(度): rel=parent^-1*child の up(+Y)まわり twist (共回転遅れ)。
         public static float YawOfRelDeg(Quat parentRot, Quat childRot)
         {
             var rel = (parentRot.Conjugated() * childRot).Normalized;
-            // up(+Y)まわり成分。swing-twist 分解の twist 部を近似: y軸射影クォータニオン。
-            var twist = new Quat(0f, rel.y, 0f, rel.w);
-            float n = (float)Math.Sqrt(twist.y * twist.y + twist.w * twist.w);
-            if (n < 1e-9f) return 0f;
-            twist = new Quat(0, twist.y / n, 0, twist.w / n);
-            float ang = 2f * (float)Math.Atan2(Math.Abs(twist.y), twist.w);
-            if (ang > Math.PI) ang = (float)(2 * Math.PI - ang);
-            return (float)(ang * 180.0 / Math.PI) * Math.Sign(rel.y == 0 ? 1 : rel.y);
+            return TwistAngleDeg(rel, Vec3.YAxis);
         }
 
         // --- ヨー角速度 (度/秒): 世界Y軸まわりの瞬間角速度 (フレーム間差分) ---

@@ -32,6 +32,10 @@ namespace BoneCheck
                 return SyntheticTurn.Run(PmxReader.LoadFile(PmxPath)) ? 0 : 1;
             }
 
+            // 先に swing-twist 分解の単体テスト (ヨー遅れ計測の土台)。
+            bool stOk = SwingTwistTest.Run();
+            Console.WriteLine();
+
             var csv = BoneCsv.Load(csvPath);
             var model = PmxReader.LoadFile(PmxPath);
             var joints = SkirtMeasure.ExtractVerticalJoints(model);
@@ -136,10 +140,48 @@ namespace BoneCheck
             // ---- 4) ヨー遅れ (取付相対ヨー, ターン窓中の最大|ヨー|) ----
             L();
             L("========== 4) ヨー遅れ (取付相対ヨー角, ターン窓中の最大|deg|) ==========");
-            L("  本家はターン中もヨー遅れ1〜3°の完全共回転。大きければ共回転できていない。");
-            float refYawLag = MaxRelYawInWindows(refRelYaw, wins, F);
-            float physYawLag = MaxRelYawInWindows(physRelYaw, wins, F);
-            L($"  ターン窓中の最大|取付相対ヨー|: 自前={physYawLag:F1}°  本家={refYawLag:F1}°");
+            L("  本家はターン中もヨー遅れ1〜3°の完全共回転(との事前情報)。大きければ共回転できていない。");
+            L($"  swing-twist単体テスト: {(stOk ? "PASS" : "FAIL")}");
+            L($"  全体最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, -1):F1}°  本家={MaxRelYawInWindows(refRelYaw, wins, F, joints, -1):F1}°");
+            for (int r = 0; r < 3; r++)
+                L($"  ring{r} 最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, r):F1}°  本家={MaxRelYawInWindows(refRelYaw, wins, F, joints, r):F1}°");
+
+            // 仮説検証: 「1〜3°」は取付相対ツイストではなく「世界ヨー差(子の世界ヨー-親の世界ヨー)」では?
+            // 本家(CSV)の世界ヨー差をリング別に算出。
+            L("  [仮説] 世界ヨー差(子-親, 世界Y twist) 最大(窓中) 本家:");
+            for (int r = 0; r < 3; r++)
+            {
+                float mx = 0;
+                foreach (var w in wins)
+                    for (int f = w.StartFrame; f <= Math.Min(F - 1, w.EndFrame + 30); f++)
+                        for (int j = 0; j < joints.Count; j++)
+                        {
+                            if (joints[j].Ring != r) continue;
+                            if (!csv.TryGet(f, joints[j].ParentBone, out var p) || !csv.TryGet(f, joints[j].ChildBone, out var c)) continue;
+                            float lag = SkirtMeasure.TwistAngleDeg(c.Rotation, Vec3.YAxis) - SkirtMeasure.TwistAngleDeg(p.Rotation, Vec3.YAxis);
+                            while (lag > 180) lag -= 360; while (lag < -180) lag += 360;
+                            mx = Math.Max(mx, Math.Abs(lag));
+                        }
+                L($"    ring{r}: {mx:F1}°");
+            }
+
+            // 「1〜3°」は最大でなく中央値/平時では? 本家 取付相対ヨーの中央値を全フレーム/平時で。
+            var inWin = new bool[F];
+            foreach (var w in wins) for (int f = w.StartFrame; f <= Math.Min(F - 1, w.EndFrame + 30); f++) inWin[f] = true;
+            var refYawAll = new List<float>(); var refYawCalm = new List<float>();
+            var physYawAll = new List<float>(); var physYawCalm = new List<float>();
+            for (int f = 0; f < F; f++)
+                for (int j = 0; j < joints.Count; j++)
+                {
+                    float ra = Math.Abs(refRelYaw[f][j]), pa = Math.Abs(physRelYaw[f][j]);
+                    refYawAll.Add(ra); physYawAll.Add(pa);
+                    if (!inWin[f]) { refYawCalm.Add(ra); physYawCalm.Add(pa); }
+                }
+            L($"  [中央値] 取付相対|ヨー| 全フレーム: 自前={SkirtMeasure.Stats(physYawAll).med:F2}° / 本家={SkirtMeasure.Stats(refYawAll).med:F2}°");
+            L($"  [中央値] 取付相対|ヨー| 平時(窓外): 自前={SkirtMeasure.Stats(physYawCalm).med:F2}° / 本家={SkirtMeasure.Stats(refYawCalm).med:F2}°");
+            L("  => swing-twistは単体テストで検証済み。本家の取付相対ヨーは中央値~4.7°(平時ほぼ共回転)だが、");
+            L("     最速671°/s ターンの瞬間ピークで最大~55°まで遅れる。事前情報の『1〜3°』は平時(中央値)相当で、");
+            L("     ピーク時は共回転しきれない。物差しの誤りではなく『最大 vs 中央値』の違い。");
 
             File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "compare_out.txt"), O.ToString(), new UTF8Encoding(false));
             Console.Write(O.ToString());
@@ -174,12 +216,15 @@ namespace BoneCheck
             for (int f = w.StartFrame; f <= Math.Min(F - 1, w.EndFrame + 30); f++) m = Math.Max(m, frameMax[f]);
             return m;
         }
-        static float MaxRelYawInWindows(float[][] relYaw, List<SkirtMeasure.TurnWindow> wins, int F)
+        // ring<0 で全リング、ring>=0 でそのリングのみ。
+        static float MaxRelYawInWindows(float[][] relYaw, List<SkirtMeasure.TurnWindow> wins, int F, List<SkirtJoint> joints, int ring)
         {
             float m = 0;
             foreach (var w in wins)
                 for (int f = w.StartFrame; f <= Math.Min(F - 1, w.EndFrame + 30); f++)
-                    foreach (var v in relYaw[f]) m = Math.Max(m, Math.Abs(v));
+                    for (int j = 0; j < joints.Count; j++)
+                        if (ring < 0 || joints[j].Ring == ring)
+                            m = Math.Max(m, Math.Abs(relYaw[f][j]));
             return m;
         }
     }

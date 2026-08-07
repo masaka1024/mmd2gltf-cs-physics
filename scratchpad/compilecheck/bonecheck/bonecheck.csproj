@@ -15,6 +15,7 @@
     <!-- ローカルの計測コード -->
     <Compile Include="BoneCsv.cs" />
     <Compile Include="SkirtMeasure.cs" />
+    <Compile Include="SwingTwistTest.cs" />
     <Compile Include="HeadlessDriver.cs" />
     <Compile Include="SyntheticTurn.cs" />
     <Compile Include="Program.cs" />
