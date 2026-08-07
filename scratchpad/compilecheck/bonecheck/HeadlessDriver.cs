@@ -19,6 +19,9 @@ namespace BoneCheck
         // 30Hzで 60ステップ(=2秒)を既定とする(計測開始時の初期過渡を除くため)。
         public int WarmupSteps = 60;
 
+        // 診断用: >0 のとき World.SolverIterations を上書き (既定-1=本体既定10のまま)。
+        public int SolverIterationsOverride = -1;
+
         public readonly List<string> MissingDrivenBones = new(); // BoneFollowだがCSVに無いボーン
 
         public int InputBoneCount { get; private set; }   // 実際に駆動できたユニーク入力ボーン数
@@ -36,6 +39,7 @@ namespace BoneCheck
         {
             var builder = PmxPhysicsBuilder.Build(model); // 既定 World (30Hz・1サブ, gravity -98)
             var world = builder.World;
+            if (SolverIterationsOverride > 0) world.SolverIterations = SolverIterationsOverride; // 診断用
 
             // BoneFollow リンク: bone名 → CSV姿勢で駆動。CSVに無いものは記録して据え置き。
             var driven = new List<(BoneLink link, string bone)>();
