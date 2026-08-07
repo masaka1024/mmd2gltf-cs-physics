@@ -485,7 +485,14 @@ namespace BulletPhysics
         }
 
         // --- EPA: 貫入方向と深さ ---
-        private struct Face { public int A, B, C; public Vec3 Normal; public float Dist; }
+        private struct Face { public int A, B, C; public Vec3 Normal; public float Dist; public bool Valid; }
+
+        // 面数の上限。到達時はその時点の最良面で打ち切る (無限ループ/例外にしない)。
+        private const int MaxFaces = 128;
+
+        // 安全弁の発動回数 (診断用。PhysicsWorld.DebugContactCount と同様の public フィールド)。
+        public static long EpaIterCapHits;   // 反復上限で打ち切った回数
+        public static long EpaFaceCapHits;   // 面数上限で打ち切った回数
 
         private static bool Epa(RigidBody a, RigidBody b, List<SupportVert> simplex, out ContactPoint contact)
         {
@@ -493,24 +500,28 @@ namespace BulletPhysics
             if (simplex.Count < 4) { if (!ExpandToTetra(a, b, simplex)) return false; }
 
             var verts = new List<SupportVert>(simplex);
-            var faces = new List<Face>
-            {
-                MakeFace(verts, 0, 1, 2),
-                MakeFace(verts, 0, 2, 3),
-                MakeFace(verts, 0, 3, 1),
-                MakeFace(verts, 1, 3, 2),
-            };
+            // 初期四面体: 各面を対頂点から見て外向きになるよう巻き方向を正規化する。
+            var faces = new List<Face>();
+            AddIfValid(faces, MakeFaceOriented(verts, 0, 1, 2, 3));
+            AddIfValid(faces, MakeFaceOriented(verts, 0, 1, 3, 2));
+            AddIfValid(faces, MakeFaceOriented(verts, 0, 2, 3, 1));
+            AddIfValid(faces, MakeFaceOriented(verts, 1, 2, 3, 0));
 
             Face closest = default;
+            bool converged = false, faceCap = false;
+            var edges = new List<(int, int)>();
+
             for (int iter = 0; iter < MaxIterations; iter++)
             {
-                closest = FindClosestFace(faces);
+                if (!TryFindClosestFace(faces, out closest)) break; // 有効面が無い → フォールバック
+
                 var p = Support(a, b, closest.Normal);
-                var d = p.V.Dot(closest.Normal);
-                if (d - closest.Dist < 1e-4f)
-                    break;
-                // 面を p から見える範囲で削除し再構築。
-                var edges = new List<(int, int)>();
+                float d = p.V.Dot(closest.Normal);
+                // 相対許容差での収束判定 (絶対値だと曲面で収束前に反復上限に達する)。
+                if (d - closest.Dist < closest.Dist * 1e-3f + 1e-5f) { converged = true; break; }
+
+                // p から見える面を削除し、輪郭 (horizon) を抽出。
+                edges.Clear();
                 for (int i = faces.Count - 1; i >= 0; i--)
                 {
                     if (faces[i].Normal.Dot(p.V - verts[faces[i].A].V) > 0)
@@ -523,24 +534,49 @@ namespace BulletPhysics
                 }
                 int newIndex = verts.Count;
                 verts.Add(p);
+                // 新規面は巻き方向を輪郭から継承 (反転しない)。縮退面は破棄。
                 foreach (var (e0, e1) in edges)
-                    faces.Add(MakeFace(verts, e0, e1, newIndex));
-                if (faces.Count == 0) return false;
+                    AddIfValid(faces, MakeFace(verts, e0, e1, newIndex));
+
+                if (faces.Count == 0) break;
+                if (faces.Count > MaxFaces) { faceCap = true; break; }
             }
 
-            // 接触点を重心座標で復元。
-            var normal = closest.Normal;
-            var depth = closest.Dist;
-            BarycentricProject(verts, closest, out var baryA, out var baryB);
+            if (faceCap) EpaFaceCapHits++;
+            else if (!converged) EpaIterCapHits++;
 
+            // 打ち切り後も最良の有効面で接触を返す。
+            if (!TryFindClosestFace(faces, out closest))
+            {
+                // 有効面ゼロの退化: NaN を返さず中心方向の安全な法線でフォールバック。
+                var dir = b.WorldTransform.Origin - a.WorldTransform.Origin;
+                var nf = dir.LengthSquared > Epsilon ? dir.Normalized : Vec3.YAxis;
+                var pa0 = a.WorldTransform.Origin;
+                var pb0 = b.WorldTransform.Origin;
+                FillContact(a, b, ref contact, nf, -Epsilon, pa0, pb0);
+                return true;
+            }
+
+            BarycentricProject(verts, closest, out var baryA, out var baryB);
+            FillContact(a, b, ref contact, closest.Normal, -closest.Dist, baryA, baryB);
+            return true;
+        }
+
+        private static void FillContact(RigidBody a, RigidBody b, ref ContactPoint contact,
+            Vec3 normal, float distance, Vec3 baryA, Vec3 baryB)
+        {
             contact.Normal = normal;
-            contact.Distance = -depth; // 貫入は負
+            contact.Distance = distance; // 貫入は負
             contact.PositionWorldA = baryA;
             contact.PositionWorldB = baryB;
             // 剛体移動後に再投影できるようローカル座標も保持。
             contact.LocalPointA = a.WorldTransform.InverseTransformPoint(baryA);
             contact.LocalPointB = b.WorldTransform.InverseTransformPoint(baryB);
-            return true;
+        }
+
+        private static void AddIfValid(List<Face> faces, Face f)
+        {
+            if (f.Valid) faces.Add(f);
         }
 
         private static bool ExpandToTetra(RigidBody a, RigidBody b, List<SupportVert> s)
@@ -558,22 +594,41 @@ namespace BulletPhysics
             return s.Count >= 4;
         }
 
+        // 巻き方向から外向き法線を一意に決める (反転しない)。縮退面は Valid=false。
         private static Face MakeFace(List<SupportVert> v, int a, int b, int c)
         {
             var n = Vec3.Cross(v[b].V - v[a].V, v[c].V - v[a].V);
             var len = n.Length;
-            n = len > Epsilon ? n / len : Vec3.YAxis;
+            if (len <= Epsilon) return new Face { Valid = false }; // 縮退は破棄
+            n /= len;
             var dist = n.Dot(v[a].V);
-            if (dist < 0) { n = -n; dist = -dist; (b, c) = (c, b); }
-            return new Face { A = a, B = b, C = c, Normal = n, Dist = dist };
+            return new Face { A = a, B = b, C = c, Normal = n, Dist = dist, Valid = true };
         }
 
-        private static Face FindClosestFace(List<Face> faces)
+        // 初期四面体用: 対頂点 opp から見て外向きになるよう頂点順序を正規化する。
+        private static Face MakeFaceOriented(List<SupportVert> v, int a, int b, int c, int opp)
         {
-            var best = faces[0];
-            for (int i = 1; i < faces.Count; i++)
-                if (faces[i].Dist < best.Dist) best = faces[i];
-            return best;
+            var n = Vec3.Cross(v[b].V - v[a].V, v[c].V - v[a].V);
+            var len = n.Length;
+            if (len <= Epsilon) return new Face { Valid = false };
+            n /= len;
+            // n が対頂点側を向いていたら内向き → 巻き方向を反転して外向きに揃える。
+            if (n.Dot(v[opp].V - v[a].V) > 0) { (b, c) = (c, b); n = -n; }
+            var dist = n.Dot(v[a].V);
+            return new Face { A = a, B = b, C = c, Normal = n, Dist = dist, Valid = true };
+        }
+
+        // 原点に最も近い有効面を返す。原点が外側になる不正面 (Dist<0) は無視。
+        private static bool TryFindClosestFace(List<Face> faces, out Face best)
+        {
+            best = default; bool found = false; float bd = float.MaxValue;
+            for (int i = 0; i < faces.Count; i++)
+            {
+                var f = faces[i];
+                if (!f.Valid || f.Dist < -1e-6f) continue;
+                if (f.Dist < bd) { bd = f.Dist; best = f; found = true; }
+            }
+            return found;
         }
 
         private static void AddEdge(List<(int, int)> edges, int a, int b)
