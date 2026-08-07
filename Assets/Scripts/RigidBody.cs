@@ -28,9 +28,9 @@ namespace BulletPhysics
         public int Index = -1;
         public int BoneIndex = -1;
 
-        // グループ / 非衝突グループフラグ (PMX)。
+        // グループ / 衝突マスク (PMX)。マスクは bit=1 で「そのグループと衝突する」。
         public byte Group;
-        public ushort NonCollisionMask;
+        public ushort CollisionMask;
 
         // --- 形状/物性 ---
         public CollisionShape Shape;

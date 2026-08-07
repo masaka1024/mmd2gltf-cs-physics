@@ -218,14 +218,13 @@ namespace BulletPhysics
         }
 
         /// <summary>
-        /// PMX 衝突フィルタ。非衝突グループフラグ: 相手のグループbitが立っていれば衝突しない。
-        /// 双方が「衝突許可」の時のみ衝突する。
+        /// PMX 衝突フィルタ。16bitフィールドは「衝突する相手グループ」のビットマスク
+        /// (bit=1 で衝突する)。Bullet の (groupA & maskB) && (groupB & maskA) と同じ。
         /// </summary>
         public static bool ShouldCollide(RigidBody a, RigidBody b)
         {
-            bool aAllows = (a.NonCollisionMask & (1 << b.Group)) == 0;
-            bool bAllows = (b.NonCollisionMask & (1 << a.Group)) == 0;
-            return aAllows && bAllows;
+            return (b.CollisionMask & (1 << a.Group)) != 0
+                && (a.CollisionMask & (1 << b.Group)) != 0;
         }
 
         private static long PairKey(int a, int b)

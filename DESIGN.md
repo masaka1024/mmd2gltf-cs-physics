@@ -38,7 +38,8 @@ PMX 2.1仕様に準拠したMMD物理演算エンジン。外部ネイティブ�
 - Joint種類4: Slider -> btSliderConstraint
 - Joint種類5: Hinge -> btHingeConstraint
 - SoftBody -> SoftBody (btSoftBody: TriMesh/Rope)
-- 非衝突グループ: 相手グループbitが立つ側同士は衝突しない (双方許可で衝突)
+- 衝突グループ: PMX の16bitは「衝突する相手グループ」のマスク(bit=1で衝突)。
+  Bullet の (groupA & maskB) && (groupB & maskA) で判定
 
 ## 座標系
 エンジンはPMXネイティブ座標で計算。Unity境界(MmdPhysicsBehaviour)でZ反転変換。

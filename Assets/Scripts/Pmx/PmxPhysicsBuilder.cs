@@ -42,7 +42,9 @@ namespace BulletPhysics.Pmx
                     Name = rb.Name,
                     BoneIndex = rb.BoneIndex,
                     Group = rb.Group,
-                    NonCollisionMask = rb.NonCollisionGroup,
+                    // PMX の 16bit フィールドは bit=1 が「そのグループと衝突する」を意味するので
+                    // そのまま衝突マスクとして渡す (Bullet の collision mask 相当)。
+                    CollisionMask = rb.NonCollisionGroup,
                     Mode = (PhysicsMode)rb.PhysicsMode,
                     LinearDamping = rb.LinearDamping,
                     AngularDamping = rb.AngularDamping,

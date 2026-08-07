@@ -47,7 +47,7 @@ namespace BulletPhysics
         public string Name = "";
         public SoftBodyShape Shape;
         public byte Group;
-        public ushort NonCollisionMask;
+        public ushort CollisionMask; // bit=1 で「そのグループと衝突する」
 
         public readonly List<SoftNode> Nodes = new();
         public readonly List<SoftLink> Links = new();
