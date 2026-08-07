@@ -119,12 +119,20 @@ namespace BulletPhysics
                 b.LinearVelocity += (Gravity + b.TotalForce * b.InverseMass) * dt;
                 b.AngularVelocity += (b.InverseInertiaWorld * b.TotalTorque) * dt;
 
-                // 減衰 (PMX の移動/回転減衰。1/60 秒基準を dt でスケール)。
-                b.LinearVelocity *= Math.Max(0f, 1f - b.LinearDamping * dt * 60f);
-                b.AngularVelocity *= Math.Max(0f, 1f - b.AngularDamping * dt * 60f);
+                // Bullet 2.75 btRigidBody::applyDamping と同じ秒単位の減衰。
+                b.LinearVelocity *= DampingFactor(b.LinearDamping, dt);
+                b.AngularVelocity *= DampingFactor(b.AngularDamping, dt);
 
                 b.ClearForces();
             }
+        }
+
+        // Bullet 2.75 の秒単位減衰係数。(1 - d)^dt。
+        // d=1.0 は 0 除算・完全停止を避けるためクランプする。
+        private static float DampingFactor(float damping, float dt)
+        {
+            float d = Math.Clamp(damping, 0f, 0.999f);
+            return (float)Math.Pow(1f - d, dt);
         }
 
         // --- 位置積分 ---
