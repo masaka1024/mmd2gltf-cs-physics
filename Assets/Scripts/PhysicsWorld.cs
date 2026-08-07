@@ -300,15 +300,26 @@ namespace BulletPhysics
                         Manifold = m, PointRef = p,
                     };
 
-                    // Baumgarte 位置補正 + 反発。
-                    float pen = -cp.Distance - PenetrationSlop;
-                    float biasVel = pen > 0 ? BaumgarteFactor * pen / dt : 0f;
-
+                    // 法線の目標接近速度 (NormalBias) を決める。
                     var relN = (b.VelocityAtPoint(cp.PositionWorldB) - a.VelocityAtPoint(cp.PositionWorldA)).Dot(n);
                     float rest = (float)Math.Sqrt(Math.Max(0, a.Restitution) * Math.Max(0, b.Restitution));
                     float restBias = (-relN > RestitutionThreshold) ? rest * -relN : 0f;
 
-                    cc.NormalBias = Math.Max(biasVel, restBias);
+                    if (cp.Distance <= 0f)
+                    {
+                        // 貫入: Baumgarte 位置補正 + 反発 (従来どおり)。
+                        float pen = -cp.Distance - PenetrationSlop;
+                        float biasVel = pen > 0 ? BaumgarteFactor * pen / dt : 0f;
+                        cc.NormalBias = Math.Max(biasVel, restBias);
+                    }
+                    else
+                    {
+                        // 非貫入 (投機的接触): このステップで表面へちょうど到達する接近
+                        // (-Distance/dt) までは許し、それを超える接近だけを止める。押し戻さない。
+                        // 反発は押し戻す向きなので、より接近を許す (小さい) 方を採る。
+                        float speculative = -cp.Distance / dt;
+                        cc.NormalBias = Math.Min(speculative, restBias);
+                    }
                     _contacts.Add(cc);
                 }
             }
