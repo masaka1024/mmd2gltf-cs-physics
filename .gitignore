@@ -1,0 +1,5 @@
+# build/検証用一時物
+scratchpad/
+bin/
+obj/
+*.user
