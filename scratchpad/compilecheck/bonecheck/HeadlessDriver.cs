@@ -24,8 +24,11 @@ namespace BoneCheck
         public int InputBoneCount { get; private set; }   // 実際に駆動できたユニーク入力ボーン数
         public double RunSeconds { get; private set; }
 
-        // 出力: [frame][jointIdx] の物理傾き / 取付相対ヨー。
+        // 出力: [frame][jointIdx]。
+        // PhysTilt/PhysRelYaw は「ボーン空間」(剛体からボーン姿勢を復元して測る=本家と同じ物理量)。
+        // PhysTiltRigid は旧方式「剛体相対」(検算用: ring1/2 で新旧一致するはず)。
         public float[][] PhysTilt;
+        public float[][] PhysTiltRigid;
         public float[][] PhysRelYaw;
         public float[] PhysFrameMaxTilt;
 
@@ -55,6 +58,7 @@ namespace BoneCheck
 
             int F = csv.FrameCount, nj = joints.Count;
             PhysTilt = new float[F][];
+            PhysTiltRigid = new float[F][];
             PhysRelYaw = new float[F][];
             PhysFrameMaxTilt = new float[F];
 
@@ -71,18 +75,25 @@ namespace BoneCheck
                 world.StepSimulation(1f / 30f);
 
                 var tilt = new float[nj];
+                var tiltRigid = new float[nj];
                 var relyaw = new float[nj];
                 float fmax = 0f;
                 for (int j = 0; j < nj; j++)
                 {
                     var pj = joints[j];
-                    var pr = builder.Bodies[pj.ParentRb].WorldTransform.Rotation;
-                    var cr = builder.Bodies[pj.ChildRb].WorldTransform.Rotation;
+                    // 剛体相対 (旧方式・検算用)。
+                    var prRb = builder.Bodies[pj.ParentRb].WorldTransform.Rotation;
+                    var crRb = builder.Bodies[pj.ChildRb].WorldTransform.Rotation;
+                    tiltRigid[j] = SkirtMeasure.TiltDeg(prRb, crRb);
+                    // ボーン空間 (剛体からボーン姿勢を復元。PullPhysicsToBones と同一式)。
+                    var pr = RecoverBoneRot(builder, pj.ParentRb);
+                    var cr = RecoverBoneRot(builder, pj.ChildRb);
                     tilt[j] = SkirtMeasure.TiltDeg(pr, cr);
                     relyaw[j] = SkirtMeasure.YawOfRelDeg(pr, cr);
                     if (tilt[j] > fmax) fmax = tilt[j];
                 }
                 PhysTilt[f] = tilt;
+                PhysTiltRigid[f] = tiltRigid;
                 PhysRelYaw[f] = relyaw;
                 PhysFrameMaxTilt[f] = fmax;
             }
@@ -97,6 +108,15 @@ namespace BoneCheck
                 if (csv.TryGet(frame, bone, out var boneWorld))
                     link.Body.KinematicTarget = boneWorld * link.BodyOffsetFromBone;
             }
+        }
+
+        // 剛体姿勢からボーン姿勢を復元 (MmdPhysicsBehaviour.PullPhysicsToBones と同一式)。
+        // BoneLinks[i] は Bodies[i] (剛体index i) に対応する。
+        private static Quat RecoverBoneRot(PmxPhysicsBuilder builder, int rigidIdx)
+        {
+            var link = builder.BoneLinks[rigidIdx];
+            var boneWorld = link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse();
+            return boneWorld.Rotation;
         }
     }
 }

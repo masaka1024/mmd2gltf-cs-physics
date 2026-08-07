@@ -84,6 +84,22 @@ namespace BoneCheck
             drv.Run(csv, model, joints);
             var physTilt = drv.PhysTilt; var physRelYaw = drv.PhysRelYaw; var physFrameMax = drv.PhysFrameMaxTilt;
 
+            // ---- 検算: ring1/ring2 は 旧(剛体相対) と 新(ボーン空間) が実質一致するはず ----
+            L();
+            L("========== 検算: 旧(剛体相対) vs 新(ボーン空間)  ring1/ring2 ==========");
+            var physRingBone = RingSplit(physTilt, joints);
+            var physRingRigid = RingSplit(drv.PhysTiltRigid, joints);
+            bool checkOk = true;
+            foreach (int r in new[] { 1, 2 })
+            {
+                var sb = SkirtMeasure.Stats(physRingBone[r]);
+                var sr = SkirtMeasure.Stats(physRingRigid[r]);
+                float dMed = Math.Abs(sb.med - sr.med), dP90 = Math.Abs(sb.p90 - sr.p90);
+                if (dMed > 1.0f || dP90 > 1.0f) checkOk = false;
+                L($"  ring{r}: med 旧={sr.med:F2}/新={sb.med:F2}(差{dMed:F2})  p90 旧={sr.p90:F2}/新={sb.p90:F2}(差{dP90:F2})");
+            }
+            L($"  => 検算(差<1°で一致): {(checkOk ? "OK" : "NG (BodyOffsetFromBone の扱いを要確認)")}");
+
             L();
             L("========== 入出力ボーン ==========");
             int skirtBones = joints.Select(j => j.ChildBone).Distinct().Count();
