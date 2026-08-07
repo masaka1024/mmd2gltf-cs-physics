@@ -100,10 +100,11 @@ namespace BulletPhysics
         public static Matrix3x3 FromQuat(Quat q)
         {
             var m = Matrix4x4.Rotation(q);
+            // Matrix4x4 は転置格納 (Rᵀ) のため、ここで転置して行=Rの行 に揃える。
             return new Matrix3x3(
-                new Vec3(m.m00, m.m01, m.m02),
-                new Vec3(m.m10, m.m11, m.m12),
-                new Vec3(m.m20, m.m21, m.m22));
+                new Vec3(m.m00, m.m10, m.m20),
+                new Vec3(m.m01, m.m11, m.m21),
+                new Vec3(m.m02, m.m12, m.m22));
         }
 
         public Vec3 Column(int i) => new(Row0[i], Row1[i], Row2[i]);
