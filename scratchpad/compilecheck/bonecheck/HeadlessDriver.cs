@@ -1,0 +1,102 @@
+// ===========================================================================
+// ヘッドレス再生ドライバ (タスク2)。
+// CSVの入力ボーン(7本)を BoneFollow 剛体に与え、スカート(dynamic)を物理で動かす。
+// 座標はPMXネイティブなので変換・スケールは不要。既定=30Hz・1サブ。
+// MmdPhysicsBehaviour.PushBonesToKinematic と同一ロジック:
+//   KinematicTarget = boneWorld * BodyOffsetFromBone
+// ===========================================================================
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using BulletPhysics;
+using BulletPhysics.Pmx;
+
+namespace BoneCheck
+{
+    public sealed class HeadlessDriver
+    {
+        // ウォームアップ既定: スカートがバインド姿勢からフレーム0の平衡へ沈み込むのに約1-2秒かかる。
+        // 30Hzで 60ステップ(=2秒)を既定とする(計測開始時の初期過渡を除くため)。
+        public int WarmupSteps = 60;
+
+        public readonly List<string> MissingDrivenBones = new(); // BoneFollowだがCSVに無いボーン
+
+        public int InputBoneCount { get; private set; }   // 実際に駆動できたユニーク入力ボーン数
+        public double RunSeconds { get; private set; }
+
+        // 出力: [frame][jointIdx] の物理傾き / 取付相対ヨー。
+        public float[][] PhysTilt;
+        public float[][] PhysRelYaw;
+        public float[] PhysFrameMaxTilt;
+
+        public void Run(BoneCsv csv, PmxPhysicsModel model, List<SkirtJoint> joints)
+        {
+            var builder = PmxPhysicsBuilder.Build(model); // 既定 World (30Hz・1サブ, gravity -98)
+            var world = builder.World;
+
+            // BoneFollow リンク: bone名 → CSV姿勢で駆動。CSVに無いものは記録して据え置き。
+            var driven = new List<(BoneLink link, string bone)>();
+            var uniqueBones = new HashSet<string>();
+            foreach (var link in builder.BoneLinks)
+            {
+                if (link.Mode != PhysicsMode.BoneFollow) continue;
+                string bone = (link.BoneIndex >= 0 && link.BoneIndex < model.BoneNames.Count)
+                    ? model.BoneNames[link.BoneIndex] : null;
+                if (bone == null || !csv.HasBone(bone))
+                {
+                    if (bone != null) MissingDrivenBones.Add(bone);
+                    continue;
+                }
+                driven.Add((link, bone));
+                uniqueBones.Add(bone);
+            }
+            InputBoneCount = uniqueBones.Count;
+            MissingDrivenBones.Sort();
+
+            int F = csv.FrameCount, nj = joints.Count;
+            PhysTilt = new float[F][];
+            PhysRelYaw = new float[F][];
+            PhysFrameMaxTilt = new float[F];
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            // ウォームアップ: フレーム0姿勢で空回し。
+            ApplyPose(driven, csv, 0);
+            for (int s = 0; s < WarmupSteps; s++) world.StepSimulation(1f / 30f);
+
+            // 計測本番。
+            for (int f = 0; f < F; f++)
+            {
+                ApplyPose(driven, csv, f);
+                world.StepSimulation(1f / 30f);
+
+                var tilt = new float[nj];
+                var relyaw = new float[nj];
+                float fmax = 0f;
+                for (int j = 0; j < nj; j++)
+                {
+                    var pj = joints[j];
+                    var pr = builder.Bodies[pj.ParentRb].WorldTransform.Rotation;
+                    var cr = builder.Bodies[pj.ChildRb].WorldTransform.Rotation;
+                    tilt[j] = SkirtMeasure.TiltDeg(pr, cr);
+                    relyaw[j] = SkirtMeasure.YawOfRelDeg(pr, cr);
+                    if (tilt[j] > fmax) fmax = tilt[j];
+                }
+                PhysTilt[f] = tilt;
+                PhysRelYaw[f] = relyaw;
+                PhysFrameMaxTilt[f] = fmax;
+            }
+            sw.Stop();
+            RunSeconds = sw.Elapsed.TotalSeconds;
+        }
+
+        private static void ApplyPose(List<(BoneLink link, string bone)> driven, BoneCsv csv, int frame)
+        {
+            foreach (var (link, bone) in driven)
+            {
+                if (csv.TryGet(frame, bone, out var boneWorld))
+                    link.Body.KinematicTarget = boneWorld * link.BodyOffsetFromBone;
+            }
+        }
+    }
+}
