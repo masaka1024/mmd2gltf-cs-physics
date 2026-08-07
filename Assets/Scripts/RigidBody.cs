@@ -50,6 +50,9 @@ namespace BulletPhysics
         // ボーン追従(kinematic) の目標姿勢 (Unity 側から毎フレーム設定)。
         public RigidTransform KinematicTarget = RigidTransform.Identity;
 
+        // サブステップ毎に補間された当該サブステップの目標姿勢 (PhysicsWorld が設定)。
+        public RigidTransform KinematicStepTarget = RigidTransform.Identity;
+
         // 剛体重心オフセット (PMX 剛体はボーン基準に配置される。ここでは原点=重心とする)。
         public Vec3 LocalInertiaDiag;    // ローカル慣性テンソル対角
 

@@ -68,16 +68,33 @@ namespace BulletPhysics
             }
         }
 
+        private RigidTransform[] _kinStart; // キネマティック剛体の開始姿勢 (body index 単位)
+
         // --- 固定 1 ステップ ---
         private void InternalStep(float dt)
         {
             float sub = dt / SubSteps;
+
+            // 開始姿勢を保存し、サブステップ間で開始→目標を補間する。
+            if (_kinStart == null || _kinStart.Length < Bodies.Count)
+                _kinStart = new RigidTransform[Bodies.Count];
+            for (int i = 0; i < Bodies.Count; i++)
+                if (Bodies[i].IsKinematic) _kinStart[i] = Bodies[i].WorldTransform;
+
             for (int s = 0; s < SubSteps; s++)
-                SubStep(sub);
+                SubStep(sub, (float)(s + 1) / SubSteps);
         }
 
-        private void SubStep(float dt)
+        // frac: このサブステップ終端における 開始→目標 の補間割合 ((s+1)/N)。
+        private void SubStep(float dt, float frac)
         {
+            for (int i = 0; i < Bodies.Count; i++)
+            {
+                var b = Bodies[i];
+                if (!b.IsKinematic) continue;
+                b.KinematicStepTarget = InterpTransform(_kinStart[i], b.KinematicTarget, frac);
+            }
+
             IntegrateVelocities(dt);
             BroadphaseNarrowphase();
             BuildContactConstraints(dt);
@@ -107,8 +124,9 @@ namespace BulletPhysics
                     // Kinematic: 目標姿勢へ移動する速度を算出 (接触応答に使用)。
                     if (b.IsKinematic)
                     {
+                        // このサブステップの補間目標への差分から速度を算出。
                         var cur = b.WorldTransform;
-                        var tgt = b.KinematicTarget;
+                        var tgt = b.KinematicStepTarget;
                         b.LinearVelocity = (tgt.Origin - cur.Origin) / dt;
                         var dq = tgt.Rotation * cur.Rotation.Conjugated();
                         b.AngularVelocity = QuatToAngularVelocity(dq, dt);
@@ -144,7 +162,7 @@ namespace BulletPhysics
                 {
                     if (b.IsKinematic)
                     {
-                        b.WorldTransform = b.KinematicTarget;
+                        b.WorldTransform = b.KinematicStepTarget;
                         b.UpdateInertiaWorld();
                     }
                     continue;
@@ -177,6 +195,14 @@ namespace BulletPhysics
             var len = axis.Length;
             if (len < 1e-9f) return Vec3.Zero;
             return axis / len * (angle / dt);
+        }
+
+        // 開始→目標を frac で補間 (位置は線形、回転は slerp)。
+        private static RigidTransform InterpTransform(RigidTransform from, RigidTransform to, float frac)
+        {
+            return new RigidTransform(
+                Quat.Slerp(from.Rotation, to.Rotation, frac),
+                from.Origin + (to.Origin - from.Origin) * frac);
         }
 
         // --- ブロードフェーズ + ナローフェーズ ---
