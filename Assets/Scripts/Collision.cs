@@ -116,10 +116,284 @@ namespace BulletPhysics
             return new SupportVert { V = pa - pb, A = wa, B = wb };
         }
 
+        // 縮退ガード用の小さな閾値。
+        private const float ContactEps = 1e-9f;
+
+        // 投機的接触マージン。表面が触れる少し手前から接触を生成して連続化し、
+        // 貫入 on/off の振動 (Baumgarte のエネルギー注入) を防ぐ。Bullet の
+        // collision margin と同じ役割。形状の Radius マージンとは別物 (二重計上しない)。
+        private const float SpeculativeMargin = 0.02f;
+
+        // カプセル軸がほぼ平行とみなす閾値 (sin^2θ)。
+        // cross(dA,dB)^2 = |dA|^2|dB|^2 sin^2θ なので、正規化した外積長^2 と比較する。
+        // 1e-3 は sinθ≈0.0316 (≈1.8°)。スカート等の面接触が数度以内で平行判定されるよう
+        // やや緩めに設定 (2点接触にして転がりを防ぐのが目的)。
+        private const float CapsuleParallelSinSq = 1e-3f;
+
         /// <summary>
-        /// A と B の接触を判定。接触があれば true と接触点を返す。
+        /// A と B の接触を判定し、接触点を outPoints へ格納する (0..複数)。
+        /// MMD の球/箱/カプセルは可能な限り解析解で解き、残りは GJK+EPA にフォールバックする。
+        /// 法線は A→B、Distance は貫入で負 (既存規約)。
         /// </summary>
-        public static bool Detect(RigidBody a, RigidBody b, out ContactPoint contact)
+        public static void Detect(RigidBody a, RigidBody b, List<ContactPoint> outPoints)
+        {
+            var ta = a.Shape.Type;
+            var tb = b.Shape.Type;
+
+            if (ta == ShapeType.Sphere && tb == ShapeType.Sphere)
+                SphereSphere(a, b, outPoints);
+            else if (ta == ShapeType.Sphere && tb == ShapeType.Capsule)
+                SphereCapsule(a, b, sphereIsA: true, outPoints);
+            else if (ta == ShapeType.Capsule && tb == ShapeType.Sphere)
+                SphereCapsule(b, a, sphereIsA: false, outPoints);
+            else if (ta == ShapeType.Capsule && tb == ShapeType.Capsule)
+                CapsuleCapsule(a, b, outPoints);
+            else if (ta == ShapeType.Sphere && tb == ShapeType.Box)
+                SphereBox(a, b, sphereIsA: true, outPoints);
+            else if (ta == ShapeType.Box && tb == ShapeType.Sphere)
+                SphereBox(b, a, sphereIsA: false, outPoints);
+            else
+            {
+                // カプセル×箱, 箱×箱 は GJK+EPA (タスクBの安全弁で保護)。
+                if (GjkEpaPenetration(a, b, out var cp))
+                    outPoints.Add(cp);
+            }
+        }
+
+        // 接触点を A→B 規約で outPoints へ追加。LocalPoint も必ず埋める。
+        private static void Emit(RigidBody A, RigidBody B, List<ContactPoint> outPoints,
+            Vec3 normalAtoB, float sep, Vec3 pA, Vec3 pB)
+        {
+            var cp = new ContactPoint
+            {
+                Normal = normalAtoB,
+                Distance = sep,
+                PositionWorldA = pA,
+                PositionWorldB = pB,
+                LocalPointA = A.WorldTransform.InverseTransformPoint(pA),
+                LocalPointB = B.WorldTransform.InverseTransformPoint(pB),
+            };
+            outPoints.Add(cp);
+        }
+
+        // --- 球×球 ---
+        private static void SphereSphere(RigidBody a, RigidBody b, List<ContactPoint> outPoints)
+        {
+            var cA = a.WorldTransform.Origin; float rA = ((SphereShape)a.Shape).Radius;
+            var cB = b.WorldTransform.Origin; float rB = ((SphereShape)b.Shape).Radius;
+            var dab = cB - cA; float rsum = rA + rB;
+            float dist2 = dab.LengthSquared;
+            float rlim = rsum + SpeculativeMargin;
+            if (dist2 >= rlim * rlim) return;
+
+            float dist = (float)Math.Sqrt(dist2);
+            var n = dist > ContactEps ? dab / dist : Vec3.YAxis; // A→B、中心一致は退避
+            float sep = dist - rsum;
+            Emit(a, b, outPoints, n, sep, cA + n * rA, cB - n * rB);
+        }
+
+        // --- 球×カプセル (sphere, capsule はどちらが A/B かを sphereIsA で指定) ---
+        private static void SphereCapsule(RigidBody sphere, RigidBody capsule,
+            bool sphereIsA, List<ContactPoint> outPoints)
+        {
+            var sc = sphere.WorldTransform.Origin; float sr = ((SphereShape)sphere.Shape).Radius;
+            CapsuleSegment(capsule, out var q0, out var q1, out float cr);
+
+            var cc = ClosestPtPointSegment(sc, q0, q1);
+            var d = cc - sc; float rsum = sr + cr;
+            float dist = d.Length;
+            if (dist >= rsum + SpeculativeMargin) return;
+
+            var nSphereToCap = dist > ContactEps ? d / dist : Vec3.YAxis;
+            float sep = dist - rsum;
+            var pSphere = sc + nSphereToCap * sr;
+            var pCap = cc - nSphereToCap * cr;
+
+            if (sphereIsA)
+                Emit(sphere, capsule, outPoints, nSphereToCap, sep, pSphere, pCap);
+            else
+                Emit(capsule, sphere, outPoints, -nSphereToCap, sep, pCap, pSphere);
+        }
+
+        // --- カプセル×カプセル (平行時は2点) ---
+        private static void CapsuleCapsule(RigidBody a, RigidBody b, List<ContactPoint> outPoints)
+        {
+            CapsuleSegment(a, out var a0, out var a1, out float rA);
+            CapsuleSegment(b, out var b0, out var b1, out float rB);
+            var dA = a1 - a0; var dB = b1 - b0;
+            float lenA2 = dA.LengthSquared, lenB2 = dB.LengthSquared;
+            float rsum = rA + rB;
+
+            // 平行判定 → 重なり区間の両端で2点接触。
+            var cross = Vec3.Cross(dA, dB);
+            bool parallel = lenA2 > ContactEps && lenB2 > ContactEps &&
+                            cross.LengthSquared <= CapsuleParallelSinSq * lenA2 * lenB2;
+            if (parallel)
+            {
+                int before = outPoints.Count;
+                float LA = (float)Math.Sqrt(lenA2);
+                var dAn = dA / LA;
+                float tb0 = (b0 - a0).Dot(dAn);
+                float tb1 = (b1 - a0).Dot(dAn);
+                float lo = Math.Max(0f, Math.Min(tb0, tb1));
+                float hi = Math.Min(LA, Math.Max(tb0, tb1));
+                if (hi >= lo)
+                {
+                    EmitParallelPoint(a, b, outPoints, a0, dAn, lo, b0, b1, rA, rB, rsum);
+                    if (hi > lo + ContactEps)
+                        EmitParallelPoint(a, b, outPoints, a0, dAn, hi, b0, b1, rA, rB, rsum);
+                    if (outPoints.Count > before) return; // 2点 (または1点) 生成できた
+                }
+                // 区間が無い/貫入なし → 単一最近点へフォールバック。
+            }
+
+            // 単一最近点。
+            ClosestPtSegmentSegment(a0, a1, b0, b1, out _, out _, out var c1, out var c2);
+            var d = c2 - c1; float dist = d.Length;
+            if (dist >= rsum + SpeculativeMargin) return;
+            Vec3 n = dist > ContactEps ? d / dist : PerpVector(dA); // A→B、縮退は軸垂直
+            float sep = dist - rsum;
+            Emit(a, b, outPoints, n, sep, c1 + n * rA, c2 - n * rB);
+        }
+
+        // 平行カプセルの A軸パラメータ param における接触点を (貫入していれば) 追加。
+        private static void EmitParallelPoint(RigidBody a, RigidBody b, List<ContactPoint> outPoints,
+            Vec3 a0, Vec3 dAn, float param, Vec3 b0, Vec3 b1, float rA, float rB, float rsum)
+        {
+            var cA = a0 + dAn * param;
+            var cB = ClosestPtPointSegment(cA, b0, b1);
+            var d = cB - cA; float dist = d.Length;
+            if (dist >= rsum + SpeculativeMargin) return;
+            var n = dist > ContactEps ? d / dist : PerpVector(dAn);
+            float sep = dist - rsum;
+            Emit(a, b, outPoints, n, sep, cA + n * rA, cB - n * rB);
+        }
+
+        // --- 球×箱 (sphere, box を sphereIsA で指定) ---
+        private static void SphereBox(RigidBody sphere, RigidBody box,
+            bool sphereIsA, List<ContactPoint> outPoints)
+        {
+            var sc = sphere.WorldTransform.Origin; float sr = ((SphereShape)sphere.Shape).Radius;
+            var he = ((BoxShape)box.Shape).HalfExtents;
+            var bt = box.WorldTransform;
+
+            var local = bt.InverseTransformPoint(sc);
+            bool inside = Math.Abs(local.x) <= he.x &&
+                          Math.Abs(local.y) <= he.y &&
+                          Math.Abs(local.z) <= he.z;
+
+            Vec3 nLocalBoxToSphere; float sep; Vec3 boxSurfLocal;
+            if (!inside)
+            {
+                var q = new Vec3(
+                    Math.Clamp(local.x, -he.x, he.x),
+                    Math.Clamp(local.y, -he.y, he.y),
+                    Math.Clamp(local.z, -he.z, he.z));
+                var dl = local - q; float dist = dl.Length;
+                if (dist >= sr + SpeculativeMargin) return;
+                nLocalBoxToSphere = dist > ContactEps ? dl / dist : Vec3.YAxis;
+                boxSurfLocal = q;
+                sep = dist - sr;
+            }
+            else
+            {
+                // 中心が箱内部 → 最も近い面へ押し出す。
+                float best = float.MaxValue; int axis = 0; float sign = 1f;
+                for (int i = 0; i < 3; i++)
+                {
+                    float toPos = he[i] - local[i];
+                    float toNeg = local[i] + he[i];
+                    if (toPos < best) { best = toPos; axis = i; sign = +1f; }
+                    if (toNeg < best) { best = toNeg; axis = i; sign = -1f; }
+                }
+                var nl = Vec3.Zero; nl[axis] = sign;
+                nLocalBoxToSphere = nl;
+                boxSurfLocal = local; boxSurfLocal[axis] = sign * he[axis];
+                sep = -(best + sr); // 貫入深さ = 面までの距離 + 半径
+            }
+
+            var nWorldBoxToSphere = bt.TransformDirection(nLocalBoxToSphere).Normalized;
+            var boxSurfWorld = bt.TransformPoint(boxSurfLocal);
+            var sphereSurfWorld = sc - nWorldBoxToSphere * sr;
+
+            if (sphereIsA)
+                Emit(sphere, box, outPoints, -nWorldBoxToSphere, sep, sphereSurfWorld, boxSurfWorld);
+            else
+                Emit(box, sphere, outPoints, nWorldBoxToSphere, sep, boxSurfWorld, sphereSurfWorld);
+        }
+
+        // --- 幾何ヘルパー ---
+
+        // カプセルの線分端点 (ワールド) と半径。マージン機構は使わず素の幾何値を使う。
+        private static void CapsuleSegment(RigidBody body, out Vec3 p0, out Vec3 p1, out float radius)
+        {
+            var cap = (CapsuleShape)body.Shape;
+            radius = cap.Radius;
+            float hh = cap.HalfHeight;
+            p0 = body.WorldTransform.TransformPoint(new Vec3(0, hh, 0));
+            p1 = body.WorldTransform.TransformPoint(new Vec3(0, -hh, 0));
+        }
+
+        private static Vec3 ClosestPtPointSegment(Vec3 p, Vec3 a, Vec3 b)
+        {
+            var ab = b - a;
+            float denom = ab.LengthSquared;
+            if (denom < ContactEps) return a; // 縮退線分
+            float t = (p - a).Dot(ab) / denom;
+            t = Math.Clamp(t, 0f, 1f);
+            return a + ab * t;
+        }
+
+        // Ericson "Real-Time Collision Detection" ClosestPtSegmentSegment 相当。
+        private static void ClosestPtSegmentSegment(
+            Vec3 p1, Vec3 q1, Vec3 p2, Vec3 q2,
+            out float s, out float t, out Vec3 c1, out Vec3 c2)
+        {
+            var d1 = q1 - p1; var d2 = q2 - p2; var r = p1 - p2;
+            float a = d1.LengthSquared, e = d2.LengthSquared, f = d2.Dot(r);
+
+            if (a <= ContactEps && e <= ContactEps)
+            {
+                s = t = 0f; c1 = p1; c2 = p2; return;
+            }
+            if (a <= ContactEps)
+            {
+                s = 0f; t = Math.Clamp(f / e, 0f, 1f);
+            }
+            else
+            {
+                float c = d1.Dot(r);
+                if (e <= ContactEps)
+                {
+                    t = 0f; s = Math.Clamp(-c / a, 0f, 1f);
+                }
+                else
+                {
+                    float b = d1.Dot(d2); float denom = a * e - b * b;
+                    s = denom != 0f ? Math.Clamp((b * f - c * e) / denom, 0f, 1f) : 0f;
+                    t = (b * s + f) / e;
+                    if (t < 0f) { t = 0f; s = Math.Clamp(-c / a, 0f, 1f); }
+                    else if (t > 1f) { t = 1f; s = Math.Clamp((b - c) / a, 0f, 1f); }
+                }
+            }
+            c1 = p1 + d1 * s;
+            c2 = p2 + d2 * t;
+        }
+
+        // 与えた軸に垂直な単位ベクトル (縮退法線のフォールバック)。
+        private static Vec3 PerpVector(Vec3 axis)
+        {
+            var a = axis.Normalized;
+            var reference = Math.Abs(a.x) < 0.9f ? Vec3.XAxis : Vec3.YAxis;
+            var perp = Vec3.Cross(a, reference);
+            var len = perp.Length;
+            return len > ContactEps ? perp / len : Vec3.YAxis;
+        }
+
+        /// <summary>
+        /// A と B の貫入を GJK+EPA で解く (フォールバック用)。接触があれば true。
+        /// </summary>
+        private static bool GjkEpaPenetration(RigidBody a, RigidBody b, out ContactPoint contact)
         {
             contact = default;
 

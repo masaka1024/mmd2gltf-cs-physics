@@ -41,6 +41,7 @@ namespace BulletPhysics
 
         private readonly Dictionary<long, PersistentManifold> _manifolds = new();
         private readonly List<ContactConstraint> _contacts = new();
+        private readonly List<ContactPoint> _detectBuffer = new(2); // Detect の返り値受け取り
         private float _accumulator;
 
         public void AddBody(RigidBody b)
@@ -230,8 +231,10 @@ namespace BulletPhysics
                         _manifolds[key] = m;
                     }
                     m.Refresh();
-                    if (GjkEpa.Detect(a, b, out var cp))
-                        m.AddPoint(cp);
+                    _detectBuffer.Clear();
+                    GjkEpa.Detect(a, b, _detectBuffer);
+                    for (int di = 0; di < _detectBuffer.Count; di++)
+                        m.AddPoint(_detectBuffer[di]);
                 }
             }
             // 消えたペアを掃除。
