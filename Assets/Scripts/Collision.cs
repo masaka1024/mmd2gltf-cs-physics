@@ -14,6 +14,8 @@ namespace BulletPhysics
     {
         public Vec3 PositionWorldA;   // A 上の接触点
         public Vec3 PositionWorldB;   // B 上の接触点
+        public Vec3 LocalPointA;      // A ローカルの接触点 (Refresh 再投影用)
+        public Vec3 LocalPointB;      // B ローカルの接触点 (Refresh 再投影用)
         public Vec3 Normal;           // B から A へ向かう単位法線
         public float Distance;        // 負値 = 貫入量
 
@@ -34,17 +36,26 @@ namespace BulletPhysics
 
         public void Refresh()
         {
-            // 姿勢更新後に古い接触点が離れていれば破棄。
+            // 各接触点をローカル座標から現在姿勢でワールドへ再投影し、
+            // 法線方向に離れた/横ずれした点を破棄する。生存点は位置を更新。
             for (int i = Points.Count - 1; i >= 0; i--)
             {
                 var cp = Points[i];
-                var an = BodyA.WorldTransform.TransformPoint(
-                    BodyA.WorldTransform.InverseTransformPoint(cp.PositionWorldA));
-                // 単純に法線方向の距離と横ずれで判定。
-                var d = (cp.PositionWorldA - cp.PositionWorldB).Dot(cp.Normal);
-                var lateral = (cp.PositionWorldA - cp.PositionWorldB) - cp.Normal * d;
+                var worldA = BodyA.WorldTransform.TransformPoint(cp.LocalPointA);
+                var worldB = BodyB.WorldTransform.TransformPoint(cp.LocalPointB);
+                var diff = worldA - worldB;
+                var d = diff.Dot(cp.Normal);
+                var lateral = diff - cp.Normal * d;
                 if (d > 0.04f || lateral.LengthSquared > 0.04f * 0.04f)
+                {
                     Points.RemoveAt(i);
+                    continue;
+                }
+                // 生存: 再投影した位置と貫入量をソルバへ渡すため更新。
+                cp.PositionWorldA = worldA;
+                cp.PositionWorldB = worldB;
+                cp.Distance = d;
+                Points[i] = cp;
             }
         }
 
@@ -252,6 +263,9 @@ namespace BulletPhysics
             contact.Distance = -depth; // 貫入は負
             contact.PositionWorldA = baryA;
             contact.PositionWorldB = baryB;
+            // 剛体移動後に再投影できるようローカル座標も保持。
+            contact.LocalPointA = a.WorldTransform.InverseTransformPoint(baryA);
+            contact.LocalPointB = b.WorldTransform.InverseTransformPoint(baryB);
             return true;
         }
 
