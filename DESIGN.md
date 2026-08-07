@@ -65,6 +65,11 @@ PMXエディタのベイク出力もその系譜にある。回帰・検証を�
 
 ## 試して破棄した方針 (再挑戦しないための記録)
 
+### バネのモーター化 (2-b) — 実装せず打ち切り
+バネをBullet同様のソルバ反復内モーターへ変える案は、対象モデル(IA)のスカートJointが
+バネ未使用 (SpringAngular=SpringLinear=0, 制御は角度リミットのみ) のため効果ゼロと判明し、打ち切った。
+(参考: 6DOF バネには粘性項が無いことを確認し、当方の `-SpringDamping*k*relVel` 粘性項は除去済み。)
+
 ### 角度行のインパルス軸を Bullet 風混合軸へ (破棄)
 `Constraints.cs` の角度リミット行の軸を、A のフレーム列(直交)から
 Bullet の `btGeneric6DofConstraint::calculateTransforms` 風の混合軸

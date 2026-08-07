@@ -257,8 +257,8 @@ namespace BulletPhysics
                     var axis = _axesA[i];
                     float eq = ClampToLimit(0f, LinearLowerLimit[i], LinearUpperLimit[i]);
                     float err = linDelta.Dot(axis) - eq;
-                    var relVel = (BodyB.VelocityAtPoint(_anchorB) - BodyA.VelocityAtPoint(_anchorA)).Dot(axis);
-                    float impulse = (-k * err - SpringDamping * k * relVel) * dt;
+                    // Bullet の 6DOF バネには速度比例の粘性項が無いので付けない (force = -delta*k のみ)。
+                    float impulse = (-k * err) * dt;
                     var P = axis * impulse;
                     BodyA.ApplyImpulse(-P, rA);
                     BodyB.ApplyImpulse(P, rB);
@@ -276,8 +276,8 @@ namespace BulletPhysics
                     var axis = _axesA[i];
                     float eq = ClampToLimit(0f, AngularLowerLimit[i], AngularUpperLimit[i]);
                     float err = euler[i] - eq;
-                    var relVel = (BodyB.AngularVelocity - BodyA.AngularVelocity).Dot(axis);
-                    float impulse = (-k * err - SpringDamping * k * relVel) * dt;
+                    // Bullet の 6DOF バネには速度比例の粘性項が無いので付けない (force = -delta*k のみ)。
+                    float impulse = (-k * err) * dt;
                     var L = axis * impulse;
                     BodyA.ApplyTorqueImpulse(-L);
                     BodyB.ApplyTorqueImpulse(L);
