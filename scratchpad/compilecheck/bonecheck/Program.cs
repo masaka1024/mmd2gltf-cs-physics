@@ -20,10 +20,16 @@ namespace BoneCheck
         static int Main()
         {
             string csvPath = BoneCsv.FindPath();
-            if (csvPath == null || !File.Exists(PmxPath))
+            if (!File.Exists(PmxPath))
             {
-                Console.WriteLine("[SKIP] CSV か PMX 未検出。合成モードは SyntheticTurn (タスク4) を参照。pass 扱い。");
+                Console.WriteLine("[SKIP] PMX 未検出。pass 扱い。");
                 return 0;
+            }
+            if (csvPath == null)
+            {
+                // CSV が無い環境は合成ターン (環境確認用・本家比較不可) にフォールバック。
+                Console.WriteLine("[INFO] ボーンCSV 未検出 → 合成ターンで環境確認 (タスク4)。");
+                return SyntheticTurn.Run(PmxReader.LoadFile(PmxPath)) ? 0 : 1;
             }
 
             var csv = BoneCsv.Load(csvPath);
