@@ -69,44 +69,53 @@ namespace BulletPhysics
 
         public void AddJoint(Joint j) => Joints.Add(j);
 
+        private RigidTransform[] _frameKinStart; // フレーム開始時のキネマティック姿勢 (body index 単位)
+
         // --- 公開ステップ (可変 dt を固定ステップに分割) ---
         public void StepSimulation(float deltaTime)
         {
             _accumulator += deltaTime;
-            int steps = 0;
-            while (_accumulator >= FixedTimeStep && steps < 8)
+
+            // このフレームで走らせる内部ステップ数を先に確定する。
+            // キネマティック(ボーン)目標の補間は「フレーム全体の総サブステップ数」を分母に等分する。
+            // こうしないと、InternalStep を複数回呼ぶ場合に各内部ステップが個別に目標へ到達してしまい、
+            // 最初の内部ステップで目標へジャンプ→残り停止、という誤補間になる (30fps入力を細分できない)。
+            int stepsToRun = 0;
+            { float rem = _accumulator; while (rem >= FixedTimeStep && stepsToRun < 8) { rem -= FixedTimeStep; stepsToRun++; } }
+            if (stepsToRun == 0) return;
+
+            // フレーム開始時のキネマティック姿勢を保存。KinematicTarget はこのフレーム終端の姿勢。
+            if (_frameKinStart == null || _frameKinStart.Length < Bodies.Count)
+                _frameKinStart = new RigidTransform[Bodies.Count];
+            for (int i = 0; i < Bodies.Count; i++)
+                if (Bodies[i].IsKinematic) _frameKinStart[i] = Bodies[i].WorldTransform;
+
+            int totalSub = stepsToRun * SubSteps; // フレーム内の総サブステップ数 (補間の分母)
+            for (int k = 0; k < stepsToRun; k++)
             {
-                InternalStep(FixedTimeStep);
+                InternalStep(FixedTimeStep, k * SubSteps, totalSub);
                 _accumulator -= FixedTimeStep;
-                steps++;
             }
+            // 端数 (_accumulator の残り) は次回呼び出しへ持ち越す (標準的な固定刻みアキュムレータ)。
+            // 入力は 30fps フレーム境界で更新されるため、KinematicTarget はこのフレーム終端で到達済みとして扱う。
         }
 
-        private RigidTransform[] _kinStart; // キネマティック剛体の開始姿勢 (body index 単位)
-
-        // --- 固定 1 ステップ ---
-        private void InternalStep(float dt)
+        // --- 固定 1 ステップ --- gBase: このフレーム内での先行サブステップ数, totalSub: フレーム総サブステップ数
+        private void InternalStep(float dt, int gBase, int totalSub)
         {
             float sub = dt / SubSteps;
-
-            // 開始姿勢を保存し、サブステップ間で開始→目標を補間する。
-            if (_kinStart == null || _kinStart.Length < Bodies.Count)
-                _kinStart = new RigidTransform[Bodies.Count];
-            for (int i = 0; i < Bodies.Count; i++)
-                if (Bodies[i].IsKinematic) _kinStart[i] = Bodies[i].WorldTransform;
-
             for (int s = 0; s < SubSteps; s++)
-                SubStep(sub, (float)(s + 1) / SubSteps);
+                SubStep(sub, (float)(gBase + s + 1) / totalSub);
         }
 
-        // frac: このサブステップ終端における 開始→目標 の補間割合 ((s+1)/N)。
+        // frac: フレーム開始→終端目標の 等分補間割合 (1/totalSub .. 1)。フレーム全体で連続する。
         private void SubStep(float dt, float frac)
         {
             for (int i = 0; i < Bodies.Count; i++)
             {
                 var b = Bodies[i];
                 if (!b.IsKinematic) continue;
-                b.KinematicStepTarget = InterpTransform(_kinStart[i], b.KinematicTarget, frac);
+                b.KinematicStepTarget = InterpTransform(_frameKinStart[i], b.KinematicTarget, frac);
             }
 
             IntegrateVelocities(dt);

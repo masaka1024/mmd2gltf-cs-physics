@@ -33,6 +33,7 @@ static class Harness
 
         SmokeTestIaPmx();
         RegressionStaticPush();
+        KinematicInterpRegression();
 
         Console.WriteLine(_fails == 0 ? "\n=== 全 PASS ===" : $"\n=== {_fails} 件 FAIL ===");
         return _fails == 0 ? 0 : 1;
@@ -152,6 +153,28 @@ static class Harness
                         .OrderByDescending(x => Math.Abs(x.ni)).Take(3).ToList();
         string detail = worst.Count == 0 ? "" : "  例:" + string.Join(", ", worst.Select(x => $"{x.a}×{x.b}(d={x.dist:F4},ni={x.ni:F4})"));
         Check("静止押し出し回帰 (非貫入インパルス0件)", pushed == 0, $"件数={pushed}{detail}");
+    }
+
+    // ---- キネマティック補間の経路回帰 ----
+    // 1体を1フレーム(1/30)で x:0→1 へ動かすと、実効刻みの分割方法に依らず
+    // フレーム内を等速移動し、残存速度は 30.0 になるべき (30fps入力の正しい細分)。
+    // 修正前は FTS=1/60/1/120 の accumulator 経路で 0.0 になっていた (即ジャンプ→停止)。
+    static void KinematicInterpRegression()
+    {
+        var cfgs = new (float fts, int sub)[]
+        {
+            (1f / 30f, 1), (1f / 30f, 2), (1f / 30f, 4), (1f / 60f, 1), (1f / 120f, 1),
+        };
+        foreach (var (fts, sub) in cfgs)
+        {
+            var w = new PhysicsWorld { Gravity = Vec3.Zero, SolverIterations = 10, FixedTimeStep = fts, SubSteps = sub };
+            var k = new RigidBody(new BoxShape(new Vec3(0.5f, 0.5f, 0.5f))) { Mode = PhysicsMode.BoneFollow };
+            k.SetMassProps(0f); k.WorldTransform = new RigidTransform(Quat.Identity, Vec3.Zero); w.AddBody(k);
+            k.KinematicTarget = new RigidTransform(Quat.Identity, new Vec3(1, 0, 0));
+            w.StepSimulation(1f / 30f);
+            float vx = k.LinearVelocity.x;
+            Check($"Kinematic補間 (FTS=1/{1f / fts:F0} Sub{sub}) 残存velx≈30", Math.Abs(vx - 30f) < 1e-2f, $"velx={vx:F3} x={k.WorldTransform.Origin.x:F3}");
+        }
     }
 
     // ---- PMX 検出 ----
