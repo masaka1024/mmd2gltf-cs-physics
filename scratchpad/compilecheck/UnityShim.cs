@@ -31,6 +31,9 @@ namespace UnityEngine
         public static Color cyan => new Color();
         public static Color green => new Color();
         public static Color yellow => new Color();
+        public static Color magenta => new Color();
+        public static Color red => new Color();
+        public static Color white => new Color();
     }
 
     public class Component
@@ -60,6 +63,15 @@ namespace UnityEngine
         public static float fixedDeltaTime = 1f / 60f;
     }
 
+    public static class Debug
+    {
+        public static void Log(object m) { }
+        public static void LogWarning(object m) { }
+        public static void LogError(object m) { }
+    }
+
     public class TooltipAttribute : Attribute { public TooltipAttribute(string s) { } }
     public class HeaderAttribute : Attribute { public HeaderAttribute(string s) { } }
+    public class ContextMenuAttribute : Attribute { public ContextMenuAttribute(string s) { } }
+    public class RangeAttribute : Attribute { public RangeAttribute(float min, float max) { } }
 }
