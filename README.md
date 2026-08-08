@@ -11,6 +11,34 @@ PmxEditor (極北P) の **PMX 2.1 仕様** に記述された物理演算を、*
 - PMX バイナリ (2.0 / 2.1) から剛体・Joint・SoftBody を直接読み込み
 - MMD ↔ Unity 座標変換込みのボーン同期
 
+## 現在の到達状況 (IA.pmx で本家ベイクVMDと比較)
+
+本家（MMD がベイクした VMD）のスカート挙動と、定量・目視の両方で比較しています。
+
+| 指標 | 自前 | 本家 |
+|---|---|---|
+| 平時の傾き 中央値 | **10.41°** | 11.39° |
+| ターン12窓の傾きmax 比 (中央値) | **1.061** | 1.0 |
+| 貫入 (定常, スカート×脚) | **~0.0002** | 0.002〜0.004 |
+| 性能 (IA 300ステップ) | **0.65 ms/step** | — |
+| 測定ノイズフロア | **0** (無関係な変更で不変) | — |
+
+平時はほぼ一致、ターンは +6% 程度の微過大に収束。初期状態は MMD 相当の物理リセット
+（FK-rest）で整合させ、スカートが脚に沈む初期貫入は解消済み。**目視では本家とほぼ区別が
+つかない水準**に到達しています。設計判断と「試して失敗した記録」は [DESIGN.md](DESIGN.md) 参照。
+
+## 必要な外部データ (各自で用意)
+
+IA などの MMD モデルは**再配布しないため、このリポジトリには含まれません**。各自で用意し、
+以下のいずれかで指定してください（検証ハーネス・診断ツール・`BonePoseCsvPlayer` 共通）。
+
+- **推奨**: リポジトリ直下に `testdata/` を作り、以下を置く（`testdata/` は `.gitignore` 済み）:
+  - `testdata/IA.pmx` — モデル本体
+  - `testdata/IA_bone_world_pose.csv` — 本家ベイクのボーン世界姿勢CSV (30fps)
+  - `testdata/ia.csv` — PMXエディタの構造エクスポート (剛体/Joint/ボーン照合用, pmxverify)
+- または環境変数で指定: `MMD_TEST_PMX` / `MMD_TEST_BONECSV` / `MMD_TEST_PMXCSV`。
+- どちらも無ければ、モデル依存の検証は自動で **SKIP** されます（他は動きます）。
+
 ## 対象環境 / 言語バージョン (C# 9)
 
 - **想定 Unity: Unity 6 (6000.0 LTS)**。Unity の C# バージョンは Unity 本体に固定されており
@@ -79,13 +107,18 @@ builder.World.Gravity = new Vec3(0, -98f, 0);   // MMD スケール
 builder.World.StepSimulation(Time.fixedDeltaTime);
 ```
 
-## 時間刻み (リファレンス: 30Hz・1サブ)
+## 時間刻み (リファレンス: 実効 1/60 = FixedTimeStep 1/30・SubSteps 2)
 
-既定は `FixedTimeStep = 1/30`, `SubSteps = 1` です。MMD 本家は 30fps で
-1 描画フレーム = 1 物理ステップとして Bullet を回しており、PMX エディタのベイク出力も
-その系譜にあります。本プロジェクトはこの **30Hz・1サブを再現対象 (リファレンス)** とし、
-回帰・検証も本番と同じ刻みで行う設計方針です。より滑らかにしたい場合は
-`FixedTimeStep`/`SubSteps` を上げられます (細かい刻みほど貫入は浅く安定しますが本家挙動から離れます)。
+既定は `FixedTimeStep = 1/30`, `SubSteps = 2`（実効刻み **1/60**）です。`FixedTimeStep` は
+30fps のボーン入力に合わせて 1/30 のまま、物理は `SubSteps` で細かく刻みます。
+
+当初は「MMD 本家は 30fps で 1 描画フレーム = 1 物理ステップ」という想定で 30Hz・1サブを
+リファレンスにしていましたが、**この想定は誤りと判明しました**。刻みを細かくするほど本家の
+スカート挙動に一致し（12窓比の中央値 1/30:1.133 → 1/60:1.030 → 1/120:0.978）、外部の MMD
+互換実装も細刻み（Saba=1/120, libmmd=1/60, MMD は物理最大60fps）だったため、**実効1/60 を
+リファレンスに変更**しました。より忠実にしたい場合は `SubSteps=4`（実効1/120）も選べます。
+（細刻み化は必ず `SubSteps` で行ってください。`FixedTimeStep` を下げる経路は 30fps 入力の
+キネマティック補間が正しく効きません。詳細は [DESIGN.md](DESIGN.md) の「時間刻み」節。）
 `MmdPhysicsBehaviour` では `FixedTimeStep`/`SubSteps` を Inspector から設定できます。
 
 ## 座標系
@@ -106,7 +139,7 @@ Inspector で下表を設定します。
 
 | 項目 | 推奨値 | 説明 |
 |---|---|---|
-| `PmxPath` | `.pmx` の絶対パス (または Assets 相対) | 例 `C:\...\IA1\IA.pmx` |
+| `PmxPath` | `.pmx` のパス (各自の環境。例 `testdata/IA.pmx` や絶対パス) | 「必要な外部データ」参照 |
 | `ModelRoot` | ボーン階層のルート `Transform` | この配下の GameObject 名を PMX ボーン名で解決する |
 | `UnitScale` | `0.08` (Unity 側モデルが約 1/12.5 縮小配置の場合) / `1.0` (PMXネイティブ寸法で配置の場合) | 位置換算のみ。回転は無関係 |
 | `Gravity` | `98` | MMD スケール (≒ 9.8×10) |
@@ -155,8 +188,8 @@ Inspector で下表を設定します。
 
 | 項目 | 推奨値 |
 |---|---|
-| `PmxPath` | IA.pmx の絶対パス |
-| `BoneCsvPath` | `IA_bone_world_pose.csv` の絶対パス |
+| `PmxPath` | IA.pmx のパス (各自の環境。既定は空文字=何もしない) |
+| `BoneCsvPath` | `IA_bone_world_pose.csv` のパス (既定は空文字。空/未存在ならゴースト無しで物理のみ) |
 | `Gravity`/`FixedTimeStep`/`SubSteps`/`SolverIterations`/`WarmupSteps` | `98`/`1/30`/`1`/`10`/`60` (ヘッドレスと同一) |
 | `UnitScale` | モデル配置に合わせる (単独で見るだけなら `1.0` でも可) |
 | `DrawReferenceGhost` / `SkirtOnlyGhost` | `true` / `true` (本家スカートのみゴースト) |
@@ -168,10 +201,10 @@ Inspector で下表を設定します。
 - **Jump to Frame (Frame値へ)** … `Frame` に数値を入れてジャンプ
 - **Jump to Window Start / End (窓先頭/末尾)** … `WindowStart=2440`, `WindowEnd=2470`
 
-**窓6 (F2440〜F2470) のコマ送り**: `Jump to Window Start` → `Step Forward` を連打。
-自前(緑)と本家(マゼンタ)のスカートの開きを1フレームずつ比較できます
-(この窓で自前 92.2°・本家 62.9°)。物理は逆再生できないため、後退/ジャンプは
-内部でフレーム0から再シミュレーションします (7000フレームでも一瞬)。
+**コマ送り**: `Jump to Window Start` → `Step Forward` を連打。自前(緑)と本家(マゼンタ)の
+スカートの開きを1フレームずつ比較できます。貫入は赤系で強調表示されます（下記「到達状況」参照）。
+物理は逆再生できないため、後退/ジャンプは内部でフレーム0から再シミュレーションします
+(7000フレームでも一瞬)。`CandidateFrames`（貫入が起きるフレーム候補）へのジャンプもあります。
 
 ## 既知の制限
 
@@ -179,7 +212,19 @@ Inspector で下表を設定します。
 - ConeTwist / Slider / Hinge のモーターは未対応 (仕様上も「暫定対応」)。
 - 数値は Bullet 2.75 と厳密一致ではなく挙動互換を目標とします。
 
-## 検証
+## 検証 (ハーネスの回し方)
 
-`scratchpad/compilecheck` に Unity 非依存のコンパイル検証と、自由落下・接地・
-Joint 保持・バネ振動のランタイム検証を用意しています (UnityEngine の最小シムを使用)。
+`scratchpad/compilecheck` に UnityEngine の最小シムを使った **Unity 非依存の検証ハーネス**を
+用意しています（合成4シナリオ + IA.pmx スモーク + 静止押し出し回帰 + キネマティック補間回帰 = 11項目）。
+
+```bash
+cd scratchpad/compilecheck
+dotnet run -c Release
+```
+
+- 全 `.csproj` は `<LangVersion>9.0</LangVersion>`（Unity=C# 9 と同一）でビルドされ、C# 10 以降の
+  機能が混入すると**ハーネスの時点でビルドが落ちます**。
+- IA モデル/CSV は各自用意（下記「必要な外部データ」）。**未指定なら IA 依存の項目は SKIP** され、
+  Unity 非依存の項目だけが走ります（落ちません）。
+- `scratchpad/compilecheck/<name>/` 以下は各種の**診断ツール**（貫入・傾き・刻み掃引・物理リセット
+  検証など）。`cd <name> && dotnet run -c Release` で個別に実行できます。
