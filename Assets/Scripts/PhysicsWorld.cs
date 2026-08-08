@@ -54,6 +54,9 @@ namespace BulletPhysics
         // ステップ2(b): ジョイントの Baumgarte 位置バイアスを split-impulse(擬似速度)へ分離する。
         // 接触用の UseSplitImpulse とは独立 (接触既定 false=Bullet2.75 準拠は不変)。既定 false=挙動不変。
         public bool UseJointSplitImpulse = false;
+        // ステップ2(a-1): ジョイントの直線ロック行のみ warm-start (蓄積インパルスをサブステップ間で引継ぎ)。
+        // 既定 false=挙動不変。長い剛体チェーンの PGS 未収束(垂れ/暴れ)対策。
+        public bool UseJointWarmStart = false;
         public float SplitImpulsePenetrationThreshold = -0.02f; // Bullet 2.75 m_splitImpulsePenetrationThreshold
 
         public readonly List<RigidBody> Bodies = new();
@@ -138,7 +141,7 @@ namespace BulletPhysics
             BroadphaseNarrowphase();
             BuildContactConstraints(dt);
 
-            foreach (var j in Joints) j.Prepare(dt, UseJointSplitImpulse);
+            foreach (var j in Joints) j.Prepare(dt, UseJointSplitImpulse, UseJointWarmStart);
             foreach (var j in Joints) j.ApplySprings(dt);
 
             WarmStart();

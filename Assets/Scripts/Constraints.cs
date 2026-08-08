@@ -36,6 +36,8 @@ namespace BulletPhysics
         public float Accumulated;
         public float PositionBias;    // split時: 位置補正の目標擬似速度 (err*Beta/dt)。非split時0。
         public float PseudoAccumulated; // split時: 擬似速度側の累積インパルス。
+        public int Dof;               // 0-2: DOF番号 (warm-start のキャッシュキー)。
+        public bool WarmStartable;    // (a-1) この行を warm-start 対象にするか (直線ロック行のみ)。
     }
 
     /// <summary>
@@ -79,6 +81,11 @@ namespace BulletPhysics
         // ステップ2(b): Baumgarte バイアスを split-impulse(擬似速度)側へ分離するか。
         // false(既定)で従来どおり実速度側へバイアスを乗せる (挙動不変)。
         private bool _splitBias;
+        // ステップ2(a-1): 直線ロック行のみ warm-start (蓄積インパルスをサブステップ間で引き継ぐ)。
+        // 直線ロック行は常時アクティブで DOF が安定 (角度行のような軸/側のトグルが無い) ため安全。
+        private bool _warmStart;
+        private readonly float[] _warmLin = new float[3];   // 直線 DOF 別の前サブステップ蓄積インパルス。
+        private readonly bool[] _warmLinSeen = new bool[3];  // このサブステップで当該 DOF の warm 対象行が出たか。
 
         // --- ファクトリ: PMX Joint 種から生成 ---
 
@@ -153,9 +160,11 @@ namespace BulletPhysics
         private static bool IsFree(float lo, float hi) => lo > hi;
 
         // --- 準備: フレーム/アンカー/行を構築 ---
-        public void Prepare(float dt, bool splitBias = false)
+        public void Prepare(float dt, bool splitBias = false, bool warmStart = false)
         {
             _splitBias = splitBias;
+            _warmStart = warmStart;
+            _warmLinSeen[0] = _warmLinSeen[1] = _warmLinSeen[2] = false;
             _rows.Clear();
             if (BodyA == null || BodyB == null) return;
 
@@ -189,7 +198,7 @@ namespace BulletPhysics
                 else if (cur > hi) { err = hi - cur; lower = -1e18f; upper = 0f; }
                 else continue; // 制限内 → バネのみ (後段)
 
-                AddLinearRow(axis, rA, rB, Clamp(err * Beta * invDt), lower, upper);
+                AddLinearRow(axis, rA, rB, Clamp(err * Beta * invDt), lower, upper, i, IsLocked(lo, hi));
             }
 
             // --- 回転 3 軸 ---
@@ -208,20 +217,40 @@ namespace BulletPhysics
                 else if (cur > hi) { err = hi - cur; lower = -1e18f; upper = 0f; }
                 else continue;
 
-                AddAngularRow(axis, Clamp(err * Beta * invDt), lower, upper);
+                AddAngularRow(axis, Clamp(err * Beta * invDt), lower, upper, i);
+            }
+
+            // (a-1) warm-start: 今サブステップで warm 対象にならなかった直線 DOF の蓄積は破棄
+            // (常時アクティブでない DOF の古い力積を誤って引き継がないため)。
+            if (_warmStart)
+            {
+                for (int i = 0; i < 3; i++) if (!_warmLinSeen[i]) _warmLin[i] = 0f;
+                // 前サブステップの蓄積インパルスを反復前に一度適用する (Bullet の warm-start と同型)。
+                for (int r = 0; r < _rows.Count; r++)
+                {
+                    var row = _rows[r];
+                    if (!row.WarmStartable) continue;
+                    var P = row.Axis * row.Accumulated;
+                    BodyA.ApplyImpulse(-P, row.RelA);
+                    BodyB.ApplyImpulse(P, row.RelB);
+                }
             }
         }
 
         private static float Clamp(float v) =>
             Math.Max(-MaxCorrectionVel, Math.Min(MaxCorrectionVel, v));
 
-        private void AddLinearRow(Vec3 axis, Vec3 rA, Vec3 rB, float targetVel, float lo, float hi)
+        private void AddLinearRow(Vec3 axis, Vec3 rA, Vec3 rB, float targetVel, float lo, float hi, int dof, bool locked)
         {
             var rAxn = Vec3.Cross(rA, axis);
             var rBxn = Vec3.Cross(rB, axis);
             float k = BodyA.InverseMass + BodyB.InverseMass
                     + rAxn.Dot(BodyA.InverseInertiaWorld * rAxn)
                     + rBxn.Dot(BodyB.InverseInertiaWorld * rBxn);
+            // (a-1) 直線ロック行のみ warm-start: 前サブステップの蓄積で初期化する。
+            bool warm = _warmStart && locked;
+            float acc = 0f;
+            if (warm) { _warmLinSeen[dof] = true; acc = Math.Max(lo, Math.Min(hi, _warmLin[dof])); }
             _rows.Add(new ConstraintRow
             {
                 Axis = axis, Angular = false, RelA = rA, RelB = rB,
@@ -229,10 +258,11 @@ namespace BulletPhysics
                 TargetVel = _splitBias ? 0f : targetVel,
                 PositionBias = _splitBias ? targetVel : 0f,
                 EffMass = k > 0 ? 1f / k : 0f,
+                Dof = dof, WarmStartable = warm, Accumulated = acc,
             });
         }
 
-        private void AddAngularRow(Vec3 axis, float targetVel, float lo, float hi)
+        private void AddAngularRow(Vec3 axis, float targetVel, float lo, float hi, int dof)
         {
             float k = axis.Dot(BodyA.InverseInertiaWorld * axis)
                     + axis.Dot(BodyB.InverseInertiaWorld * axis);
@@ -243,6 +273,7 @@ namespace BulletPhysics
                 TargetVel = _splitBias ? 0f : targetVel,
                 PositionBias = _splitBias ? targetVel : 0f,
                 EffMass = k > 0 ? 1f / k : 0f,
+                Dof = dof,
             });
         }
 
@@ -328,6 +359,8 @@ namespace BulletPhysics
                     BodyA.ApplyImpulse(-P, row.RelA);
                     BodyB.ApplyImpulse(P, row.RelB);
                 }
+                // (a-1) warm-start: 直線ロック行の最終累積を次サブステップへ引き継ぐ。
+                if (row.WarmStartable) _warmLin[row.Dof] = row.Accumulated;
                 _rows[r] = row;
             }
         }

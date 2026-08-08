@@ -71,6 +71,7 @@ static class RestSim
         if (float.TryParse(Environment.GetEnvironmentVariable("BETA"), out var bt)) { beta = bt; foreach (var j in world.Joints) j.Beta = bt; }
         if (Environment.GetEnvironmentVariable("SPLIT") == "1") world.UseSplitImpulse = true;
         if (Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
+        if (Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
 
         // タスクC: ジョイント求解順序切替 (エンジン無改変, world.Joints を並べ替えるだけ)。
         // キネマティック根から BFS で各剛体の深さを求め、各ジョイントの深さ=max(端点深さ) で並べる。
