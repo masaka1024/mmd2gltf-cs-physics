@@ -20,8 +20,8 @@ using BulletPhysics.Pmx;
 
 static class PmxVerify
 {
-    const string DefPmx = @"C:\Users\masa_\BA_c1\Assets\mmd-for-unity-proj-mmd-for-unity-v2.1b-6-g82ac2fe\mmd-for-unity-proj-mmd-for-unity-82ac2fe\IA1\IA.pmx";
-    const string DefCsv = @"C:\Users\masa_\Downloads\IA\IA\ia.csv";
+    static readonly string DefPmx = TestData.PmxPath();
+    static readonly string DefCsv = TestData.StructureCsvPath();
 
     // 許容誤差 (根拠は冒頭コメント)。
     const float TolPos = 1e-3f, TolSize = 1e-4f, TolRot = 1e-3f, TolMass = 1e-4f;

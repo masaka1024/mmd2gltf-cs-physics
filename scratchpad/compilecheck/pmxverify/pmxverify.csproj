@@ -11,6 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\UnityShim.cs" />
+    <Compile Include="../TestData.cs" />
     <Compile Include="Verify.cs" />
     <Compile Include="..\..\..\Assets\Scripts\**\*.cs" />
   </ItemGroup>

@@ -14,7 +14,7 @@ using BoneCheck;
 
 static class SolverDiag
 {
-    const string PmxPath = @"C:\Users\masa_\BA_c1\Assets\mmd-for-unity-proj-mmd-for-unity-v2.1b-6-g82ac2fe\mmd-for-unity-proj-mmd-for-unity-82ac2fe\IA1\IA.pmx";
+    static readonly string PmxPath = TestData.PmxPath();
     const float DT = 1f / 30f;
     const float RefCalmMed = 11.39f; // 本家 平時傾き中央値 (Python参照値)
     static StringBuilder O = new StringBuilder(); static void L(string s = "") { O.Append(s); O.Append('\n'); }

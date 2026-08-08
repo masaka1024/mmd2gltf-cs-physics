@@ -11,6 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\UnityShim.cs" />
+    <Compile Include="../TestData.cs" />
     <Compile Include="..\bonecheck\BoneCsv.cs" />
     <Compile Include="..\bonecheck\SkirtMeasure.cs" />
     <Compile Include="Pen.cs" />

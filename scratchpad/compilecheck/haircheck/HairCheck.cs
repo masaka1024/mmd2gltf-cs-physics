@@ -15,7 +15,7 @@ using BoneCheck;
 
 static class HairCheck
 {
-    const string PmxPath = @"C:\Users\masa_\BA_c1\Assets\mmd-for-unity-proj-mmd-for-unity-v2.1b-6-g82ac2fe\mmd-for-unity-proj-mmd-for-unity-82ac2fe\IA1\IA.pmx";
+    static readonly string PmxPath = TestData.PmxPath();
     const float DT = 1f / 30f;
 
     static StringBuilder O = new(); static void L(string s = "") => O.AppendLine(s);

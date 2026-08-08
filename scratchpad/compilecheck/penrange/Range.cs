@@ -13,8 +13,8 @@ using BoneCheck;
 
 static class PenRange
 {
-    const string Pmx1 = @"C:\Users\masa_\BA_c1\Assets\mmd-for-unity-proj-mmd-for-unity-82ac2fe\IA1\IA.pmx";
-    const string Pmx2 = @"C:\Users\masa_\BA_c1\Assets\mmd-for-unity-proj-mmd-for-unity-v2.1b-6-g82ac2fe\mmd-for-unity-proj-mmd-for-unity-82ac2fe\IA1\IA.pmx";
+    static readonly string Pmx1 = TestData.PmxPath();
+    static readonly string Pmx2 = TestData.PmxPath();
     const float FRAME = 1f / 30f;
     static StringBuilder O = new StringBuilder(); static void L(string s = "") { O.Append(s); O.Append('\n'); }
     static readonly string[] Targets = { "スカート_0_5", "スカート_1_5", "スカート_2_5" };

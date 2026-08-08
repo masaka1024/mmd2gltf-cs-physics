@@ -17,7 +17,7 @@ using BoneCheck;
 
 static class Spike
 {
-    const string PmxPath = @"C:\Users\masa_\BA_c1\Assets\mmd-for-unity-proj-mmd-for-unity-v2.1b-6-g82ac2fe\mmd-for-unity-proj-mmd-for-unity-82ac2fe\IA1\IA.pmx";
+    static readonly string PmxPath = TestData.PmxPath();
     const int F0 = 2435, F1 = 2470; // 記録区間 (窓6 ピーク F2454 近傍)
 
     static int Main()

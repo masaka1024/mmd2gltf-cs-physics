@@ -20,11 +20,11 @@ namespace BulletPhysics.Unity
 {
     public sealed class BonePoseCsvPlayer : MonoBehaviour
     {
-        [Header("入力")]
-        [Tooltip("読み込む .pmx ファイルの絶対パス")]
+        [Header("入力 (各自の環境のパスを Inspector で設定)")]
+        [Tooltip("読み込む .pmx ファイルのパス。空なら何もせず警告のみ (落ちない)")]
         public string PmxPath = "";
-        [Tooltip("本家ベイク済みボーン世界姿勢CSVの絶対パス")]
-        public string BoneCsvPath = @"C:\Users\masa_\AppData\Local\Temp\IA_bone_world_pose.csv";
+        [Tooltip("本家ベイク済みボーン世界姿勢CSVのパス。空/未存在なら物理のみ動きゴースト無し (落ちない)")]
+        public string BoneCsvPath = "";
 
         [Header("Solver (リファレンス=実効1/60: FTS=1/30, SubSteps=2)")]
         public float Gravity = 98f;

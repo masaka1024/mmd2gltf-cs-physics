@@ -183,7 +183,7 @@ static class Harness
         var env = Environment.GetEnvironmentVariable("MMD_TEST_PMX");
         if (!string.IsNullOrEmpty(env) && File.Exists(env)) return env;
         // 既定候補 (存在すれば使用)。
-        string def = @"C:\Users\masa_\BA_c1\Assets\mmd-for-unity-proj-mmd-for-unity-v2.1b-6-g82ac2fe\mmd-for-unity-proj-mmd-for-unity-82ac2fe\IA1\IA.pmx";
+        string def = TestData.PmxPath();
         return File.Exists(def) ? def : null;
     }
 

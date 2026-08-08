@@ -12,6 +12,7 @@
   <ItemGroup>
     <!-- UnityEngine 最小シム (compilecheck 直下と共用) -->
     <Compile Include="..\UnityShim.cs" />
+    <Compile Include="../TestData.cs" />
     <!-- ローカルの計測コード -->
     <Compile Include="BoneCsv.cs" />
     <Compile Include="SkirtMeasure.cs" />

@@ -13,8 +13,8 @@ using BoneCheck;
 
 static class Pen
 {
-    const string PmxPath = @"C:\Users\masa_\BA_c1\Assets\mmd-for-unity-proj-mmd-for-unity-82ac2fe\IA1\IA.pmx";
-    const string PmxPath2 = @"C:\Users\masa_\BA_c1\Assets\mmd-for-unity-proj-mmd-for-unity-v2.1b-6-g82ac2fe\mmd-for-unity-proj-mmd-for-unity-82ac2fe\IA1\IA.pmx";
+    static readonly string PmxPath = TestData.PmxPath();
+    static readonly string PmxPath2 = TestData.PmxPath();
     const float FRAME = 1f / 30f;
     const float DeepStore = 0.1f;   // これ以上の貫入だけ個別保持(尾の分析用)。平均0.03に対し十分深い。
     static StringBuilder O = new StringBuilder(); static void L(string s = "") { O.Append(s); O.Append('\n'); }

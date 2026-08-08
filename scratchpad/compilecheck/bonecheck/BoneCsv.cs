@@ -30,14 +30,8 @@ namespace BoneCheck
         public int BoneCount => _col.Count;
         public long ApproxBytes { get; private set; }
 
-        /// <summary>環境変数 MMD_TEST_BONECSV か既定パスから探す。無ければ null。</summary>
-        public static string FindPath()
-        {
-            var env = Environment.GetEnvironmentVariable("MMD_TEST_BONECSV");
-            if (!string.IsNullOrEmpty(env) && File.Exists(env)) return env;
-            string def = @"C:\Users\masa_\AppData\Local\Temp\IA_bone_world_pose.csv";
-            return File.Exists(def) ? def : null;
-        }
+        /// <summary>環境変数 MMD_TEST_BONECSV か testdata/ から探す。無ければ null。(TestData に委譲)</summary>
+        public static string FindPath() => TestData.BoneCsvPath();
 
         public static BoneCsv Load(string path)
         {
