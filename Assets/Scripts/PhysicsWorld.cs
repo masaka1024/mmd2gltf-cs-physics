@@ -73,6 +73,15 @@ namespace BulletPhysics
 
         public void AddJoint(Joint j) => Joints.Add(j);
 
+        /// <summary>接触マニフォールド(蓄積インパルス含む)とアキュムレータをクリアする。
+        /// 物理リセット時に前状態のウォームスタート値を持ち越さないために使う。</summary>
+        public void ClearContacts()
+        {
+            _manifolds.Clear();
+            _contacts.Clear();
+            _accumulator = 0f;
+        }
+
         private RigidTransform[] _frameKinStart; // フレーム開始時のキネマティック姿勢 (body index 単位)
 
         // --- 公開ステップ (可変 dt を固定ステップに分割) ---

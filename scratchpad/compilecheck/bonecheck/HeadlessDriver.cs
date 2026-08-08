@@ -69,6 +69,7 @@ namespace BoneCheck
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
             // ウォームアップ: フレーム0姿勢で空回し。
+            // (物理リセットはFK-rest姿勢が要るため未配線。物理リセットの検証は scratchpad/physreset 参照。)
             ApplyPose(driven, csv, 0);
             for (int s = 0; s < WarmupSteps; s++) world.StepSimulation(1f / 30f);
 

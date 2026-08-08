@@ -52,6 +52,26 @@ namespace BulletPhysics.Unity
             _builder.World.SubSteps = SubSteps;
             _builder.World.FixedTimeStep = FixedTimeStep;
             ResolveBones();
+            ResetPhysicsToBones();
+        }
+
+        /// <summary>物理開始/リセット時に、全剛体を現在のボーン姿勢へ整合させる
+        /// (MMD の物理演算リセット相当)。フレーム0で脚が曲がっていても動的剛体がバインド位置に
+        /// 取り残されて貫入するのを防ぐ。LoadPmx 後および任意のタイミングで呼べる。</summary>
+        public void ResetPhysicsToBones()
+        {
+            if (_builder == null) return;
+            _builder.ResetBodiesToBonePose(BoneWorldOrNull);
+        }
+
+        // ボーンindex → ワールド姿勢 (MMD座標)。Transform 未解決なら null (バインド維持)。
+        private RigidTransform? BoneWorldOrNull(int boneIndex)
+        {
+            if (boneIndex < 0 || _boneTransforms == null ||
+                boneIndex >= _boneTransforms.Length || _boneTransforms[boneIndex] == null)
+                return null;
+            var tr = _boneTransforms[boneIndex];
+            return new RigidTransform(UnityToMmdRot(tr.rotation), UnityToMmdPos(tr.position));
         }
 
         private void ResolveBones()

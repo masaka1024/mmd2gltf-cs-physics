@@ -135,6 +135,10 @@ namespace BulletPhysics.Unity
             target = System.Math.Clamp(target, 0, System.Math.Max(0, last));
             BuildWorld();
             ApplyPose(0);
+            // 物理リセット(全剛体をボーン姿勢へ整合)はここに入れる予定だが、CSVのスカートボーン姿勢は
+            // 本家の物理結果(傾き込み)であり、閉ループのスカートを一斉にそこへ置くと過拘束で発散する。
+            // 正しくはスケルトンFK-rest姿勢(親駆動・バインド整合)を使う必要があり、それにはボーン親階層が要る
+            // (現状 PmxReader は親を読んでいない)。実装方針は人間判断待ちのため、ここでは未配線。
             for (int s = 0; s < WarmupSteps; s++) _builder.World.StepSimulation(FixedTimeStep);
             for (int f = 0; f <= target; f++) { ApplyPose(f); _builder.World.StepSimulation(FixedTimeStep); }
             _simFrame = target;

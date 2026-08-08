@@ -71,6 +71,38 @@ namespace BulletPhysics.Pmx
             }
         }
 
+        /// <summary>
+        /// 物理開始/リセット時に、動的剛体も含む全剛体を現在のボーン姿勢へ整合させる
+        /// (MMD の物理演算リセット相当)。剛体を boneWorld * BodyOffsetFromBone に置き、
+        /// 速度を 0、慣性ワールドを更新、接触/蓄積インパルスをクリアする。
+        /// これをしないと、フレーム0で脚が曲がっている場合に kinematic な脚コライダーだけが
+        /// フレーム0へ動き、動的スカートがバインド位置に取り残されて逃げられない貫入平衡に落ちる。
+        ///
+        /// getBoneWorld: ボーンindex → そのボーンのワールド姿勢 (無ければ null)。
+        ///   null を返したボーン (BoneIndex&lt;0 や、姿勢が得られないボーン) はバインド位置のままとする。
+        /// </summary>
+        public void ResetBodiesToBonePose(System.Func<int, RigidTransform?> getBoneWorld)
+        {
+            foreach (var link in BoneLinks)
+            {
+                var body = link.Body;
+                if (link.BoneIndex >= 0)
+                {
+                    var bw = getBoneWorld(link.BoneIndex);
+                    if (bw.HasValue)
+                    {
+                        body.WorldTransform = bw.Value * link.BodyOffsetFromBone;
+                        body.KinematicTarget = body.WorldTransform;
+                        body.KinematicStepTarget = body.WorldTransform;
+                    }
+                }
+                body.LinearVelocity = Vec3.Zero;
+                body.AngularVelocity = Vec3.Zero;
+                body.UpdateInertiaWorld();
+            }
+            World.ClearContacts();
+        }
+
         private static RigidTransform ComputeOffset(PmxPhysicsModel model, PmxRigidBody rb)
         {
             var bodyWorld = RigidTransform.FromEuler(rb.Position, rb.Rotation);
