@@ -57,7 +57,8 @@ namespace BulletPhysics
             }
         }
 
-        public Vec3() { x = 0; y = 0; z = 0; }
+        // 注: パラメータなしコンストラクタは C# 10 以降の機能 (Unity=C# 9 では不可) のため置かない。
+        //     既定 new Vec3() は全フィールド 0 となり、旧コンストラクタ (全 0) と同一の意味。
         public Vec3(float v) { x = v; y = v; z = v; }
         public Vec3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
 
@@ -113,7 +114,10 @@ namespace BulletPhysics
 
         public static readonly Quat Identity = new(0, 0, 0, 1);
 
-        public Quat() { x = 0; y = 0; z = 0; w = 1; }
+        // 注: パラメータなしコンストラクタは C# 10 以降の機能 (Unity=C# 9 では不可) のため置かない。
+        //     旧コンストラクタは w=1 (単位クォータニオン) を既定にしていたが、C# 9 の既定 new Quat() は
+        //     全 0 (w=0) となり意味が変わる。単位が必要な箇所は必ず Quat.Identity を使うこと。
+        //     (現状 new Quat() の呼び出しは無く、配列 new Quat[] は元々ゼロ初期化で不変)。
         public Quat(float x, float y, float z, float w) { this.x = x; this.y = y; this.z = z; this.w = w; }
 
         // Convert from axis-angle (Bullet の回転表現と同等)
@@ -293,15 +297,16 @@ namespace BulletPhysics
         public float m20, m21, m22, m23;
         public float m30, m31, m32, m33;
 
-        public Matrix4x4()
+        // 注: パラメータなしコンストラクタは C# 10 以降の機能 (Unity=C# 9 では不可) のため置かない。
+        //     旧コンストラクタは単位行列を既定にしていたが、C# 9 の既定 new Matrix4x4() は全 0 になる。
+        //     単位行列は下の Identity を使うこと (対角のみ 1、オブジェクト初期化子で明示構築)。
+        public static Matrix4x4 Identity => new Matrix4x4
         {
-            m00 = 1; m01 = 0; m02 = 0; m03 = 0;
-            m10 = 0; m11 = 1; m12 = 0; m13 = 0;
-            m20 = 0; m21 = 0; m22 = 1; m23 = 0;
-            m30 = 0; m31 = 0; m32 = 0; m33 = 1;
-        }
-
-        public static Matrix4x4 Identity => new();
+            m00 = 1, m01 = 0, m02 = 0, m03 = 0,
+            m10 = 0, m11 = 1, m12 = 0, m13 = 0,
+            m20 = 0, m21 = 0, m22 = 1, m23 = 0,
+            m30 = 0, m31 = 0, m32 = 0, m33 = 1,
+        };
 
         public static Matrix4x4 Translation(Vec3 t)
         {
