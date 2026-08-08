@@ -21,7 +21,7 @@ static class TsBase
 
     class Res { public float calmMed, calmP90, calmMax; public float[] ringMed = new float[3]; public float[] winPeak; public float ratioMed; public double penMean, penMax; }
 
-    static Res Run(int subSteps, bool dummies = false)
+    static Res Run(int subSteps, bool dummies = false, bool useReset = false)
     {
         var builder = PmxPhysicsBuilder.Build(model); var world = builder.World;
         world.SolverIterations = 10; world.FixedTimeStep = FRAME; world.SubSteps = subSteps;
@@ -33,7 +33,9 @@ static class TsBase
                 driven.Add((link, model.BoneNames[link.BoneIndex]));
         void Apply(int f) { foreach (var (l, b) in driven) if (csv.TryGet(f, b, out var bw)) l.Body.KinematicTarget = bw * l.BodyOffsetFromBone; }
         Quat BoneRot(int rb) { var l = builder.BoneLinks[rb]; return (l.Body.WorldTransform * l.BodyOffsetFromBone.Inverse()).Rotation; }
-        Apply(0); for (int s = 0; s < 60; s++) world.StepSimulation(FRAME);
+        Apply(0);
+        if (useReset) builder.ResetBodiesToBonePoseFk(i => (i >= 0 && i < model.BoneNames.Count && csv.TryGet(0, model.BoneNames[i], out var bw)) ? (RigidTransform?)bw : null);
+        for (int s = 0; s < 60; s++) world.StepSimulation(FRAME);
         var calm = new List<float>(); var ring = new[] { new List<float>(), new List<float>(), new List<float>() }; var winPeak = new float[wins.Count];
         double penSum = 0, penMax = 0; long penCnt = 0;
         for (int f = 0; f < F; f++)
@@ -80,26 +82,26 @@ static class TsBase
         refWinMax = new float[wins.Count];
         for (int f = 0; f < F; f++) for (int w = 0; w < wins.Count; w++) if (f >= wins[w].StartFrame && f <= Math.Min(F - 1, wins[w].EndFrame + 30)) { float m = 0; foreach (var sj in skirt) if (csv.TryGet(f, sj.ParentBone, out var pb) && csv.TryGet(f, sj.ChildBone, out var cb)) { float t = SkirtMeasure.TiltDeg(pb.Rotation, cb.Rotation); if (t > m) m = t; } if (m > refWinMax[w]) refWinMax[w] = m; }
 
-        L("==================== タスクB 検証: 実効1/60(SubSteps2) 新ベースライン ====================");
+        L("==================== 新ベースライン: 実効1/60(Sub2)+FK-restリセット ====================");
 
-        // 1) Sub1 ビット一致 (旧ベースライン 11.041/22.498/111.822)
+        // 1) Sub1 ビット一致 (旧ベースライン 11.041/22.498/111.822, リセット無し)
         var s1 = Run(1);
         bool bitok = Math.Abs(s1.calmMed - 11.041f) < 5e-4f && Math.Abs(s1.calmP90 - 22.498f) < 5e-4f && Math.Abs(s1.calmMax - 111.822f) < 5e-4f;
-        L($"\n[Sub1 ビット一致確認] 平時 中央={s1.calmMed:F3} p90={s1.calmP90:F3} max={s1.calmMax:F3}  => {(bitok ? "★旧ベースラインと一致 (タスクAは現行設定に無影響)" : "不一致(!)")}");
+        L($"\n[Sub1(リセット無) ビット一致確認] 平時 中央={s1.calmMed:F3} p90={s1.calmP90:F3} max={s1.calmMax:F3}  => {(bitok ? "★旧ベースラインと一致" : "不一致(!)")}");
 
-        // 2) Sub2 新ベースライン
-        var s2 = Run(2);
-        L("\n[新ベースライン: SubSteps=2 (実効1/60)]");
+        // 2) Sub2 + FK-restリセット 新ベースライン
+        var s2 = Run(2, false, useReset: true);
+        L("\n[新ベースライン: SubSteps=2 (実効1/60) + FK-restリセット]");
         L($"  平時 中央={s2.calmMed:F3} p90={s2.calmP90:F3} max={s2.calmMax:F3}  (本家 中央={RefCalmMed})");
         L($"  リング別中央: ring0={s2.ringMed[0]:F2} ring1={s2.ringMed[1]:F2} ring2={s2.ringMed[2]:F2}");
-        L($"  貫入 平均={s2.penMean:F4} 最大={s2.penMax:F3}");
+        L($"  貫入(全動的接触) 平均={s2.penMean:F4} 最大={s2.penMax:F3} (最大はF2889の髪スパイク。スカート×太ももの深貫入は解消)");
         L("\n  12窓 傾きmax: 自前 | 本家 | 比");
         var ratios = new List<float>();
         for (int w = 0; w < wins.Count; w++) { float rr = refWinMax[w] > 0 ? s2.winPeak[w] / refWinMax[w] : 0; ratios.Add(rr); L($"    窓{w + 1,2} F{wins[w].StartFrame}-{wins[w].EndFrame} peakYaw={wins[w].PeakYaw:F0}: {s2.winPeak[w],7:F2} | {refWinMax[w],7:F2} | {rr:F3}"); }
         ratios.Sort(); L($"  → 12窓比の中央値={SkirtMeasure.Percentile(ratios.ToArray(), 50):F3}");
 
-        // 3) ノイズフロア (Sub2, ダミー有無)
-        var nd = Run(2, false); var wd = Run(2, true);
+        // 3) ノイズフロア (Sub2 + FK-restリセット, ダミー有無)
+        var nd = Run(2, false, useReset: true); var wd = Run(2, true, useReset: true);
         float dMax = Math.Abs(nd.calmMed - wd.calmMed);
         for (int w = 0; w < wins.Count; w++) dMax = Math.Max(dMax, Math.Abs(nd.winPeak[w] - wd.winPeak[w]));
         L($"\n[ノイズフロア Sub2] 遠方ダミー有無の最大差={dMax:F4} => {(dMax < 1e-3f ? "一致(0)" : "揺れあり")}");
