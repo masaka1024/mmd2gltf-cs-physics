@@ -94,6 +94,9 @@ namespace BulletPhysics
         private readonly bool[] _warmAngSeen = new bool[3];       // このサブステップで当該 DOF の角度 warm 行が出たか。
         // 診断: 角度 warm 行の総数と、同一性(側)が前サブステップから変わった行数。
         public static long WarmAngRows, WarmAngToggles;
+        // warm-start 引継ぎ係数 (Bullet m_warmstartingFactor 相当, 既定0.85)。過拘束系で
+        // 引継ぎインパルスがラチェット的に積み上がるのを抑える。1.0=減衰なし(積み上がりやすい)。
+        public static float WarmStartFactor = 0.85f;
 
         // --- ファクトリ: PMX Joint 種から生成 ---
 
@@ -272,7 +275,7 @@ namespace BulletPhysics
             // (a-1) 直線ロック行のみ warm-start: 前サブステップの蓄積で初期化する。
             bool warm = _warmStart && locked;
             float acc = 0f;
-            if (warm) { _warmLinSeen[dof] = true; acc = Math.Max(lo, Math.Min(hi, _warmLin[dof])); }
+            if (warm) { _warmLinSeen[dof] = true; acc = Math.Max(lo, Math.Min(hi, _warmLin[dof] * WarmStartFactor)); }
             _rows.Add(new ConstraintRow
             {
                 Axis = axis, Angular = false, RelA = rA, RelB = rB,
@@ -299,7 +302,7 @@ namespace BulletPhysics
                 WarmAngRows++;
                 bool sameSide = _warmAngPrevSide[dof] == sideCode;
                 if (!sameSide) WarmAngToggles++;
-                acc = sameSide ? Math.Max(lo, Math.Min(hi, _warmAng[dof])) : 0f;
+                acc = sameSide ? Math.Max(lo, Math.Min(hi, _warmAng[dof] * WarmStartFactor)) : 0f;
                 _warmAngPrevSide[dof] = sideCode;
             }
             _rows.Add(new ConstraintRow

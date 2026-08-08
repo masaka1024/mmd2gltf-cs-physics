@@ -46,6 +46,7 @@ namespace BoneCheck
             if (System.Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
             if (System.Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
             if (int.TryParse(System.Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it; // 反復掃引(診断)
+            if (float.TryParse(System.Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) Joint.WarmStartFactor = _wf;
 
             // BoneFollow リンク: bone名 → CSV姿勢で駆動。CSVに無いものは記録して据え置き。
             var driven = new List<(BoneLink link, string bone)>();

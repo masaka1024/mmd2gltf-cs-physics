@@ -74,6 +74,7 @@ static class RestSim
         if (Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
         if (Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
         BulletPhysics.Joint.WarmAngRows = 0; BulletPhysics.Joint.WarmAngToggles = 0;
+        if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) BulletPhysics.Joint.WarmStartFactor = _wf;
 
         // タスクC: ジョイント求解順序切替 (エンジン無改変, world.Joints を並べ替えるだけ)。
         // キネマティック根から BFS で各剛体の深さを求め、各ジョイントの深さ=max(端点深さ) で並べる。
