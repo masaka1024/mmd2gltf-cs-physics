@@ -21,6 +21,27 @@ PMX 2.1仕様に準拠したMMD物理演算エンジン。外部ネイティブ�
 - PmxPhysicsBuilder (PMX→World変換 + ボーン紐付け) — 完了
 - Unity ブリッジ MmdPhysicsBehaviour (座標変換/単位スケール/ボーン同期) — 完了
 
+## Bullet 2.75 の接触ソルバ既定値 (2026-08-08 調査)
+MMD/PMXエディタが依拠する Bullet **2.75** の `btContactSolverInfo` 既定値
+(vancegroup-mirrors/bullet-physics `bullet-2.75` タグのソースで確認):
+
+| 項目 | 2.75 | master(参考) | 2.82(参考) |
+|---|---|---|---|
+| `m_splitImpulse` | **false** | true | true |
+| `m_splitImpulsePenetrationThreshold` | **-0.02** | -0.04 | -0.04 |
+| `m_erp` | 0.2 | 0.2 | 0.2 |
+| `m_erp2` | 0.1 | 0.2 | 0.8 |
+| `m_splitImpulseTurnErp` | **無し(未実装)** | 0.1 | 0.1 |
+| `m_numIterations` | 10 | 10 | 10 |
+
+- **2.75 では Split Impulse は既定 OFF**。2.75 の `convertContact` の split 経路は、
+  位置補正インパルス (`m_erp` で計算) を「速度側 rhs に足す」か「擬似側 rhsPenetration へ回す」かの
+  振り分けのみで、**接触の split には erp2 を使わない** (erp2 はジョイント側 ERP)。
+- したがって、MMD が 2.75 既定のままなら本家も Baumgarte-in-velocity (当方の従来方式) 相当であり、
+  Split Impulse 化が本家へ「近づく」保証はない。**MMD が既定を上書きしているかは未確認**。
+- なお master/2.82 では既定 true。効果検証の価値はあるため、当方でも実装して測る方針とする
+  (実装と測定結果は別コミット)。
+
 ## 本体是正 (2026-08-08)
 - 接触制約の解く順序を決定化: `BuildContactConstraints` が `_manifolds` (Dictionary) を
   列挙する順序は挿入/削除履歴に依存し非決定的だった。剛体indexの組 (PairKey) の昇順に
