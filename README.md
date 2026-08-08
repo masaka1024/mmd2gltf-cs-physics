@@ -36,8 +36,21 @@ IA などの MMD モデルは**再配布しないため、このリポジトリ�
   - `testdata/IA.pmx` — モデル本体
   - `testdata/IA_bone_world_pose.csv` — 本家ベイクのボーン世界姿勢CSV (30fps)
   - `testdata/ia.csv` — PMXエディタの構造エクスポート (剛体/Joint/ボーン照合用, pmxverify)
-- または環境変数で指定: `MMD_TEST_PMX` / `MMD_TEST_BONECSV` / `MMD_TEST_PMXCSV`。
+  - `testdata/IA.glb` — glTF バイナリ (`extras.mmd` 付き。GLB経由入力 `GlbPhysicsReader` の検証用, glbverify)
+- または環境変数で指定: `MMD_TEST_PMX` / `MMD_TEST_BONECSV` / `MMD_TEST_PMXCSV` / `MMD_TEST_GLB`。
 - どちらも無ければ、モデル依存の検証は自動で **SKIP** されます（他は動きます）。
+
+### GLB (extras.mmd 付き) の作り方
+GLB 経由の物理入力（`Assets/Scripts/Pmx/GlbPhysicsReader.cs`）は、`extras.mmd` を含む GLB を要します。
+[mmd2gltf-gui](https://github.com/masaka1024/) の変換器（標準ライブラリのみ・依存なし）で PMX から生成できます:
+
+```bash
+python -m mmd2gltf path/to/IA.pmx -o testdata/IA.glb
+```
+
+`extras.mmd` は既定で出力され、剛体/Joint を PMX raw のまま、ボーンを glTF ノードとして持ちます
+（スケール `unitScale=0.08`・座標変換は当エンジンと一致）。PMX 直読み経路と全項目・300ステップ物理が
+ビット一致することを `glbverify` で確認済みです。
 
 ## 対象環境 / 言語バージョン (C# 9)
 
