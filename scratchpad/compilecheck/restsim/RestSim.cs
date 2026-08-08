@@ -71,7 +71,9 @@ static class RestSim
         if (float.TryParse(Environment.GetEnvironmentVariable("BETA"), out var bt)) { beta = bt; foreach (var j in world.Joints) j.Beta = bt; }
         if (Environment.GetEnvironmentVariable("SPLIT") == "1") world.UseSplitImpulse = true;
         if (Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
+        if (Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
         if (Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
+        BulletPhysics.Joint.WarmAngRows = 0; BulletPhysics.Joint.WarmAngToggles = 0;
 
         // タスクC: ジョイント求解順序切替 (エンジン無改変, world.Joints を並べ替えるだけ)。
         // キネマティック根から BFS で各剛体の深さを求め、各ジョイントの深さ=max(端点深さ) で並べる。
@@ -240,6 +242,8 @@ static class RestSim
         }
         O.AppendLine($"[after] boxes with center INSIDE a leg capsule (clear<-0.02) = {wrongSide}/{skirt.Count}  worst={worstNeg:F4} ({worstNegName})");
         O.AppendLine($"[after] boxes that FLIPPED outside->inside(=突き抜け疑い) = {flipped}/{skirt.Count}");
+        long war = BulletPhysics.Joint.WarmAngRows, wat = BulletPhysics.Joint.WarmAngToggles;
+        if (war > 0) O.AppendLine($"[warm-ang] 角度warm行={war} トグル={wat} トグル率={(double)wat / war:P1}");
         Console.Write(O.ToString());
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "restsim_out.txt"), O.ToString(), new UTF8Encoding(false));
         return 0;

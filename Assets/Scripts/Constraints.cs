@@ -86,6 +86,14 @@ namespace BulletPhysics
         private bool _warmStart;
         private readonly float[] _warmLin = new float[3];   // 直線 DOF 別の前サブステップ蓄積インパルス。
         private readonly bool[] _warmLinSeen = new bool[3];  // このサブステップで当該 DOF の warm 対象行が出たか。
+        // ステップ2(a-2): 角度 warm-start。同一性キー=軸(dof)+側(sideCode: 0=locked/1=lower/2=upper)。
+        // 前サブステップと同じ側なら引き継ぎ、変われば破棄する (Euler 分解で軸/側がトグルする問題対策)。
+        private bool _warmStartAng;
+        private readonly float[] _warmAng = new float[3];        // 角度 DOF 別の蓄積インパルス。
+        private readonly int[] _warmAngPrevSide = { -1, -1, -1 }; // 前サブステップの側 (-1=不在)。
+        private readonly bool[] _warmAngSeen = new bool[3];       // このサブステップで当該 DOF の角度 warm 行が出たか。
+        // 診断: 角度 warm 行の総数と、同一性(側)が前サブステップから変わった行数。
+        public static long WarmAngRows, WarmAngToggles;
 
         // --- ファクトリ: PMX Joint 種から生成 ---
 
@@ -160,11 +168,13 @@ namespace BulletPhysics
         private static bool IsFree(float lo, float hi) => lo > hi;
 
         // --- 準備: フレーム/アンカー/行を構築 ---
-        public void Prepare(float dt, bool splitBias = false, bool warmStart = false)
+        public void Prepare(float dt, bool splitBias = false, bool warmStart = false, bool warmStartAng = false)
         {
             _splitBias = splitBias;
             _warmStart = warmStart;
+            _warmStartAng = warmStartAng;
             _warmLinSeen[0] = _warmLinSeen[1] = _warmLinSeen[2] = false;
+            _warmAngSeen[0] = _warmAngSeen[1] = _warmAngSeen[2] = false;
             _rows.Clear();
             if (BodyA == null || BodyB == null) return;
 
@@ -212,27 +222,39 @@ namespace BulletPhysics
 
                 float cur = euler[i];
                 float err, lower, upper;
-                if (IsLocked(lo, hi)) { err = lo - cur; lower = -1e18f; upper = 1e18f; }
-                else if (cur < lo) { err = lo - cur; lower = 0f; upper = 1e18f; }
-                else if (cur > hi) { err = hi - cur; lower = -1e18f; upper = 0f; }
+                int sideCode;
+                if (IsLocked(lo, hi)) { err = lo - cur; lower = -1e18f; upper = 1e18f; sideCode = 0; }
+                else if (cur < lo) { err = lo - cur; lower = 0f; upper = 1e18f; sideCode = 1; }
+                else if (cur > hi) { err = hi - cur; lower = -1e18f; upper = 0f; sideCode = 2; }
                 else continue;
 
-                AddAngularRow(axis, Clamp(err * Beta * invDt), lower, upper, i);
+                AddAngularRow(axis, Clamp(err * Beta * invDt), lower, upper, i, sideCode);
             }
 
-            // (a-1) warm-start: 今サブステップで warm 対象にならなかった直線 DOF の蓄積は破棄
+            // warm-start: 今サブステップで warm 対象にならなかった DOF の蓄積は破棄する
             // (常時アクティブでない DOF の古い力積を誤って引き継がないため)。
-            if (_warmStart)
+            if (_warmStart) for (int i = 0; i < 3; i++) if (!_warmLinSeen[i]) _warmLin[i] = 0f;
+            if (_warmStartAng) for (int i = 0; i < 3; i++) if (!_warmAngSeen[i]) { _warmAng[i] = 0f; _warmAngPrevSide[i] = -1; }
+
+            // 前サブステップの蓄積インパルスを反復前に一度適用する (Bullet の warm-start と同型)。
+            if (_warmStart || _warmStartAng)
             {
-                for (int i = 0; i < 3; i++) if (!_warmLinSeen[i]) _warmLin[i] = 0f;
-                // 前サブステップの蓄積インパルスを反復前に一度適用する (Bullet の warm-start と同型)。
                 for (int r = 0; r < _rows.Count; r++)
                 {
                     var row = _rows[r];
                     if (!row.WarmStartable) continue;
-                    var P = row.Axis * row.Accumulated;
-                    BodyA.ApplyImpulse(-P, row.RelA);
-                    BodyB.ApplyImpulse(P, row.RelB);
+                    if (row.Angular)
+                    {
+                        var L = row.Axis * row.Accumulated;
+                        BodyA.ApplyTorqueImpulse(-L);
+                        BodyB.ApplyTorqueImpulse(L);
+                    }
+                    else
+                    {
+                        var P = row.Axis * row.Accumulated;
+                        BodyA.ApplyImpulse(-P, row.RelA);
+                        BodyB.ApplyImpulse(P, row.RelB);
+                    }
                 }
             }
         }
@@ -262,10 +284,24 @@ namespace BulletPhysics
             });
         }
 
-        private void AddAngularRow(Vec3 axis, float targetVel, float lo, float hi, int dof)
+        private void AddAngularRow(Vec3 axis, float targetVel, float lo, float hi, int dof, int sideCode)
         {
             float k = axis.Dot(BodyA.InverseInertiaWorld * axis)
                     + axis.Dot(BodyB.InverseInertiaWorld * axis);
+            // (a-2) 角度 warm-start: 前サブステップと同じ側(sideCode)なら蓄積を引き継ぎ、
+            // 側が変わった/不在だった場合は破棄(0スタート)。トグル頻度を診断カウント。
+            bool warm = false;
+            float acc = 0f;
+            if (_warmStartAng)
+            {
+                warm = true;
+                _warmAngSeen[dof] = true;
+                WarmAngRows++;
+                bool sameSide = _warmAngPrevSide[dof] == sideCode;
+                if (!sameSide) WarmAngToggles++;
+                acc = sameSide ? Math.Max(lo, Math.Min(hi, _warmAng[dof])) : 0f;
+                _warmAngPrevSide[dof] = sideCode;
+            }
             _rows.Add(new ConstraintRow
             {
                 Axis = axis, Angular = true,
@@ -273,7 +309,7 @@ namespace BulletPhysics
                 TargetVel = _splitBias ? 0f : targetVel,
                 PositionBias = _splitBias ? targetVel : 0f,
                 EffMass = k > 0 ? 1f / k : 0f,
-                Dof = dof,
+                Dof = dof, WarmStartable = warm, Accumulated = acc,
             });
         }
 
@@ -359,8 +395,8 @@ namespace BulletPhysics
                     BodyA.ApplyImpulse(-P, row.RelA);
                     BodyB.ApplyImpulse(P, row.RelB);
                 }
-                // (a-1) warm-start: 直線ロック行の最終累積を次サブステップへ引き継ぐ。
-                if (row.WarmStartable) _warmLin[row.Dof] = row.Accumulated;
+                // warm-start: 行の最終累積を次サブステップへ引き継ぐ (角度→_warmAng / 直線→_warmLin)。
+                if (row.WarmStartable) { if (row.Angular) _warmAng[row.Dof] = row.Accumulated; else _warmLin[row.Dof] = row.Accumulated; }
                 _rows[r] = row;
             }
         }

@@ -64,6 +64,7 @@ static class ChainBug
         world.SubSteps = subs;
         world.SolverIterations = iters;
         if (System.Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
+        if (System.Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
         if (System.Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
         if (beta >= 0f) foreach (var j in world.Joints) j.Beta = beta;
 
@@ -170,6 +171,7 @@ static class ChainBug
         world.SubSteps = 2;
         world.SolverIterations = iters;
         if (System.Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
+        if (System.Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
         if (System.Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
         var init = new Vec3[dyn.Count];
         for (int i = 0; i < dyn.Count; i++) init[i] = dyn[i].WorldTransform.Origin;

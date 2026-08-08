@@ -23,7 +23,8 @@ static class Harness
     // 計測用トグル (既定OFF=挙動不変)。env JSPLIT=1 でジョイントの split-impulse を全ワールドに適用。
     static readonly bool JSplit = Environment.GetEnvironmentVariable("JSPLIT") == "1";
     static readonly bool WarmS = Environment.GetEnvironmentVariable("WARMSTART") == "1";
-    static PhysicsWorld Cfg(PhysicsWorld w) { w.UseJointSplitImpulse = JSplit; w.UseJointWarmStart = WarmS; return w; }
+    static readonly bool WarmA = Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1";
+    static PhysicsWorld Cfg(PhysicsWorld w) { w.UseJointSplitImpulse = JSplit; w.UseJointWarmStart = WarmS || WarmA; w.UseJointWarmStartAngular = WarmA; return w; }
 
     static int Main()
     {

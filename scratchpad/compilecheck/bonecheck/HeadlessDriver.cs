@@ -43,6 +43,7 @@ namespace BoneCheck
             if (SolverIterationsOverride > 0) world.SolverIterations = SolverIterationsOverride; // 診断用
             // 計測トグル (既定OFF=挙動不変)。VMD統計を OFF/ON で本家比較するため env で切替。
             if (System.Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
+            if (System.Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
             if (System.Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
             if (int.TryParse(System.Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it; // 反復掃引(診断)
 

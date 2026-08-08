@@ -57,6 +57,9 @@ namespace BulletPhysics
         // ステップ2(a-1): ジョイントの直線ロック行のみ warm-start (蓄積インパルスをサブステップ間で引継ぎ)。
         // 既定 false=挙動不変。長い剛体チェーンの PGS 未収束(垂れ/暴れ)対策。
         public bool UseJointWarmStart = false;
+        // ステップ2(a-2): 角度行も warm-start (同一性キー=軸+側 lo/hi、同一性が変わればキャッシュ破棄)。
+        // UseJointWarmStart と併用。既定 false=挙動不変。IA髪の角度支配ドリフト対策。
+        public bool UseJointWarmStartAngular = false;
         public float SplitImpulsePenetrationThreshold = -0.02f; // Bullet 2.75 m_splitImpulsePenetrationThreshold
 
         public readonly List<RigidBody> Bodies = new();
@@ -141,7 +144,7 @@ namespace BulletPhysics
             BroadphaseNarrowphase();
             BuildContactConstraints(dt);
 
-            foreach (var j in Joints) j.Prepare(dt, UseJointSplitImpulse, UseJointWarmStart);
+            foreach (var j in Joints) j.Prepare(dt, UseJointSplitImpulse, UseJointWarmStart, UseJointWarmStartAngular);
             foreach (var j in Joints) j.ApplySprings(dt);
 
             WarmStart();
