@@ -77,6 +77,7 @@ static class PmxVerify
         CheckCollision(model, builder);
         CheckInertia(model, builder);
         CheckJoints(model, builder, bodyCsvByName);
+        CheckBoneHierarchy(model);
 
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "pmxverify_out.txt"), O.ToString(), new UTF8Encoding(false));
         Console.Write(O.ToString());
@@ -313,6 +314,27 @@ static class PmxVerify
                 return true;
         }
         return true;
+    }
+
+    // ---------- 7. ボーン親階層 ----------
+    static void CheckBoneHierarchy(PmxPhysicsModel model)
+    {
+        L("\n---------- 7. ボーン親階層 (エンジン BoneParents vs CSV 親ボーン名列) ----------");
+        int n = Math.Min(rowsBone.Count, model.BoneParents.Count);
+        int nameMis = 0, parentMis = 0, rootCount = 0;
+        for (int i = 0; i < n; i++)
+        {
+            // 順序(名前)確認
+            if (Unq(rowsBone[i][1]) != model.BoneNames[i]) { nameMis++; if (nameMis <= 8) L($"    [ボーン名/順序不一致] idx{i}: CSV='{Unq(rowsBone[i][1])}' エンジン='{model.BoneNames[i]}'"); }
+            // CSV親名 (14列目=index13, "" はルート)
+            string csvParent = Unq(rowsBone[i][13]);
+            int pi = model.BoneParents[i];
+            string engParent = (pi >= 0 && pi < model.BoneNames.Count) ? model.BoneNames[pi] : "";
+            if (pi < 0) rootCount++;
+            if (csvParent != engParent) { parentMis++; if (parentMis <= 12) L($"    [親不一致] {model.BoneNames[i]}: CSV親='{csvParent}' エンジン親='{engParent}'(idx{pi})"); }
+        }
+        L($"  照合ボーン数={n}  名前(順序)不一致={nameMis}  親不一致={parentMis}  ルート(親-1)={rootCount}");
+        L($"  => {(nameMis == 0 && parentMis == 0 ? "全ボーンで親が CSV と一致" : "不一致あり(上記)")}");
     }
 
     // ---------- CSV パース ----------

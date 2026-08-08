@@ -180,8 +180,8 @@ namespace BulletPhysics.Pmx
                 model.BoneNames.Add(ReadText());        // 名前
                 ReadText();                             // 名前英
                 model.BonePositions.Add(ReadVec3());    // 位置
-                Skip(_boneIndexSize);                   // 親
-                Skip(4);                                // 変形階層
+                model.BoneParents.Add(ReadIndex(_boneIndexSize));  // 親 (-1 = ルート)
+                model.BoneDeformLayers.Add(_r.ReadInt32());        // 変形階層
                 ushort flags = _r.ReadUInt16();
 
                 bool connectByBone = (flags & 0x0001) != 0;

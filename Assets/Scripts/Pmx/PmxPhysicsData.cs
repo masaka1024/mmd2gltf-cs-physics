@@ -93,8 +93,10 @@ namespace BulletPhysics.Pmx
         public readonly List<PmxJoint> Joints = new();
         public readonly List<PmxSoftBody> SoftBodies = new();
 
-        // ボーン名 (剛体<->ボーン紐付け用に最小限保持)。
+        // ボーン名 (剛体<->ボーン紐付け用に最小限保持)。BoneNames と同じ添字で引ける。
         public readonly List<string> BoneNames = new();
         public readonly List<Vec3> BonePositions = new();
+        public readonly List<int> BoneParents = new();       // 親ボーンindex (-1 = ルート)
+        public readonly List<int> BoneDeformLayers = new();  // 変形階層 (FK計算順の参考)
     }
 }
