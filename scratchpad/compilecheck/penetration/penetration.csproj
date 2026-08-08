@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>9.0</LangVersion>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>Pen</AssemblyName>
+    <StartupObject>Pen</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\UnityShim.cs" />
+    <Compile Include="..\bonecheck\BoneCsv.cs" />
+    <Compile Include="..\bonecheck\SkirtMeasure.cs" />
+    <Compile Include="Pen.cs" />
+    <Compile Include="..\..\..\Assets\Scripts\**\*.cs" />
+  </ItemGroup>
+</Project>
