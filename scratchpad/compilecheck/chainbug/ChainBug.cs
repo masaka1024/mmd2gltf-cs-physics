@@ -241,6 +241,22 @@ static class ChainBug
     {
         var task = Environment.GetEnvironmentVariable("TASK") ?? "A";
         if (task == "1") { var s1 = new StringBuilder(); Step1(s1); Console.Write(s1.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_step1_out.txt"), s1.ToString()); return 0; }
+        if (task == "3")
+        {
+            // タスク3: 向き × iters, 実髪形状capsule(m1,seg2,lever1)。warm等は env で切替(既定OFF)。
+            var s3 = new StringBuilder();
+            s3.AppendLine("== タスク3: 向き×iters (実髪capsule 0.4/2.0, mass1, lever1) maxDrift ==");
+            (string nm, Vec3 dir)[] dirs = { ("斜め45", new Vec3(1, -1, 0)), ("実髪比率", new Vec3(0.5f, -1f, 0.6f)), ("水平", new Vec3(1, 0, 0)), ("真下(参考)", new Vec3(0, -1, 0)) };
+            int[] its = { 10, 20, 40, 100 };
+            s3.Append("  向き\\iters |"); foreach (var it in its) s3.Append($" {it,8} |"); s3.AppendLine();
+            foreach (var (nm, dir) in dirs)
+            {
+                s3.Append($"  {nm,-9}|");
+                foreach (var it in its) { var (d, _) = RunEx(6, it, 1.0f, 2.0f, 1, 0.4f, 2.0f, 1.0f, false, dir); s3.Append($" {d,8:F4} |"); }
+                s3.AppendLine();
+            }
+            Console.Write(s3.ToString()); return 0;
+        }
         if (task == "B") { var s2 = new StringBuilder(); TaskB(s2); Console.Write(s2.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_B_out.txt"), s2.ToString()); return 0; }
         if (task == "C") { var s3 = new StringBuilder(); TaskC(s3); Console.Write(s3.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_C_out.txt"), s3.ToString()); return 0; }
 
