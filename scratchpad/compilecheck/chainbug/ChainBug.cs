@@ -78,8 +78,34 @@ static class ChainBug
         return (maxDrift, maxSpeed);
     }
 
+    // タスクB: サブステップ悪化の再検証。beta(既定0.2 vs 0)× subs(1,2,4,8) を掃引。
+    static void TaskB(StringBuilder sb)
+    {
+        float mass = 0.02f;
+        int[] subsSet = { 1, 2, 4, 8 };
+        int[] Ns = { 6, 10 };
+        sb.AppendLine("==================== タスクB: サブステップ悪化の検証(合成チェーン) ====================");
+        sb.AppendLine("iters=10固定。Baumgarte補正速度は Beta*err/dt で刻みが細かいほど強い。");
+        sb.AppendLine("Beta=0(位置補正なし)で subs 悪化が消えれば注入源=Baumgarte と確定。");
+        foreach (var n in Ns)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"[N={n}] maxDrift / maxSpeed :");
+            sb.Append("   beta\\subs |"); foreach (var s in subsSet) sb.Append($" {s,14} |"); sb.AppendLine();
+            foreach (var beta in new[] { 0.2f, 0.0f })
+            {
+                sb.Append($"   {beta,8:F2} |");
+                foreach (var s in subsSet) { var (d, v) = Run(n, 10, s, beta, mass, false); sb.Append($" {d,6:F4}/{v,6:F3} |"); }
+                sb.AppendLine();
+            }
+        }
+    }
+
     static int Main()
     {
+        var task = Environment.GetEnvironmentVariable("TASK") ?? "A";
+        if (task == "B") { var s2 = new StringBuilder(); TaskB(s2); Console.Write(s2.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_B_out.txt"), s2.ToString()); return 0; }
+
         int[] Ns = { 1, 2, 3, 4, 5, 6, 8, 10 };
         int[] iterSet = { 10, 20, 40, 100 };
         float mass = 0.02f;
