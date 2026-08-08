@@ -21,10 +21,20 @@ namespace BulletPhysics.Pmx
         // よって glTF ローカル並進 lt から raw ローカルへ戻すのは (lt.x/s, lt.y/s, -lt.z/s)。
         // (バインドは回転恒等なので world = ローカルの単純合成でよい。)
 
-        public static PmxPhysicsModel LoadFile(string path)
+        // 読み取り中に検出した異常(欠損・範囲外など)の警告。呼び出し側でログ表示できる。
+        // 例外は投げず、可能な範囲で読み進めた結果を返す方針。
+        public static PmxPhysicsModel LoadFile(string path) => LoadFile(path, out _, out _);
+
+        public static PmxPhysicsModel LoadFile(string path, out float unitScale) => LoadFile(path, out unitScale, out _);
+
+        public static PmxPhysicsModel LoadFile(string path, out float unitScale, out List<string> warnings)
+            => LoadBytes(File.ReadAllBytes(path), out unitScale, out warnings);
+
+        // バイト列(GLB)から直接読む (テスト・メモリ入力用)。
+        public static PmxPhysicsModel LoadBytes(byte[] glb, out float unitScale, out List<string> warnings)
         {
-            ParseGlb(File.ReadAllBytes(path), out var root, out _);
-            return BuildModel(root);
+            ParseGlb(glb, out var root, out _);
+            return BuildModel(root, out unitScale, out warnings);
         }
 
         // ibm(inverseBindMatrices)から算出した raw PMX ボーン world 位置 (検証の別経路)。
@@ -74,19 +84,25 @@ namespace BulletPhysics.Pmx
             root = MiniJson.Obj(MiniJson.Parse(json));
         }
 
-        // ---- extras.mmd → PmxPhysicsModel ----
-        private static PmxPhysicsModel BuildModel(Dictionary<string, object> root)
+        // ---- extras.mmd → PmxPhysicsModel (防御的: 欠損/範囲外でも例外を投げず読み進める) ----
+        private static PmxPhysicsModel BuildModel(Dictionary<string, object> root, out float unitScale, out List<string> warnings)
         {
+            warnings = new List<string>();
             var model = new PmxPhysicsModel();
             var mm = MiniJson.Obj(MiniJson.Get(MiniJson.Obj(MiniJson.Get(root, "extras")), "mmd"));
-            if (mm == null) throw new InvalidDataException("extras.mmd が無い GLB (物理情報なし)");
+            if (mm == null) { warnings.Add("extras.mmd が無い (物理情報なし)。ボーンのみ読み進める。"); mm = new Dictionary<string, object>(); }
             float scale = MiniJson.Flt(MiniJson.Get(mm, "unitScale"));
+            if (scale <= 0f) { if (mm.Count > 0) warnings.Add($"unitScale が不正 ({scale})。1.0 として続行。"); scale = 1f; }
+            unitScale = scale;
 
             // --- ボーン (nodes + skins[0].joints) ---
             var nodes = MiniJson.Arr(MiniJson.Get(root, "nodes"));
-            var skin0 = MiniJson.Obj(MiniJson.Arr(MiniJson.Get(root, "skins"))[0]);
+            var skins = MiniJson.Arr(MiniJson.Get(root, "skins"));
+            var skin0 = (skins != null && skins.Count > 0) ? MiniJson.Obj(skins[0]) : null;
             var jointNodes = MiniJson.Arr(MiniJson.Get(skin0, "joints"));
-            int nb = jointNodes.Count;
+            int nb = (jointNodes != null && nodes != null) ? jointNodes.Count : 0;
+            if (nodes == null || skin0 == null || jointNodes == null)
+                warnings.Add("nodes/skins/joints が無いためボーン0件で続行。");
 
             var localRaw = new Vec3[nb];       // raw PMX ローカル並進
             var parent = new int[nb];
@@ -94,13 +110,16 @@ namespace BulletPhysics.Pmx
 
             for (int i = 0; i < nb; i++)
             {
-                var node = MiniJson.Obj(nodes[MiniJson.Int(jointNodes[i])]);
+                int ni = MiniJson.Int(jointNodes[i]);
+                var node = (ni >= 0 && ni < nodes.Count) ? MiniJson.Obj(nodes[ni]) : null;
+                if (node == null) { warnings.Add($"ボーン{i} のノードindex {ni} が範囲外。"); model.BoneNames.Add("bone_" + i); model.BoneDeformLayers.Add(0); continue; }
                 model.BoneNames.Add(MiniJson.Str(MiniJson.Get(node, "name")) ?? ("bone_" + i));
                 var lt = Vec3FromArr(MiniJson.Get(node, "translation"));
                 localRaw[i] = new Vec3(lt.x / scale, lt.y / scale, -lt.z / scale); // glTF→raw
                 var ex = MiniJson.Obj(MiniJson.Get(MiniJson.Obj(MiniJson.Get(node, "extras")), "mmd"));
                 model.BoneDeformLayers.Add(ex != null ? MiniJson.Int(MiniJson.Get(ex, "layer")) : 0);
             }
+            if (nodes != null)
             // 親: 各ノードの children から。子ノードindexが 0..nb-1 のボーンなら親を設定。
             //     親ノードが 0..nb-1 のボーンなら親=そのindex、そうでなければ(スケルトンroot等)=-1。
             for (int j = 0; j < nodes.Count; j++)
@@ -175,6 +194,17 @@ namespace BulletPhysics.Pmx
                         SpringAngular = Vec3FromArr(MiniJson.Get(j, "spring_rot")),
                     });
                 }
+
+            // --- 参照整合性の検査 (修正はせず警告のみ。PmxPhysicsBuilder 側が範囲外を許容する) ---
+            for (int i = 0; i < model.RigidBodies.Count; i++)
+                if (model.RigidBodies[i].BoneIndex >= model.BoneNames.Count)
+                    warnings.Add($"剛体 '{model.RigidBodies[i].Name}' の関連ボーンindex {model.RigidBodies[i].BoneIndex} が範囲外(ボーン数{model.BoneNames.Count})。バインド位置扱い。");
+            for (int i = 0; i < model.Joints.Count; i++)
+            {
+                var jj = model.Joints[i]; int rc = model.RigidBodies.Count;
+                if (jj.RigidBodyAIndex < 0 || jj.RigidBodyAIndex >= rc || jj.RigidBodyBIndex < 0 || jj.RigidBodyBIndex >= rc)
+                    warnings.Add($"Joint '{jj.Name}' が存在しない剛体を参照(A={jj.RigidBodyAIndex} B={jj.RigidBodyBIndex}, 剛体数{rc})。構築時にスキップされる。");
+            }
 
             return model;
         }
