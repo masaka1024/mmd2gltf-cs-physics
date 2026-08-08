@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>Det</AssemblyName>
+    <StartupObject>Det</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\UnityShim.cs" />
+    <Compile Include="..\bonecheck\BoneCsv.cs" />
+    <Compile Include="..\bonecheck\SkirtMeasure.cs" />
+    <Compile Include="Det.cs" />
+    <Compile Include="..\..\..\Assets\Scripts\**\*.cs" />
+  </ItemGroup>
+</Project>

@@ -266,15 +266,25 @@ namespace BulletPhysics
 
         public int DebugContactCount; // 診断用
 
+        // マニフォールドを決定的順序で解くための再利用バッファ (毎ステップのアロケーションを避ける)。
+        private readonly List<PersistentManifold> _sortedManifolds = new();
+        private static int CompareManifold(PersistentManifold x, PersistentManifold y) =>
+            PairKey(x.BodyA.Index, x.BodyB.Index).CompareTo(PairKey(y.BodyA.Index, y.BodyB.Index));
+
         // --- 接触制約構築 ---
         private void BuildContactConstraints(float dt)
         {
             _contacts.Clear();
-            int manifoldIdx = -1;
-            foreach (var kv in _manifolds)
+
+            // Dictionary の列挙順は挿入/削除履歴に依存し非決定的なので、剛体indexの組(PairKey)の
+            // 昇順に並べ替えてから制約を構築する。これにより「無関係な剛体の増減」で接触の解く順序が
+            // 変わって結果が揺れる (Gauss-Seidel の順序依存) 現象を排除する。式・パラメータは不変、順序のみ。
+            _sortedManifolds.Clear();
+            foreach (var kv in _manifolds) _sortedManifolds.Add(kv.Value);
+            _sortedManifolds.Sort(CompareManifold);
+
+            foreach (var m in _sortedManifolds)
             {
-                manifoldIdx++;
-                var m = kv.Value;
                 for (int p = 0; p < m.Points.Count; p++)
                 {
                     var cp = m.Points[p];
