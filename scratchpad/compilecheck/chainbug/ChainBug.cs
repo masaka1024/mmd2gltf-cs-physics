@@ -53,7 +53,7 @@ static class ChainBug
         return (world, dyn);
     }
 
-    static (float maxDrift, float maxSpeed) Run(int n, int iters, int subs, float beta, float mass, bool tipLighter)
+    static (float maxDrift, float maxSpeed) Run(int n, int iters, int subs, float beta, float mass, bool tipLighter, string order = "root2leaf")
     {
         var (world, dyn) = BuildChain(n, mass, tipLighter);
         world.Gravity = new Vec3(0, -98f, 0);
@@ -61,6 +61,14 @@ static class ChainBug
         world.SubSteps = subs;
         world.SolverIterations = iters;
         if (beta >= 0f) foreach (var j in world.Joints) j.Beta = beta;
+
+        // ジョイント求解順序の切替 (既定=construction=root→leaf)。エンジンは無改変で List を並べ替えるだけ。
+        if (order == "leaf2root") world.Joints.Reverse();
+        else if (order == "shuffle")
+        {
+            var rng = new Random(12345);
+            for (int i = world.Joints.Count - 1; i > 0; i--) { int k = rng.Next(i + 1); (world.Joints[i], world.Joints[k]) = (world.Joints[k], world.Joints[i]); }
+        }
 
         var init = new Vec3[dyn.Count];
         for (int i = 0; i < dyn.Count; i++) init[i] = dyn[i].WorldTransform.Origin;
@@ -101,10 +109,26 @@ static class ChainBug
         }
     }
 
+    // タスクC: ジョイント求解順序の影響。root→leaf / leaf→root / shuffle を比較。
+    static void TaskC(StringBuilder sb)
+    {
+        float mass = 0.02f;
+        int[] Ns = { 4, 6, 8, 10 };
+        sb.AppendLine("==================== タスクC: ジョイント求解順序の影響(合成チェーン) ====================");
+        sb.AppendLine("iters=10 subs=2。root2leaf=根→葉(as-built) / leaf2root=葉→根(reverse) / shuffle=任意順(seed固定)");
+        sb.AppendLine("root→leaf で大きく改善するなら『インパルスの伝播不足』が確定。");
+        sb.Append("   order\\N  |"); foreach (var n in Ns) sb.Append($" {n,8} |"); sb.AppendLine();
+        foreach (var ord in new[] { "root2leaf", "leaf2root", "shuffle" })
+        {
+            sb.Append($"   {ord,-9}|"); foreach (var n in Ns) { var (d, _) = Run(n, 10, 2, -1f, mass, false, ord); sb.Append($" {d,8:F4} |"); } sb.AppendLine();
+        }
+    }
+
     static int Main()
     {
         var task = Environment.GetEnvironmentVariable("TASK") ?? "A";
         if (task == "B") { var s2 = new StringBuilder(); TaskB(s2); Console.Write(s2.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_B_out.txt"), s2.ToString()); return 0; }
+        if (task == "C") { var s3 = new StringBuilder(); TaskC(s3); Console.Write(s3.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_C_out.txt"), s3.ToString()); return 0; }
 
         int[] Ns = { 1, 2, 3, 4, 5, 6, 8, 10 };
         int[] iterSet = { 10, 20, 40, 100 };

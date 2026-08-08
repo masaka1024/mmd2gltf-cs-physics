@@ -70,6 +70,30 @@ static class RestSim
         float beta = -1;
         if (float.TryParse(Environment.GetEnvironmentVariable("BETA"), out var bt)) { beta = bt; foreach (var j in world.Joints) j.Beta = bt; }
         if (Environment.GetEnvironmentVariable("SPLIT") == "1") world.UseSplitImpulse = true;
+
+        // タスクC: ジョイント求解順序切替 (エンジン無改変, world.Joints を並べ替えるだけ)。
+        // キネマティック根から BFS で各剛体の深さを求め、各ジョイントの深さ=max(端点深さ) で並べる。
+        string order = Environment.GetEnvironmentVariable("ORDER") ?? "current";
+        if (order != "current")
+        {
+            var depth = new Dictionary<RigidBody, int>();
+            var q = new Queue<RigidBody>();
+            foreach (var b in builder.Bodies) if (b.IsStaticOrKinematic) { depth[b] = 0; q.Enqueue(b); }
+            while (q.Count > 0)
+            {
+                var b = q.Dequeue();
+                foreach (var j in world.Joints)
+                {
+                    RigidBody o = j.BodyA == b ? j.BodyB : (j.BodyB == b ? j.BodyA : null);
+                    if (o != null && !depth.ContainsKey(o)) { depth[o] = depth[b] + 1; q.Enqueue(o); }
+                }
+            }
+            int JD(Joint j) { int da = depth.TryGetValue(j.BodyA, out var x) ? x : 9999; int db = depth.TryGetValue(j.BodyB, out var y) ? y : 9999; return Math.Max(da, db); }
+            var sorted = new List<Joint>(world.Joints);
+            sorted.Sort((a, b) => order == "leaf2root" ? JD(b).CompareTo(JD(a)) : JD(a).CompareTo(JD(b)));
+            world.Joints.Clear(); world.Joints.AddRange(sorted);
+            Console.WriteLine($"[cfg] ORDER={order} (joints reordered by chain depth)");
+        }
         Console.WriteLine($"[cfg] subs={subs} grav={grav} iters={world.SolverIterations} beta={(beta < 0 ? "default" : beta.ToString())} split={world.UseSplitImpulse}");
 
         // アニメOFF=bindポーズ維持: 追従(kinematic)剛体の目標をbind世界姿勢で固定。
