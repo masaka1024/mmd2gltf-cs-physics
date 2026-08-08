@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>9.0</LangVersion>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>PmxVerify</AssemblyName>
+    <StartupObject>PmxVerify</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\UnityShim.cs" />
+    <Compile Include="Verify.cs" />
+    <Compile Include="..\..\..\Assets\Scripts\**\*.cs" />
+  </ItemGroup>
+</Project>
