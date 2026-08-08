@@ -17,6 +17,9 @@ static class ChainBug
     const float Seg = 0.5f;     // セグメント間隔(髪相当)
     const float BoxHalf = 0.1f; // 箱の半サイズ
 
+    // ★落とし穴(2026-08-09): 真下向きチェーンは重力がチェーン軸と平行のため角度DOFが
+    //   励起されない退化配置。質量/慣性/レバー/長さを変えても maxDrift は不変になる。
+    //   最小再現で桁を合わせるには斜め/水平の荷重条件(重力トルクが立つ向き)が必要。詳細=Step1。
     // kinematic anchor + N dynamic を全DOFロックで直列に吊るしたワールドを作る。
     static (PhysicsWorld world, List<RigidBody> dyn) BuildChain(int n, float mass, bool tipLighter)
     {
