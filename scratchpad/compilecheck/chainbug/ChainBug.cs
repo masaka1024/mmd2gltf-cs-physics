@@ -124,9 +124,112 @@ static class ChainBug
         }
     }
 
+    // ステップ1: 合成チェーンを実際の髪剛体パラメータへ1つずつ近づける。
+    // shapeMode 0=box(0.1) / 1=capsule(capR,capH)。leverFromChild=joint原点→子剛体中心の距離。
+    static (float drift, float speed) RunEx(int n, int iters, float mass, float seg,
+        int shapeMode, float capR, float capH, float leverFromChild, bool tipLighter, Vec3 dir = default)
+    {
+        if (dir.x == 0 && dir.y == 0 && dir.z == 0) dir = new Vec3(0, -1, 0); // 既定=真下
+        float dl = dir.Length; dir = new Vec3(dir.x / dl, dir.y / dl, dir.z / dl);
+        var world = new PhysicsWorld();
+        CollisionShape MakeShape() => shapeMode == 1 ? new CapsuleShape(capR, capH) : new BoxShape(new Vec3(BoxHalf, BoxHalf, BoxHalf));
+
+        var anchor = new RigidBody(MakeShape()) { Mode = PhysicsMode.BoneFollow, Name = "anchor" };
+        anchor.WorldTransform = new RigidTransform(Quat.Identity, new Vec3(0, 0, 0));
+        anchor.SetMassProps(0f);
+        world.AddBody(anchor);
+
+        var dyn = new List<RigidBody>();
+        RigidBody prev = anchor;
+        for (int i = 1; i <= n; i++)
+        {
+            float m = tipLighter ? mass * (float)(n - i + 1) / n : mass;
+            var b = new RigidBody(MakeShape()) { Mode = PhysicsMode.Dynamic, Name = $"link{i}" };
+            b.WorldTransform = new RigidTransform(Quat.Identity, new Vec3(dir.x * seg * i, dir.y * seg * i, dir.z * seg * i));
+            b.CollisionMask = 0;
+            b.SetMassProps(m);
+            world.AddBody(b);
+            dyn.Add(b);
+
+            // joint 原点を子剛体中心から親方向へ leverFromChild だけずらす(=レバーアーム)。全DOFロック。
+            var c = b.WorldTransform.Origin;
+            var jp = new Vec3(c.x - dir.x * leverFromChild, c.y - dir.y * leverFromChild, c.z - dir.z * leverFromChild);
+            var frame = new RigidTransform(Quat.Identity, jp);
+            world.AddJoint(Joint.FromPmx(JointType.Generic6Dof, prev, b, frame,
+                Vec3.Zero, Vec3.Zero, Vec3.Zero, Vec3.Zero, Vec3.Zero, Vec3.Zero));
+            prev = b;
+        }
+
+        world.Gravity = new Vec3(0, -98f, 0);
+        world.FixedTimeStep = 1f / 30f;
+        world.SubSteps = 2;
+        world.SolverIterations = iters;
+        var init = new Vec3[dyn.Count];
+        for (int i = 0; i < dyn.Count; i++) init[i] = dyn[i].WorldTransform.Origin;
+        float maxDrift = 0, maxSpeed = 0;
+        for (int s = 0; s < 300; s++)
+        {
+            world.StepSimulation(world.FixedTimeStep);
+            for (int i = 0; i < dyn.Count; i++)
+            {
+                float d = (dyn[i].WorldTransform.Origin - init[i]).Length; if (d > maxDrift) maxDrift = d;
+                float v = dyn[i].LinearVelocity.Length; if (v > maxSpeed) maxSpeed = v;
+            }
+        }
+        return (maxDrift, maxSpeed);
+    }
+
+    static void Step1(StringBuilder sb)
+    {
+        int N = 6; int it = 10;
+        sb.AppendLine("==================== ステップ1: 合成→実髪パラメータ 桁の答え合わせ ====================");
+        sb.AppendLine($"N={N} iters={it} subs=2 全DOFロック。理論値=0。1つずつ実髪(髪FR)値へ寄せて maxDrift を見る。");
+        sb.AppendLine("実髪FR実測: 質量1.0 / カプセル(半径~0.4 高さ~2.0) / リンク長~2.0 / レバー~1.0");
+        sb.AppendLine();
+        (string name, float mass, float seg, int sh, float lever)[] cases = {
+            ("baseline(box0.1,m0.02,seg0.5,lever0.25)", 0.02f, 0.5f, 0, 0.25f),
+            ("+質量 1.0",                               1.0f,  0.5f, 0, 0.25f),
+            ("+リンク長 2.0",                           0.02f, 2.0f, 0, 1.0f),
+            ("+形状=カプセル(0.4,2.0)",                 0.02f, 0.5f, 1, 0.25f),
+            ("+レバー 1.0 (jointを端へ)",               0.02f, 0.5f, 0, 1.0f),
+            ("全部=実髪(m1,seg2,cap,lever1)",           1.0f,  2.0f, 1, 1.0f),
+        };
+        sb.AppendLine("  条件                                    | maxDrift | maxSpeed");
+        foreach (var c in cases)
+        {
+            var (d, v) = RunEx(N, it, c.mass, c.seg, c.sh, 0.4f, 2.0f, c.lever, false);
+            sb.AppendLine($"  {c.name,-40}| {d,8:F4} | {v,8:F3}");
+        }
+        sb.AppendLine("  → 縦チェーンでは質量/慣性/レバー/長さに maxDrift が不変(重力軸と平行でトルクが立たない)。");
+        sb.AppendLine();
+
+        // ★向きを変える: 重力に対して斜め/水平にすると角度DOF・レバーアームが励起される。
+        sb.AppendLine("[チェーンの向き] N=6 iters=10, box0.1(lever0.25) と 実髪カプセル(lever1.0) で比較:");
+        sb.AppendLine("  向き          | box0.1 lever0.25 | capsule(0.4,2.0) lever1.0");
+        (string nm, Vec3 dir)[] dirs = {
+            ("真下(0,-1,0)",   new Vec3(0,-1,0)),
+            ("斜め45(1,-1,0)", new Vec3(1,-1,0)),
+            ("斜め(実髪比率)",  new Vec3(0.5f,-1f,0.6f)),
+            ("水平(1,0,0)",    new Vec3(1,0,0)),
+        };
+        foreach (var (nm, dir) in dirs)
+        {
+            var (db, _) = RunEx(6, 10, 0.02f, 0.5f, 0, 0.4f, 2.0f, 0.25f, false, dir);
+            var (dc, _) = RunEx(6, 10, 1.0f, 2.0f, 1, 0.4f, 2.0f, 1.0f, false, dir);
+            sb.AppendLine($"  {nm,-13}| {db,16:F4} | {dc,16:F4}");
+        }
+        sb.AppendLine();
+
+        // 水平カントリーバー(最悪ケース)を iters 掃引 → 収束(未収束の範疇)か非収束(第2バグ)か。
+        sb.AppendLine("水平カプセル(実髪param) を iters 掃引:");
+        sb.Append("   iters |"); foreach (var it2 in new[] { 10, 20, 40, 100, 400 }) sb.Append($" {it2,8} |"); sb.AppendLine();
+        sb.Append("  drift  |"); foreach (var it2 in new[] { 10, 20, 40, 100, 400 }) { var (d, _) = RunEx(6, it2, 1.0f, 2.0f, 1, 0.4f, 2.0f, 1.0f, false, new Vec3(1, 0, 0)); sb.Append($" {d,8:F4} |"); } sb.AppendLine();
+    }
+
     static int Main()
     {
         var task = Environment.GetEnvironmentVariable("TASK") ?? "A";
+        if (task == "1") { var s1 = new StringBuilder(); Step1(s1); Console.Write(s1.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_step1_out.txt"), s1.ToString()); return 0; }
         if (task == "B") { var s2 = new StringBuilder(); TaskB(s2); Console.Write(s2.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_B_out.txt"), s2.ToString()); return 0; }
         if (task == "C") { var s3 = new StringBuilder(); TaskC(s3); Console.Write(s3.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_C_out.txt"), s3.ToString()); return 0; }
 
