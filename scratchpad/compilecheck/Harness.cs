@@ -24,7 +24,8 @@ static class Harness
     static readonly bool JSplit = Environment.GetEnvironmentVariable("JSPLIT") == "1";
     static readonly bool WarmS = Environment.GetEnvironmentVariable("WARMSTART") == "1";
     static readonly bool WarmA = Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1";
-    static PhysicsWorld Cfg(PhysicsWorld w) { if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var wf)) Joint.WarmStartFactor = wf; w.UseJointSplitImpulse = JSplit; w.UseJointWarmStart = WarmS || WarmA; w.UseJointWarmStartAngular = WarmA; return w; }
+    static readonly bool WarmOff = Environment.GetEnvironmentVariable("WARM_OFF") == "1";
+    static PhysicsWorld Cfg(PhysicsWorld w) { if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var wf)) Joint.WarmStartFactor = wf; w.UseJointSplitImpulse = JSplit; if (WarmOff) { w.UseJointWarmStart = false; w.UseJointWarmStartAngular = false; } return w; }
 
     static int Main()
     {
@@ -143,9 +144,10 @@ static class Harness
         bool ok = !badNum && maxSpeed <= 100f && epaHits == 0 && stepMaxSteady <= 50.0;
         Check("IA.pmx スモーク (NaN/爆発/EPA暴走/遅延なし)", ok,
             $"NaN/Inf={badNum} maxSpeed={maxSpeed:F1}(<=100) EPAhit={epaHits}(=0) stepMax={stepMaxSteady:F2}ms(<=50)");
-        // 常設のドリフト指標。既知の問題(髪の静止爆散, 主因=ジョイントwarm-start欠如)。
-        // 現状の既知値 ~8.17。理論期待値は静止なので ~0。修正が入ったら閾値付き Check へ格上げする。
-        Note("IA.pmx 静止ドリフト (known-issue, 期待≈0)", $"maxDrift={maxDrift:F2} (最大: {driftName}) / 既知ベースライン≈8.17");
+        // 常設のドリフト指標。warm-start(0.85)を既定ONにした後の基準は ~7.95 (warp無効=WARM_OFFで~8.17)。
+        // 残差7.95は「±60°の正当な自由スイング」の疑いが濃く、本家VMD突合(髪, task2型)が出るまで
+        // バグ/仕様は未確定。それまで閾値付き Check へは格上げせず NOTE のまま追跡する。
+        Note("IA.pmx 静止ドリフト (known-issue, 本家突合待ち)", $"maxDrift={maxDrift:F2} (最大: {driftName}) / 新既定warm≈7.95 warp無効≈8.17");
     }
 
     // ---- 静止押し出しの回帰テスト ----

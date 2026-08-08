@@ -55,11 +55,12 @@ namespace BulletPhysics
         // 接触用の UseSplitImpulse とは独立 (接触既定 false=Bullet2.75 準拠は不変)。既定 false=挙動不変。
         public bool UseJointSplitImpulse = false;
         // ステップ2(a-1): ジョイントの直線ロック行のみ warm-start (蓄積インパルスをサブステップ間で引継ぎ)。
-        // 既定 false=挙動不変。長い剛体チェーンの PGS 未収束(垂れ/暴れ)対策。
-        public bool UseJointWarmStart = false;
+        // ★2026-08-09 既定ON化: factor 0.85 で VMD統計(中央/p90)が本家へ接近・完全ロックIA改善・
+        //   12窓比が帯内・単鎖トルク3×改善・不変条件全PASSを満たしたため既定ON。A/B用にフラグは残す。
+        public bool UseJointWarmStart = true;
         // ステップ2(a-2): 角度行も warm-start (同一性キー=軸+側 lo/hi、同一性が変わればキャッシュ破棄)。
-        // UseJointWarmStart と併用。既定 false=挙動不変。IA髪の角度支配ドリフト対策。
-        public bool UseJointWarmStartAngular = false;
+        // UseJointWarmStart と併用。既定ON(上記と同じ理由)。
+        public bool UseJointWarmStartAngular = true;
         public float SplitImpulsePenetrationThreshold = -0.02f; // Bullet 2.75 m_splitImpulsePenetrationThreshold
 
         public readonly List<RigidBody> Bodies = new();

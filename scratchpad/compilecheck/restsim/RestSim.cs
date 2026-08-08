@@ -73,6 +73,7 @@ static class RestSim
         if (Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
         if (Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
         if (Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
+        if (Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
         BulletPhysics.Joint.WarmAngRows = 0; BulletPhysics.Joint.WarmAngToggles = 0;
         if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) BulletPhysics.Joint.WarmStartFactor = _wf;
 
