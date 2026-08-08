@@ -219,6 +219,37 @@ Inspector で下表を設定します。
 物理は逆再生できないため、後退/ジャンプは内部でフレーム0から再シミュレーションします
 (7000フレームでも一瞬)。`CandidateFrames`（貫入が起きるフレーム候補）へのジャンプもあります。
 
+## Unity での GLB → 自作エンジン統合 (PhysX とのトグル並立)
+
+[mmd2gltf-gui](https://github.com/masaka1024/) で書き出した GLB（`extras.mmd` 付き）を Unity に import し、
+物理だけを自作エンジンへ差し替える運用です。**メッシュ／マテリアル（lilToon）／スキン／ベイク再生は
+既存の mmd2gltf インポーターのまま**で、物理バックエンドだけを切り替えます。
+
+### 手順
+1. **GLB を import** し、既存の mmd2gltf インポーターでマテリアル(lilToon)等を復元する（従来どおり）。
+2. モデルのルートに **`MmdPhysicsBehaviour`** を付け、Inspector で:
+   - `Source = Glb`、`GlbPath` に import 元の `.glb` パス（`extras.mmd` から剛体/Joint/ボーンを構築）。
+   - `ModelRoot` に import 済みスケルトンのルート Transform（ボーン名で解決）。
+   - `UnitScale` は **extras.mmd の値（既定0.08）で自動上書き**されるので触らなくてよい。
+   - 起動時に **FK-rest 物理リセットが必ず呼ばれる**（初期のスカート沈み込み/暴れを防ぐ）。
+3. 同じルートに **`MmdPhysicsBackendSwitch`** を付ける。`Mode = Custom`（自作）/`PhysX`（既存）を
+   Inspector か右クリック ContextMenu（`Use Custom` / `Use PhysX`）で切替。
+   - `Custom` は PhysX 剛体をパーク（kinematic・衝突無効）+ ConfigurableJoint 無効化して排他にする。
+   - `PhysX` は自作エンジンを無効化し、剛体/Joint を元状態へ戻す。**両者は同時に動かない。**
+
+### 目視で確認するポイント
+- **起動直後にスカートが暴れない／脚に沈まない**か（FK-rest リセットが効いていれば静かに始まる）。
+- ターン時の開き具合が本家相当か（到達値: 平時中央 10.41°/本家 11.39°、12窓比 1.061）。
+- `Use Custom` ↔ `Use PhysX` を A/B し、PhysX 版が本家からどれだけずれるかを目視/数値比較する。
+
+### うまく動かないときの確認項目
+- **スカート/髪が原点へ吸われる・メッシュが変形しない** → ボーン名解決の失敗。`ModelRoot` 配下の
+  GameObject 名が GLB のノード名（= extras.mmd のボーン名 = PMX ボーン名）と一致しているか確認。
+- **剛体/Joint が 0 件・警告が出る** → その GLB に `extras.mmd` が無い（古いエクスポータ/`--no-extras`）。
+  `python -m mmd2gltf model.pmx -o out.glb` で再出力する（`extras.mmd` は既定で付く）。
+- **スカートと脚が両方物理で動いて競合する** → `MmdPhysicsBackendSwitch` が付いているか、`Mode` が
+  正しいか確認（`Custom` なら PhysX 剛体はパークされる）。
+
 ## 既知の制限
 
 - SoftBody のクラスタ / AeroModel は簡易対応 (PMX 仕様でも「精度・速度に問題あり・非対応も選択肢」と明記)。
