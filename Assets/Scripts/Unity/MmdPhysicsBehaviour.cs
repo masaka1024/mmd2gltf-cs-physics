@@ -13,10 +13,18 @@ namespace BulletPhysics.Unity
     /// <summary>MMD/PMX 物理を Unity 上で駆動するコンポーネント。</summary>
     public sealed class MmdPhysicsBehaviour : MonoBehaviour
     {
-        [Tooltip("読み込む .pmx ファイルの絶対 or Assets 相対パス")]
+        public enum InputSource { Pmx, Glb }
+
+        [Tooltip("入力: Pmx=PMX直読み / Glb=GLBのextras.mmd経由 (どちらも同一の物理駆動)")]
+        public InputSource Source = InputSource.Pmx;
+
+        [Tooltip("読み込む .pmx ファイルの絶対 or Assets 相対パス (Source=Pmx のとき)")]
         public string PmxPath = "";
 
-        [Tooltip("剛体 BoneIndex -> ボーン Transform のマップ (ボーン名で解決)")]
+        [Tooltip("読み込む .glb ファイルのパス (Source=Glb のとき。extras.mmd から剛体/Joint/ボーンを構築)")]
+        public string GlbPath = "";
+
+        [Tooltip("剛体 BoneIndex -> ボーン Transform のマップ (ボーン名で解決)。GLBは import 済みスケルトンのルート")]
         public Transform ModelRoot;
 
         [Tooltip("エンジン(PMXネイティブ単位) -> Unity 配置スケール。Unity側モデルが縮小配置される運用向け")]
@@ -39,13 +47,32 @@ namespace BulletPhysics.Unity
 
         void Start()
         {
-            if (string.IsNullOrEmpty(PmxPath)) return;
-            LoadPmx(PmxPath);
+            if (Source == InputSource.Glb) { if (!string.IsNullOrEmpty(GlbPath)) LoadGlb(GlbPath); }
+            else { if (!string.IsNullOrEmpty(PmxPath)) LoadPmx(PmxPath); }
         }
 
-        public void LoadPmx(string path)
+        // PMX 直読み。
+        public void LoadPmx(string path) => BuildAndInit(PmxReader.LoadFile(path));
+
+        // GLB の extras.mmd 経由。UnitScale は extras.mmd の値を優先する
+        // (GLB のメッシュ/スケルトンはその scale で import されているため、表示境界を一致させる必要がある)。
+        public void LoadGlb(string path)
         {
-            _model = PmxReader.LoadFile(path);
+            var model = GlbPhysicsReader.LoadFile(path, out float unitScale, out var warnings);
+            if (warnings != null)
+                foreach (var w in warnings) Debug.LogWarning($"[MmdPhysics][GLB] {w}");
+            if (unitScale > 0f && System.Math.Abs(unitScale - UnitScale) > 1e-6f)
+            {
+                Debug.Log($"[MmdPhysics][GLB] UnitScale を extras.mmd の値 {unitScale} に設定 (Inspector {UnitScale} を上書き)");
+                UnitScale = unitScale;
+            }
+            BuildAndInit(model);
+        }
+
+        // 入力経路に依らない共通の初期化 (物理駆動ロジックの共通化)。起動時に FK-rest リセットを必ず呼ぶ。
+        private void BuildAndInit(PmxPhysicsModel model)
+        {
+            _model = model;
             _builder = PmxPhysicsBuilder.Build(_model);
             _builder.World.Gravity = new Vec3(0f, -Gravity, 0f);
             _builder.World.SolverIterations = SolverIterations;
