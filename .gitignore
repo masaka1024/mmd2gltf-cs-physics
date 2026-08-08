@@ -2,3 +2,32 @@
 bin/
 obj/
 *.user
+
+# --- モデル/モーションデータ (再配布回避。各自用意し testdata/ か環境変数で指定) ---
+# ハーネス/診断ツールと BonePoseCsvPlayer は testdata/ を既定の探索先にしている。
+# testdata/ 運用に移行済みなら下の個別CSV名指しは本来不要 (念のため二重に弾いている)。
+testdata/
+*.pmx
+*.pmd
+*.vmd
+*.vpd
+*.fbx
+# 本家ベイク/構造エクスポートCSV (testdata/ 運用に移行すれば名指しは不要になる)
+IA_bone_world_pose.csv
+ia.csv
+# 診断ツールが吐く計測CSV (通常 bin/ 配下なので bin/ で既に除外されるが、拡張子でも二重に弾く)
+*_perframe.csv
+*_timeseries.csv
+
+# --- Unity (将来フルプロジェクト化する場合) ---
+# ※ ハーネスの手書き .csproj (compilecheck 系) は追跡必須なので *.csproj は無視しない。
+#    Unity が自動生成する分だけ名指しで無視する。
+Assembly-CSharp*.csproj
+*.sln
+Library/
+Temp/
+Logs/
+UserSettings/
+.vs/
+.idea/
+.vscode/
