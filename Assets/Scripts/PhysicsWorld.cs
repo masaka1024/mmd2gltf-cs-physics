@@ -51,6 +51,9 @@ namespace BulletPhysics
         // ※効果検証の結果、過大スイング仮説は不支持 (反復依存が弱まらず一部窓は悪化) だったため、
         //   旧ベースライン維持と 2.75 準拠のため既定 false を選択。実装は比較用に温存する。
         public bool UseSplitImpulse = false;
+        // ステップ2(b): ジョイントの Baumgarte 位置バイアスを split-impulse(擬似速度)へ分離する。
+        // 接触用の UseSplitImpulse とは独立 (接触既定 false=Bullet2.75 準拠は不変)。既定 false=挙動不変。
+        public bool UseJointSplitImpulse = false;
         public float SplitImpulsePenetrationThreshold = -0.02f; // Bullet 2.75 m_splitImpulsePenetrationThreshold
 
         public readonly List<RigidBody> Bodies = new();
@@ -135,7 +138,7 @@ namespace BulletPhysics
             BroadphaseNarrowphase();
             BuildContactConstraints(dt);
 
-            foreach (var j in Joints) j.Prepare(dt);
+            foreach (var j in Joints) j.Prepare(dt, UseJointSplitImpulse);
             foreach (var j in Joints) j.ApplySprings(dt);
 
             WarmStart();
@@ -146,9 +149,9 @@ namespace BulletPhysics
                 foreach (var j in Joints) j.SolveVelocity();
             }
 
-            // Split Impulse: 実速度の求解後、貫入回復を擬似速度側で別反復して解く。
-            // 擬似速度を 0 から解き、位置積分にのみ反映する (実速度には残さない)。
-            if (UseSplitImpulse)
+            // Split Impulse: 実速度の求解後、貫入回復(接触)/位置補正(ジョイント)を擬似速度側で
+            // 別反復して解く。擬似速度を 0 から解き、位置積分にのみ反映する (実速度には残さない)。
+            if (UseSplitImpulse || UseJointSplitImpulse)
             {
                 for (int i = 0; i < Bodies.Count; i++)
                 {
@@ -156,7 +159,10 @@ namespace BulletPhysics
                     Bodies[i].PseudoAngularVelocity = Vec3.Zero;
                 }
                 for (int it = 0; it < SolverIterations; it++)
-                    SolveSplitImpulse();
+                {
+                    if (UseSplitImpulse) SolveSplitImpulse();
+                    if (UseJointSplitImpulse) foreach (var j in Joints) j.SolveSplitPosition();
+                }
             }
 
             StoreImpulses();
@@ -222,7 +228,7 @@ namespace BulletPhysics
                 // Split Impulse 有効時は「実速度 + 擬似速度」で位置を進める (擬似は速度として残さない)。
                 var vlin = b.LinearVelocity;
                 var vang = b.AngularVelocity;
-                if (UseSplitImpulse)
+                if (UseSplitImpulse || UseJointSplitImpulse)
                 {
                     vlin += b.PseudoLinearVelocity;
                     vang += b.PseudoAngularVelocity;

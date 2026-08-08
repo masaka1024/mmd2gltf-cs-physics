@@ -168,6 +168,13 @@ namespace BulletPhysics
             PseudoAngularVelocity += InverseInertiaWorld * Vec3.Cross(rel, impulse);
         }
 
+        /// <summary>Split Impulse: 擬似角速度へ加える純トルク力積 (実速度には反映しない)。ジョイントの角度位置補正用。</summary>
+        public void ApplyPushTorqueImpulse(Vec3 torque)
+        {
+            if (InverseMass == 0f) return;
+            PseudoAngularVelocity += InverseInertiaWorld * torque;
+        }
+
         /// <summary>剛体上の点 (ワールド) の擬似速度。Split Impulse の反復で使用。</summary>
         public Vec3 PseudoVelocityAtPoint(Vec3 worldPoint)
         {

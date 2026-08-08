@@ -63,6 +63,7 @@ static class ChainBug
         world.FixedTimeStep = 1f / 30f;
         world.SubSteps = subs;
         world.SolverIterations = iters;
+        if (System.Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
         if (beta >= 0f) foreach (var j in world.Joints) j.Beta = beta;
 
         // ジョイント求解順序の切替 (既定=construction=root→leaf)。エンジンは無改変で List を並べ替えるだけ。
@@ -167,6 +168,7 @@ static class ChainBug
         world.FixedTimeStep = 1f / 30f;
         world.SubSteps = 2;
         world.SolverIterations = iters;
+        if (System.Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
         var init = new Vec3[dyn.Count];
         for (int i = 0; i < dyn.Count; i++) init[i] = dyn[i].WorldTransform.Origin;
         float maxDrift = 0, maxSpeed = 0;

@@ -31,9 +31,11 @@ namespace BulletPhysics
         public bool Angular;      // true=回転行, false=並進行
         public Vec3 RelA, RelB;   // 重心からのアンカーオフセット (linear 用)
         public float LowerImpulse, UpperImpulse;
-        public float TargetVel;   // 目標相対速度 (Baumgarte バイアス込み)
+        public float TargetVel;   // 目標相対速度 (split時=バイアス抜きの速度目標, 非split時=Baumgarte込み)
         public float EffMass;
         public float Accumulated;
+        public float PositionBias;    // split時: 位置補正の目標擬似速度 (err*Beta/dt)。非split時0。
+        public float PseudoAccumulated; // split時: 擬似速度側の累積インパルス。
     }
 
     /// <summary>
@@ -74,6 +76,9 @@ namespace BulletPhysics
         private RigidTransform _worldA, _worldB;
         private Vec3 _anchorA, _anchorB;
         private Vec3[] _axesA = new Vec3[3];
+        // ステップ2(b): Baumgarte バイアスを split-impulse(擬似速度)側へ分離するか。
+        // false(既定)で従来どおり実速度側へバイアスを乗せる (挙動不変)。
+        private bool _splitBias;
 
         // --- ファクトリ: PMX Joint 種から生成 ---
 
@@ -148,8 +153,9 @@ namespace BulletPhysics
         private static bool IsFree(float lo, float hi) => lo > hi;
 
         // --- 準備: フレーム/アンカー/行を構築 ---
-        public void Prepare(float dt)
+        public void Prepare(float dt, bool splitBias = false)
         {
+            _splitBias = splitBias;
             _rows.Clear();
             if (BodyA == null || BodyB == null) return;
 
@@ -220,7 +226,9 @@ namespace BulletPhysics
             {
                 Axis = axis, Angular = false, RelA = rA, RelB = rB,
                 LowerImpulse = lo, UpperImpulse = hi,
-                TargetVel = targetVel, EffMass = k > 0 ? 1f / k : 0f,
+                TargetVel = _splitBias ? 0f : targetVel,
+                PositionBias = _splitBias ? targetVel : 0f,
+                EffMass = k > 0 ? 1f / k : 0f,
             });
         }
 
@@ -232,7 +240,9 @@ namespace BulletPhysics
             {
                 Axis = axis, Angular = true,
                 LowerImpulse = lo, UpperImpulse = hi,
-                TargetVel = targetVel, EffMass = k > 0 ? 1f / k : 0f,
+                TargetVel = _splitBias ? 0f : targetVel,
+                PositionBias = _splitBias ? targetVel : 0f,
+                EffMass = k > 0 ? 1f / k : 0f,
             });
         }
 
@@ -317,6 +327,40 @@ namespace BulletPhysics
                     var P = row.Axis * dImpulse;
                     BodyA.ApplyImpulse(-P, row.RelA);
                     BodyB.ApplyImpulse(P, row.RelB);
+                }
+                _rows[r] = row;
+            }
+        }
+
+        // --- 位置補正の split-impulse 反復 (擬似速度側)。UseJointSplitImpulse 有効時のみ world から呼ばれる ---
+        // 実速度は SolveVelocity が target=0 (バイアス抜き) で解き、位置誤差 err の補正はここで
+        // 擬似速度へ積む。擬似速度は位置積分にのみ反映され実速度には残らないため、Baumgarte が
+        // 実速度へエネルギーを注入せず、以後の warm-start を安定化できる (Bullet の split-impulse と同型)。
+        public void SolveSplitPosition()
+        {
+            for (int r = 0; r < _rows.Count; r++)
+            {
+                var row = _rows[r];
+                float relVel = row.Angular
+                    ? (BodyB.PseudoAngularVelocity - BodyA.PseudoAngularVelocity).Dot(row.Axis)
+                    : (BodyB.PseudoVelocityAtPoint(_anchorB) - BodyA.PseudoVelocityAtPoint(_anchorA)).Dot(row.Axis);
+
+                float dImpulse = (row.PositionBias - relVel) * row.EffMass;
+                float old = row.PseudoAccumulated;
+                row.PseudoAccumulated = Math.Max(row.LowerImpulse, Math.Min(row.UpperImpulse, old + dImpulse));
+                dImpulse = row.PseudoAccumulated - old;
+
+                if (row.Angular)
+                {
+                    var L = row.Axis * dImpulse;
+                    BodyA.ApplyPushTorqueImpulse(-L);
+                    BodyB.ApplyPushTorqueImpulse(L);
+                }
+                else
+                {
+                    var P = row.Axis * dImpulse;
+                    BodyA.ApplyPushImpulse(-P, row.RelA);
+                    BodyB.ApplyPushImpulse(P, row.RelB);
                 }
                 _rows[r] = row;
             }

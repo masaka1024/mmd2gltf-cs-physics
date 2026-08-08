@@ -20,6 +20,9 @@ using BulletPhysics.Pmx;
 static class Harness
 {
     static int _fails = 0;
+    // 計測用トグル (既定OFF=挙動不変)。env JSPLIT=1 でジョイントの split-impulse を全ワールドに適用。
+    static readonly bool JSplit = Environment.GetEnvironmentVariable("JSPLIT") == "1";
+    static PhysicsWorld Cfg(PhysicsWorld w) { w.UseJointSplitImpulse = JSplit; return w; }
 
     static int Main()
     {
@@ -41,7 +44,7 @@ static class Harness
 
     // ---- 合成4シナリオ (60Hz・2サブ明示) ----
     static PhysicsWorld World60() =>
-        new PhysicsWorld { Gravity = new Vec3(0, -9.8f, 0), SubSteps = 2, FixedTimeStep = 1f / 60f, SolverIterations = 10 };
+        Cfg(new PhysicsWorld { Gravity = new Vec3(0, -9.8f, 0), SubSteps = 2, FixedTimeStep = 1f / 60f, SolverIterations = 10 });
 
     static RigidBody Dyn(CollisionShape s, float m, Vec3 p)
     {
@@ -110,7 +113,7 @@ static class Harness
         GjkEpa.EpaIterCapHits = 0; GjkEpa.EpaFaceCapHits = 0;
         var model = PmxReader.LoadFile(pmx);
         var b = PmxPhysicsBuilder.Build(model);
-        var w = b.World; w.Gravity = new Vec3(0, -98f, 0); // 既定 (30Hz・1サブ) のまま
+        var w = Cfg(b.World); w.Gravity = new Vec3(0, -98f, 0); // 既定 (30Hz・1サブ) のまま
         var dyn = w.Bodies.Where(r => !r.IsStaticOrKinematic).ToList();
 
         // 全動的剛体の初期位置を控え、静止(重力のみ)でのドリフト(初期位置からの最大変位)を追う。
@@ -153,7 +156,7 @@ static class Harness
 
         var model = PmxReader.LoadFile(pmx);
         var b = PmxPhysicsBuilder.Build(model);
-        var w = b.World; w.Gravity = Vec3.Zero; w.SubSteps = 1; w.FixedTimeStep = 1f / 30f;
+        var w = Cfg(b.World); w.Gravity = Vec3.Zero; w.SubSteps = 1; w.FixedTimeStep = 1f / 30f;
         var dump = new List<(string a, string b, float dist, float ni)>();
         w.DebugContacts = dump;
         w.StepSimulation(w.FixedTimeStep);
@@ -177,7 +180,7 @@ static class Harness
         };
         foreach (var (fts, sub) in cfgs)
         {
-            var w = new PhysicsWorld { Gravity = Vec3.Zero, SolverIterations = 10, FixedTimeStep = fts, SubSteps = sub };
+            var w = Cfg(new PhysicsWorld { Gravity = Vec3.Zero, SolverIterations = 10, FixedTimeStep = fts, SubSteps = sub });
             var k = new RigidBody(new BoxShape(new Vec3(0.5f, 0.5f, 0.5f))) { Mode = PhysicsMode.BoneFollow };
             k.SetMassProps(0f); k.WorldTransform = new RigidTransform(Quat.Identity, Vec3.Zero); w.AddBody(k);
             k.KinematicTarget = new RigidTransform(Quat.Identity, new Vec3(1, 0, 0));
