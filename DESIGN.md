@@ -43,7 +43,7 @@ MMD/PMXエディタが依拠する Bullet **2.75** の `btContactSolverInfo` 既
   (実装と測定結果は別コミット)。
 
 ## 本体是正 (2026-08-08)
-- Split Impulse (接触の貫入回復を実速度から分離) を実装 (`UseSplitImpulse`, 既定 true):
+- Split Impulse (接触の貫入回復を実速度から分離) を実装 (`UseSplitImpulse`, **既定 false**):
   剛体に擬似速度 (Pseudo Linear/Angular = btRigidBody の pushVelocity/turnVelocity 相当) を持たせ、
   貫入が閾値 (-0.02) より深い接触の位置補正を、実速度とは別の反復で擬似速度に対して解く。
   位置積分は「実速度+擬似速度」で進め、擬似速度は速度として残さない。反発は実速度側に維持、
@@ -55,9 +55,9 @@ MMD/PMXエディタが依拠する Bullet **2.75** の `btContactSolverInfo` 既
       (off 62→88, on 69→86)、iters=1 は両者過大 (110/118)。split-on は split-off をほぼ追従。
     - 平時中央 11.041→10.797 (微減)、貫入平均 0.0695→0.0531 (改善)・最大は微増、
       ノイズフロア 0 維持、性能 +0.015ms(無視可)、回帰全PASS。
-  - **既定を true のまま残すか (master準拠)、false にするか (2.75準拠・旧ベースライン維持)、
-    撤去するかは人間判断待ち**。※既定 true の場合スカート統計の新ベースラインは
-    平時中央 10.797/p90 21.851/max 113.018 (窓は上表参照) へ更新される。
+  - **判断: 既定 false を選択** (2.75 準拠・旧ベースライン 11.041/22.498/111.822 を維持)。
+    実装は比較用に温存し、`UseSplitImpulse=true` でいつでも切替可能。
+    (参考: 既定 true とした場合の平時統計は 10.797/21.851/113.018 だった。)
 - 接触制約の解く順序を決定化: `BuildContactConstraints` が `_manifolds` (Dictionary) を
   列挙する順序は挿入/削除履歴に依存し非決定的だった。剛体indexの組 (PairKey) の昇順に
   並べ替えてから制約を構築するよう変更 (再利用バッファ `_sortedManifolds` でソート)。

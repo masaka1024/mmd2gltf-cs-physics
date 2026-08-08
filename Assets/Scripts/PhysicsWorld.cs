@@ -41,11 +41,12 @@ namespace BulletPhysics
         public float RestitutionThreshold = 1.0f;
 
         // --- Split Impulse (接触の貫入回復を実速度から切り離す) ---
-        // 既定は新方式(true)。false で従来の Baumgarte-in-velocity へ戻せる。
         // 貫入が閾値より深い接触のみ擬似速度側で回復し、実速度にエネルギーを注入しない。
         // 反発(restitution)は貫入回復ではないため実速度側に残す。ジョイントの ERP(Beta) は不変。
-        // Bullet 2.75 既定は m_splitImpulse=false / 閾値 -0.02。ここでは効果検証のため既定 true とする。
-        public bool UseSplitImpulse = true;
+        // 既定は false (Bullet 2.75 の m_splitImpulse=false に準拠)。true で新方式へ切替。
+        // ※効果検証の結果、過大スイング仮説は不支持 (反復依存が弱まらず一部窓は悪化) だったため、
+        //   旧ベースライン維持と 2.75 準拠のため既定 false を選択。実装は比較用に温存する。
+        public bool UseSplitImpulse = false;
         public float SplitImpulsePenetrationThreshold = -0.02f; // Bullet 2.75 m_splitImpulsePenetrationThreshold
 
         public readonly List<RigidBody> Bodies = new();
