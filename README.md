@@ -11,6 +11,21 @@ PmxEditor (極北P) の **PMX 2.1 仕様** に記述された物理演算を、*
 - PMX バイナリ (2.0 / 2.1) から剛体・Joint・SoftBody を直接読み込み
 - MMD ↔ Unity 座標変換込みのボーン同期
 
+## 対象環境 / 言語バージョン (C# 9)
+
+- **想定 Unity: Unity 6 (6000.0 LTS)**。Unity の C# バージョンは Unity 本体に固定されており
+  (2021.2 以降は **C# 9**、Unity 6 も C# 9 系)、`.csproj` の `LangVersion` を上げる回避策は
+  **Unity 非サポート**。したがって本エンジンのコードは **C# 9 の機能のみ**で書く。
+- 使わない C# 10 以降の機能: パラメータなし構造体コンストラクタ、構造体のインスタンス
+  フィールド初期化子、`record`/`record struct`、ファイルスコープ名前空間、`with` 式、
+  `required`、生文字列リテラル、コレクション式 `[...]`、`field` キーワード等。
+  (C# 9 で使える target-typed `new()`、パターン、タプル代入などは可)。
+  - 例: 単位クォータニオン/単位行列が要る箇所は `new Quat()`/`new Matrix4x4()` に頼らず、
+    必ず `Quat.Identity` / `Matrix4x4.Identity` を使う (C# 9 の既定 `new()` は全 0)。
+- **検証**: `scratchpad/compilecheck` の全 `.csproj` は `<LangVersion>9.0</LangVersion>` を
+  設定し、`Assets/Scripts/**` を Unity と同じ言語バージョンでコンパイル検証する。
+  これにより C# 10 以降の機能が混入するとハーネスの時点でビルドが落ちる。
+
 ## ファイル構成 (`Assets/Scripts/`)
 
 | ファイル | 対応する Bullet / PMX | 内容 |
