@@ -127,6 +127,15 @@ namespace BulletPhysics.Unity
                 if (_csv.TryGet(f, b, out var bw)) link.Body.KinematicTarget = bw * link.BodyOffsetFromBone;
         }
 
+        // ボーンindex → フレーム0のCSV姿勢 (在れば)。FK-restリセットの駆動姿勢源。
+        // 物理ボーン(スカート等)のCSV姿勢はFKヘルパ側で無視され親から前計算される。
+        private RigidTransform? DrivenBoneWorldAtFrame0(int boneIndex)
+        {
+            if (_csv == null || boneIndex < 0 || boneIndex >= _model.BoneNames.Count) return null;
+            if (_csv.TryGet(0, _model.BoneNames[boneIndex], out var bw)) return bw;
+            return null;
+        }
+
         /// <summary>ワールドを作り直し、フレーム0のウォームアップから target まで再シミュレーションする。</summary>
         public void RewindTo(int target)
         {
@@ -135,10 +144,10 @@ namespace BulletPhysics.Unity
             target = System.Math.Clamp(target, 0, System.Math.Max(0, last));
             BuildWorld();
             ApplyPose(0);
-            // 物理リセット(全剛体をボーン姿勢へ整合)はここに入れる予定だが、CSVのスカートボーン姿勢は
-            // 本家の物理結果(傾き込み)であり、閉ループのスカートを一斉にそこへ置くと過拘束で発散する。
-            // 正しくはスケルトンFK-rest姿勢(親駆動・バインド整合)を使う必要があり、それにはボーン親階層が要る
-            // (現状 PmxReader は親を読んでいない)。実装方針は人間判断待ちのため、ここでは未配線。
+            // 物理開始前に FK-rest で全剛体をボーン姿勢へ整合させる (MMDの物理リセット相当)。
+            // CSVは入力ボーン(駆動)と物理ボーン(スカート等=物理結果)を両方含むが、FKヘルパが
+            // 物理ボーンのCSV姿勢を無視して親から前計算するので過拘束発散しない。
+            _builder.ResetBodiesToBonePoseFk(DrivenBoneWorldAtFrame0);
             for (int s = 0; s < WarmupSteps; s++) _builder.World.StepSimulation(FixedTimeStep);
             for (int f = 0; f <= target; f++) { ApplyPose(f); _builder.World.StepSimulation(FixedTimeStep); }
             _simFrame = target;

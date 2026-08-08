@@ -61,7 +61,9 @@ namespace BulletPhysics.Unity
         public void ResetPhysicsToBones()
         {
             if (_builder == null) return;
-            _builder.ResetBodiesToBonePose(BoneWorldOrNull);
+            // FK-rest で統一: 物理ボーン(スカート/髪)はスケルトンの姿勢を使わず親から前計算する。
+            // スケルトンの物理ボーンに前フレームの物理結果が残っていても正しい開始状態になる。
+            _builder.ResetBodiesToBonePoseFk(BoneWorldOrNull);
         }
 
         // ボーンindex → ワールド姿勢 (MMD座標)。Transform 未解決なら null (バインド維持)。

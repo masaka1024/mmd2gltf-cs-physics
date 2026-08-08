@@ -25,31 +25,7 @@ static class PhysReset
 
     class Res { public float calmMed, calmP90, calmMax, ratioMed; public double penMean, penMax; public float[][] pairDepth; }
 
-    // スカートボーンの FK-rest 世界姿勢 (親駆動・バインド整合。CSVの物理結果ではない)。
-    // 親: スカート_0_c←下半身, スカート_r_c←スカート_(r-1)_c。バインド回転は恒等なので
-    // 全スカートボーンは下半身の回転を継ぎ、位置はバインドオフセットを下半身回転で運ぶ。
-    static Dictionary<int, RigidTransform> _fk = new();
-    static void BuildFkRest(int frame)
-    {
-        _fk.Clear();
-        int Idx(string n) { int i = model.BoneNames.IndexOf(n); return i; }
-        Vec3 Bind(int i) => (i >= 0 && i < model.BonePositions.Count) ? model.BonePositions[i] : Vec3.Zero;
-        int shita = Idx("下半身");
-        if (shita < 0 || !csv.TryGet(frame, "下半身", out var shitaW)) return;
-        // ring0..2, col0..11
-        for (int r = 0; r <= 2; r++)
-            for (int c = 0; c <= 11; c++)
-            {
-                int bi = Idx($"スカート_{r}_{c}"); if (bi < 0) continue;
-                RigidTransform pw; int pi;
-                if (r == 0) { pw = shitaW; pi = shita; }
-                else { int ppi = Idx($"スカート_{r - 1}_{c}"); if (ppi < 0 || !_fk.TryGetValue(ppi, out pw)) continue; pi = ppi; }
-                var localOff = Bind(bi) - Bind(pi);
-                _fk[bi] = new RigidTransform(pw.Rotation, pw.Rotation * localOff + pw.Origin);
-            }
-    }
-
-    // mode: 0=リセット無, 1=CSVリセット(本家物理姿勢), 2=FK-restリセット(スカートは親駆動)
+    // mode: 0=リセット無, 1=CSVリセット(本家物理姿勢・過拘束の対照), 2=FK-restリセット(本体汎用ヘルパ)
     static Res Run(int mode, int warmup, bool dummies = false)
     {
         var builder = PmxPhysicsBuilder.Build(model); var world = builder.World;
@@ -66,14 +42,10 @@ static class PhysReset
             builder.ResetBodiesToBonePose(i => (i >= 0 && i < model.BoneNames.Count && csv.TryGet(0, model.BoneNames[i], out var bw)) ? (RigidTransform?)bw : null);
         else if (mode == 2)
         {
-            BuildFkRest(0);
-            builder.ResetBodiesToBonePose(i =>
-            {
-                if (i < 0 || i >= model.BoneNames.Count) return null;
-                if (_fk.TryGetValue(i, out var fk)) return fk;                       // スカート=FK-rest
-                if (csv.TryGet(0, model.BoneNames[i], out var bw)) return bw;         // 脚/胴=CSV(kinematic)
-                return null;                                                          // 髪等=バインド維持
-            });
+            // 本体の汎用 FK-rest ヘルパ (物理ボーンのCSV姿勢は無視され親から前計算される)。
+            builder.ResetBodiesToBonePoseFk(i =>
+                (i >= 0 && i < model.BoneNames.Count && csv.TryGet(0, model.BoneNames[i], out var bw))
+                    ? (RigidTransform?)bw : null);
         }
         for (int s = 0; s < warmup; s++) world.StepSimulation(FRAME);
 

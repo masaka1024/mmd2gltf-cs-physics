@@ -68,9 +68,14 @@ namespace BoneCheck
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
-            // ウォームアップ: フレーム0姿勢で空回し。
-            // (物理リセットはFK-rest姿勢が要るため未配線。物理リセットの検証は scratchpad/physreset 参照。)
+            // 物理開始前に FK-rest で全剛体をボーン姿勢へ整合させる (MMDの物理リセット相当)。
+            // 物理ボーン(スカート等)のCSV姿勢はFKヘルパが無視し親から前計算する。
             ApplyPose(driven, csv, 0);
+            builder.ResetBodiesToBonePoseFk(i =>
+                (i >= 0 && i < model.BoneNames.Count && csv.TryGet(0, model.BoneNames[i], out var bw))
+                    ? (RigidTransform?)bw : null);
+
+            // ウォームアップ: フレーム0姿勢で空回し。
             for (int s = 0; s < WarmupSteps; s++) world.StepSimulation(1f / 30f);
 
             // 計測本番。

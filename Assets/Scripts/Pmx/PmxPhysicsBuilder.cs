@@ -23,10 +23,12 @@ namespace BulletPhysics.Pmx
         public PhysicsWorld World { get; } = new();
         public readonly List<BoneLink> BoneLinks = new();
         public readonly List<RigidBody> Bodies = new();
+        private PmxPhysicsModel _model;   // FK-rest計算用にボーン階層を参照
 
         public static PmxPhysicsBuilder Build(PmxPhysicsModel model)
         {
             var b = new PmxPhysicsBuilder();
+            b._model = model;
             b.BuildBodies(model);
             b.BuildJoints(model);
             return b;
@@ -101,6 +103,58 @@ namespace BulletPhysics.Pmx
                 body.UpdateInertiaWorld();
             }
             World.ClearContacts();
+        }
+
+        /// <summary>
+        /// FK-rest 物理リセット。剛体を「ボーンの FK-rest ワールド姿勢 * BodyOffsetFromBone」へ置く。
+        /// FK-rest = 親駆動のバインド整合姿勢:
+        ///   - 物理で動くボーン (動的剛体が紐づくボーン) は、外から与えられた姿勢を使わず、
+        ///     親チェーンから前計算する (バインドは位置のみ・回転恒等なので単純な階層合成)。
+        ///   - 駆動されるボーン (kinematic 剛体のボーン等) は getDrivenBoneWorld の姿勢を使う。
+        /// これにより、CSV(本家の物理結果=傾き込み)を全剛体へ一斉適用したときの過拘束発散を避け、
+        /// BonePoseCsvPlayer / HeadlessDriver / Unity で同一の開始状態を作れる。
+        /// getDrivenBoneWorld: ボーンindex → 駆動姿勢 (無ければ null)。物理ボーンには使われない。
+        /// </summary>
+        public void ResetBodiesToBonePoseFk(System.Func<int, RigidTransform?> getDrivenBoneWorld)
+        {
+            int n = _model.BoneNames.Count;
+
+            // 物理ボーン = 非 BoneFollow (動的/物理+Bone合わせ) 剛体が紐づくボーン。
+            var isPhysics = new bool[n];
+            foreach (var link in BoneLinks)
+                if (link.BoneIndex >= 0 && link.BoneIndex < n && link.Mode != PhysicsMode.BoneFollow)
+                    isPhysics[link.BoneIndex] = true;
+
+            var world = new RigidTransform?[n];
+            RigidTransform Fk(int i, int depth)
+            {
+                if (world[i].HasValue) return world[i].Value;
+                // 循環参照の保険 (深さ上限で打ち切りバインド位置)。
+                if (depth > 512) { world[i] = new RigidTransform(Quat.Identity, _model.BonePositions[i]); return world[i].Value; }
+
+                // 物理ボーンは駆動姿勢を使わず必ず FK。それ以外は駆動姿勢があれば使う。
+                RigidTransform? driven = isPhysics[i] ? null : getDrivenBoneWorld(i);
+                RigidTransform res;
+                if (driven.HasValue) res = driven.Value;
+                else
+                {
+                    int p = (i < _model.BoneParents.Count) ? _model.BoneParents[i] : -1;
+                    if (p < 0 || p >= n)
+                        res = new RigidTransform(Quat.Identity, _model.BonePositions[i]); // ルート等 = バインド世界
+                    else
+                    {
+                        var pw = Fk(p, depth + 1);
+                        var localOff = _model.BonePositions[i] - _model.BonePositions[p]; // バインドは回転恒等
+                        res = new RigidTransform(pw.Rotation, pw.Rotation * localOff + pw.Origin);
+                    }
+                }
+                world[i] = res;
+                return res;
+            }
+            for (int i = 0; i < n; i++) if (!world[i].HasValue) Fk(i, 0);
+
+            // 計算した FK-rest 姿勢で配置 (原始 API へ委譲)。
+            ResetBodiesToBonePose(i => (i >= 0 && i < n) ? world[i] : null);
         }
 
         private static RigidTransform ComputeOffset(PmxPhysicsModel model, PmxRigidBody rb)
