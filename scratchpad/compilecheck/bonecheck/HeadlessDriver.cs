@@ -37,6 +37,7 @@ namespace BoneCheck
 
         public void Run(BoneCsv csv, PmxPhysicsModel model, List<SkirtJoint> joints)
         {
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("WARMUP"), out var _wu) && _wu >= 0) WarmupSteps = _wu; // ばらつき見積(診断)
             var builder = PmxPhysicsBuilder.Build(model); // 既定 World (30Hz・1サブ, gravity -98)
             var world = builder.World;
             if (SolverIterationsOverride > 0) world.SolverIterations = SolverIterationsOverride; // 診断用
