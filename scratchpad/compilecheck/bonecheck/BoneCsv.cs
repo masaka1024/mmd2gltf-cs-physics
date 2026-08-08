@@ -40,6 +40,46 @@ namespace BoneCheck
             return csv;
         }
 
+        // ★取り違え検出 (2026-08-09): 提供された CSV が想定の IA_bone_world_pose.csv か検証する。
+        //   バイト数/行数/列名/ボーン構成(43=追従7+スカート36) を確認し、1つでも外れたら
+        //   合成ターンへフォールバックせず明示的に失敗させる (誤ったCSVで本家比較すると無意味なため)。
+        public const long ExpectedBytes = 27556907;   // 仕様値 (完全一致)
+        public const int ExpectedDataRows = 301043;    // 43ボーン × 7001フレーム
+        public const int ExpectedBones = 43;           // 追従7 + スカート36
+        public const int ExpectedSkirtBones = 36;
+        public const string ExpectedHeader = "frame,boneName,posX,posY,posZ,quatX,quatY,quatZ,quatW";
+
+        // 検証NGなら理由を返す (null=OK)。ハーネス側で null 以外なら明示FAILさせる。
+        public static string Validate(string path)
+        {
+            if (!File.Exists(path)) return $"ファイルが存在しない: {path}";
+            long bytes = new FileInfo(path).Length;
+            if (bytes != ExpectedBytes) return $"バイト数不一致: {bytes} (期待 {ExpectedBytes})";
+
+            long dataRows = 0; var bones = new System.Collections.Generic.HashSet<string>();
+            bool first = true;
+            foreach (var line in File.ReadLines(path))
+            {
+                if (first)
+                {
+                    first = false;
+                    string h = line.TrimEnd('\r');
+                    if (h != ExpectedHeader) return $"列名不一致: '{h}' (期待 '{ExpectedHeader}')";
+                    continue;
+                }
+                if (line.Length == 0) continue;
+                dataRows++;
+                int comma = line.IndexOf(',');
+                int comma2 = comma >= 0 ? line.IndexOf(',', comma + 1) : -1;
+                if (comma >= 0 && comma2 > comma) bones.Add(line.Substring(comma + 1, comma2 - comma - 1));
+            }
+            if (dataRows != ExpectedDataRows) return $"データ行数不一致: {dataRows} (期待 {ExpectedDataRows})";
+            if (bones.Count != ExpectedBones) return $"ボーン数不一致: {bones.Count} (期待 {ExpectedBones})";
+            int skirt = 0; foreach (var b in bones) if (b.Contains("スカート")) skirt++;
+            if (skirt != ExpectedSkirtBones) return $"スカートボーン数不一致: {skirt} (期待 {ExpectedSkirtBones})";
+            return null;
+        }
+
         private void ReadAll(string path)
         {
             // 1パス目: ボーン名の列割り当てと最大フレームを確定。

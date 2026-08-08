@@ -27,10 +27,21 @@ namespace BoneCheck
             }
             if (csvPath == null)
             {
-                // CSV が無い環境は合成ターン (環境確認用・本家比較不可) にフォールバック。
+                // CSV が「未提供」の環境のみ合成ターン (環境確認用・本家比較不可) にフォールバック。
                 Console.WriteLine("[INFO] ボーンCSV 未検出 → 合成ターンで環境確認 (タスク4)。");
                 return SyntheticTurn.Run(PmxReader.LoadFile(PmxPath)) ? 0 : 1;
             }
+
+            // ★CSV が「提供された」場合は取り違え検出を通す。不一致ならフォールバックせず明示FAIL。
+            string verr = BoneCsv.Validate(csvPath);
+            if (verr != null)
+            {
+                Console.WriteLine($"[FAIL] ボーンCSV 取り違え検出: {verr}");
+                Console.WriteLine($"       path={csvPath}");
+                Console.WriteLine("       誤ったCSVでの本家比較は無意味なため合成ターンへフォールバックしません。");
+                return 1;
+            }
+            Console.WriteLine($"[OK] ボーンCSV 検証通過 (bytes={BoneCsv.ExpectedBytes}/rows={BoneCsv.ExpectedDataRows}/columns/bones43): {csvPath}");
 
             // 先に swing-twist 分解の単体テスト (ヨー遅れ計測の土台)。
             bool stOk = SwingTwistTest.Run();
