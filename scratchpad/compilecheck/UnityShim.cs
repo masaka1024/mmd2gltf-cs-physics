@@ -11,6 +11,7 @@ namespace UnityEngine
         public static Vector3 one => new Vector3(1, 1, 1);
         public static Vector3 zero => new Vector3(0, 0, 0);
         public static Vector3 operator *(Vector3 a, float s) => new Vector3(a.x * s, a.y * s, a.z * s);
+        public static Vector3 operator +(Vector3 a, Vector3 b) => new Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
     }
 
     public struct Quaternion
@@ -28,6 +29,7 @@ namespace UnityEngine
     public struct Color
     {
         public float r, g, b, a;
+        public Color(float r, float g, float b, float a) { this.r = r; this.g = g; this.b = b; this.a = a; }
         public static Color cyan => new Color();
         public static Color green => new Color();
         public static Color yellow => new Color();
@@ -56,6 +58,8 @@ namespace UnityEngine
         public static Matrix4x4 matrix;
         public static void DrawWireSphere(Vector3 c, float r) { }
         public static void DrawWireCube(Vector3 c, Vector3 s) { }
+        public static void DrawSphere(Vector3 c, float r) { }
+        public static void DrawLine(Vector3 a, Vector3 b) { }
     }
 
     public static class Time
