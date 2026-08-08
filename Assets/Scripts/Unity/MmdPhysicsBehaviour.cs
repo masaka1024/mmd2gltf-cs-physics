@@ -25,8 +25,9 @@ namespace BulletPhysics.Unity
         [Header("Solver")]
         public float Gravity = 98f;         // MMD スケール重力 (約 9.8 * 10)
         public int SolverIterations = 10;
-        // リファレンスは 30Hz・1サブ (MMD本家の刻みを再現対象とする設計方針)。
-        public int SubSteps = 1;
+        // リファレンスは実効 1/60 (FixedTimeStep=1/30 は 30fps 入力に合わせ、SubSteps=2 で刻む)。
+        // 詳細は DESIGN.md「リファレンス刻み」節。より忠実にしたい場合は SubSteps を 4 (=1/120) に。
+        public int SubSteps = 2;
         public float FixedTimeStep = 1f / 30f;
 
         [Header("Debug")]

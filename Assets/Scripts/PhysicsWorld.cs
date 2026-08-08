@@ -30,10 +30,14 @@ namespace BulletPhysics
         public Vec3 Gravity = new(0f, -9.8f * 10f, 0f); // MMD スケール: 重力は約 98
 
         // ソルバ設定。
-        // リファレンスは 30Hz・1サブ (MMD本家は 30fps で 1描画フレーム=1物理ステップ。
-        // その刻みを再現対象とする設計方針)。
+        // リファレンスは実効 1/60 (FixedTimeStep=1/30 は 30fps 入力に合わせ、SubSteps=2 で刻む)。
+        // 刻み掃引で、実効刻みを細かくするほど本家(MMD)のスカート傾きに一致することを確認した
+        // (12窓比 1/30:1.133 → 1/60:1.030 → 1/120:0.978)。外部実装も細刻み (Saba=1/120,
+        // libmmd=1/60, MMDは物理最大60fps)。詳細は DESIGN.md「リファレンス刻み」節。
+        // ※細刻み化は SubSteps で行う (FixedTimeStep を下げる経路はキネマティック補間の分母が
+        //   フレーム総サブステップ数で正しく効く。両経路とも補間は修正済みだが、入力は 1/30 境界)。
         public int SolverIterations = 10;
-        public int SubSteps = 1;
+        public int SubSteps = 2;
         public float FixedTimeStep = 1f / 30f;
 
         public float PenetrationSlop = 0.005f;
