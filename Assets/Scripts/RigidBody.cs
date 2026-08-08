@@ -47,6 +47,11 @@ namespace BulletPhysics
         public Vec3 LinearVelocity;
         public Vec3 AngularVelocity;
 
+        // Split Impulse 用の擬似速度 (btRigidBody の m_pushVelocity / m_turnVelocity 相当)。
+        // 貫入回復専用で実速度とは独立。毎サブステップ 0 に初期化され、位置積分に足すが速度としては残さない。
+        public Vec3 PseudoLinearVelocity;
+        public Vec3 PseudoAngularVelocity;
+
         // ボーン追従(kinematic) の目標姿勢 (Unity 側から毎フレーム設定)。
         public RigidTransform KinematicTarget = RigidTransform.Identity;
 
@@ -153,6 +158,21 @@ namespace BulletPhysics
             if (InverseMass == 0f) return;
             LinearVelocity += impulse * InverseMass;
             AngularVelocity += InverseInertiaWorld * Vec3.Cross(rel, impulse);
+        }
+
+        /// <summary>Split Impulse: 擬似速度へ加える貫入回復力積 (実速度には反映しない)。</summary>
+        public void ApplyPushImpulse(Vec3 impulse, Vec3 rel)
+        {
+            if (InverseMass == 0f) return;
+            PseudoLinearVelocity += impulse * InverseMass;
+            PseudoAngularVelocity += InverseInertiaWorld * Vec3.Cross(rel, impulse);
+        }
+
+        /// <summary>剛体上の点 (ワールド) の擬似速度。Split Impulse の反復で使用。</summary>
+        public Vec3 PseudoVelocityAtPoint(Vec3 worldPoint)
+        {
+            var r = worldPoint - CenterOfMass;
+            return PseudoLinearVelocity + Vec3.Cross(PseudoAngularVelocity, r);
         }
 
         public void ClearForces()

@@ -16,9 +16,11 @@ namespace BulletPhysics
         public Vec3 RelA, RelB;
         public Vec3 Normal, Tangent1, Tangent2;
         public float NormalMass, TangentMass1, TangentMass2;
-        public float NormalBias;       // Baumgarte + restitution
+        public float NormalBias;       // 速度側の目標接近速度 (restitution + 浅貫入の Baumgarte)
+        public float PushBias;         // Split Impulse: 擬似速度側の貫入回復目標 (深貫入のみ非0)
         public float Friction;
         public float NormalImpulse, TangentImpulse1, TangentImpulse2;
+        public float PushImpulse;      // Split Impulse の蓄積擬似インパルス (ウォームスタートしない)
         public PersistentManifold Manifold; public int PointRef; // ウォームスタート書き戻し用
     }
 
@@ -37,6 +39,14 @@ namespace BulletPhysics
         public float PenetrationSlop = 0.005f;
         public float BaumgarteFactor = 0.2f;
         public float RestitutionThreshold = 1.0f;
+
+        // --- Split Impulse (接触の貫入回復を実速度から切り離す) ---
+        // 既定は新方式(true)。false で従来の Baumgarte-in-velocity へ戻せる。
+        // 貫入が閾値より深い接触のみ擬似速度側で回復し、実速度にエネルギーを注入しない。
+        // 反発(restitution)は貫入回復ではないため実速度側に残す。ジョイントの ERP(Beta) は不変。
+        // Bullet 2.75 既定は m_splitImpulse=false / 閾値 -0.02。ここでは効果検証のため既定 true とする。
+        public bool UseSplitImpulse = true;
+        public float SplitImpulsePenetrationThreshold = -0.02f; // Bullet 2.75 m_splitImpulsePenetrationThreshold
 
         public readonly List<RigidBody> Bodies = new();
         public readonly List<Joint> Joints = new();
@@ -113,6 +123,19 @@ namespace BulletPhysics
                 foreach (var j in Joints) j.SolveVelocity();
             }
 
+            // Split Impulse: 実速度の求解後、貫入回復を擬似速度側で別反復して解く。
+            // 擬似速度を 0 から解き、位置積分にのみ反映する (実速度には残さない)。
+            if (UseSplitImpulse)
+            {
+                for (int i = 0; i < Bodies.Count; i++)
+                {
+                    Bodies[i].PseudoLinearVelocity = Vec3.Zero;
+                    Bodies[i].PseudoAngularVelocity = Vec3.Zero;
+                }
+                for (int it = 0; it < SolverIterations; it++)
+                    SolveSplitImpulse();
+            }
+
             StoreImpulses();
             IntegratePositions(dt);
         }
@@ -172,10 +195,19 @@ namespace BulletPhysics
                 }
 
                 var t = b.WorldTransform;
-                t.Origin += b.LinearVelocity * dt;
+
+                // Split Impulse 有効時は「実速度 + 擬似速度」で位置を進める (擬似は速度として残さない)。
+                var vlin = b.LinearVelocity;
+                var vang = b.AngularVelocity;
+                if (UseSplitImpulse)
+                {
+                    vlin += b.PseudoLinearVelocity;
+                    vang += b.PseudoAngularVelocity;
+                }
+                t.Origin += vlin * dt;
 
                 // クォータニオン積分: q += 0.5 * w * q * dt。
-                var w = b.AngularVelocity;
+                var w = vang;
                 var spin = new Quat(w.x, w.y, w.z, 0f) * t.Rotation;
                 t.Rotation = new Quat(
                     t.Rotation.x + spin.x * 0.5f * dt,
@@ -319,10 +351,22 @@ namespace BulletPhysics
 
                     if (cp.Distance <= 0f)
                     {
-                        // 貫入: Baumgarte 位置補正 + 反発 (従来どおり)。
+                        // 貫入: Baumgarte 位置補正 + 反発。
                         float pen = -cp.Distance - PenetrationSlop;
                         float biasVel = pen > 0 ? BaumgarteFactor * pen / dt : 0f;
-                        cc.NormalBias = Math.Max(biasVel, restBias);
+                        // Split Impulse: Bullet 2.75 convertContact と同様、貫入が閾値より深い接触のみ
+                        // 位置補正を擬似速度側(PushBias)へ回し、実速度側は反発のみにする。
+                        // 浅い貫入 (閾値より浅い) は従来どおり速度側の Baumgarte に載せる。
+                        if (UseSplitImpulse && cp.Distance <= SplitImpulsePenetrationThreshold)
+                        {
+                            cc.NormalBias = restBias;   // 実速度側: 反発のみ (貫入回復は載せない)
+                            cc.PushBias = biasVel;      // 擬似速度側: 貫入回復
+                        }
+                        else
+                        {
+                            cc.NormalBias = Math.Max(biasVel, restBias); // 従来どおり
+                            cc.PushBias = 0f;
+                        }
                     }
                     else
                     {
@@ -415,6 +459,30 @@ namespace BulletPhysics
                 a.ApplyImpulse(-Pn, c.RelA);
                 b.ApplyImpulse(Pn, c.RelB);
 
+                _contacts[i] = c;
+            }
+        }
+
+        // --- Split Impulse 求解 (擬似速度で貫入回復) ---
+        // SolveContacts の法線部と同一の符号規約。ただし擬似速度に対して解き、目標は PushBias。
+        // 蓄積擬似インパルス(PushImpulse)は 0 以上にクランプ。ウォームスタートしない。
+        private void SolveSplitImpulse()
+        {
+            for (int i = 0; i < _contacts.Count; i++)
+            {
+                var c = _contacts[i];
+                if (c.PushBias <= 0f) continue; // 深い貫入の接触のみ
+                var a = c.A; var b = c.B;
+                var pA = a.CenterOfMass + c.RelA;
+                var pB = b.CenterOfMass + c.RelB;
+                float relN = (b.PseudoVelocityAtPoint(pB) - a.PseudoVelocityAtPoint(pA)).Dot(c.Normal);
+                float dP = (c.PushBias - relN) * c.NormalMass;
+                float old = c.PushImpulse;
+                c.PushImpulse = Math.Max(0f, old + dP);
+                dP = c.PushImpulse - old;
+                var P = c.Normal * dP;
+                a.ApplyPushImpulse(-P, c.RelA);
+                b.ApplyPushImpulse(P, c.RelB);
                 _contacts[i] = c;
             }
         }
