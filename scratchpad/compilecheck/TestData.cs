@@ -14,10 +14,12 @@ internal static class TestData
     public const string DefaultPmx = "IA.pmx";
     public const string DefaultBoneCsv = "IA_bone_world_pose.csv";
     public const string DefaultStructureCsv = "ia.csv";
+    public const string DefaultGlb = "IA.glb";
 
     public static string PmxPath() => Resolve("MMD_TEST_PMX", DefaultPmx);
     public static string BoneCsvPath() => Resolve("MMD_TEST_BONECSV", DefaultBoneCsv);
     public static string StructureCsvPath() => Resolve("MMD_TEST_PMXCSV", DefaultStructureCsv);
+    public static string GlbPath() => Resolve("MMD_TEST_GLB", DefaultGlb);
 
     public static string Resolve(string envVar, string defaultFile)
     {
