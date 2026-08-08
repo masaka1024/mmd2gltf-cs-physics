@@ -133,13 +133,26 @@ namespace BulletPhysics
 
         public override Vec3 CalculateLocalInertia(float mass)
         {
-            // 円柱 + 2半球 の合成慣性 (Y 軸周り)。
+            // Bullet btCapsuleShape::calculateLocalInertia を忠実に再現する。
+            // Bullet は「両端の球を含む外接箱」の慣性で近似している
+            // (原文コメント: "as an approximation, take the inertia of the box that
+            //  bounds the spheres")。物理的に正しい円柱+半球の解析式ではないが、
+            // 本家(Bullet 2.75/PMX)との挙動互換を優先し、あえてこの近似を使う。
+            // ※ 将来「正しい式」に直さないこと。円柱式は横軸慣性が半分以下になり、
+            //   カプセル剛体(髪など)が本家より過敏に回ってしまう。
+            // upAxis は Y (PMX のカプセルは Y 軸方向)。halfExtents = (r,r,r) の Y に halfHeight を加算。
             var r = Radius;
-            var h = Height;
-            var cylMass = mass; // 近似: 全質量を円柱として扱い Bullet の簡易式に寄せる
-            var ix = cylMass * (0.25f * r * r + (1f / 12f) * h * h);
-            var iy = cylMass * (0.5f * r * r);
-            return new Vec3(ix, iy, ix);
+            var hx = r;
+            var hy = r + HalfHeight;
+            var hz = r;
+            var lx = 2f * hx;
+            var ly = 2f * hy;
+            var lz = 2f * hz;
+            var c = mass / 12f; // Bullet の scaledmass = mass * 0.08333333
+            return new Vec3(
+                c * (ly * ly + lz * lz),  // X
+                c * (lx * lx + lz * lz),  // Y (up)
+                c * (lx * lx + ly * ly)); // Z
         }
 
         public override float BoundingRadius => HalfHeight + Radius;

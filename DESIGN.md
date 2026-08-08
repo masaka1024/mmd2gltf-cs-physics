@@ -21,6 +21,15 @@ PMX 2.1仕様に準拠したMMD物理演算エンジン。外部ネイティブ�
 - PmxPhysicsBuilder (PMX→World変換 + ボーン紐付け) — 完了
 - Unity ブリッジ MmdPhysicsBehaviour (座標変換/単位スケール/ボーン同期) — 完了
 
+## 本体是正 (2026-08-08)
+- カプセル慣性を Bullet 準拠へ: `CapsuleShape.CalculateLocalInertia` を円柱+半球の
+  解析式から、Bullet `btCapsuleShape` の「両端球を含む外接箱」近似へ変更。
+  円柱式は横軸慣性が半分以下になりカプセル剛体(髪など65個)が過敏に回っていた。
+  ※Bullet原文コメント "as an approximation, take the inertia of the box that bounds
+    the spheres" のとおり物理的な正確式ではないが、本家互換を優先。将来"正しい式"へ
+    直さないこと (コード側にも明記)。Box/Sphere は Bullet と一致済みで変更不要
+    (Box=getHalfExtentsWithMargin相当のフル半径, Sphere=getMargin=半径)。
+
 ## 不具合修正 (2026-08-07)
 - A: Matrix3x3.FromQuat の転置バグ (Rᵀ→R)。慣性テンソル/軸/オイラー角が正常化
 - B: 減衰を Bullet 2.75 の秒単位 pow(1-d,dt) に修正
