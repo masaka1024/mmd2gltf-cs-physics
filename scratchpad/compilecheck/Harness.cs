@@ -113,24 +113,34 @@ static class Harness
         var w = b.World; w.Gravity = new Vec3(0, -98f, 0); // 既定 (30Hz・1サブ) のまま
         var dyn = w.Bodies.Where(r => !r.IsStaticOrKinematic).ToList();
 
-        bool badNum = false; float maxSpeed = 0f; double stepMaxSteady = 0;
+        // 全動的剛体の初期位置を控え、静止(重力のみ)でのドリフト(初期位置からの最大変位)を追う。
+        // ※既存スモークは maxSpeed<=100 のみで、髪が bind から大きく垂れる/暴れる不具合
+        //   (maxDrift~8) を見逃していた。以後は maxDrift も常設で計測する。
+        var initPos = dyn.Select(r => r.WorldTransform.Origin).ToArray();
+
+        bool badNum = false; float maxSpeed = 0f; double stepMaxSteady = 0; float maxDrift = 0f; string driftName = "";
         for (int i = 0; i < 300; i++)
         {
             var sw = Stopwatch.StartNew();
             w.StepSimulation(w.FixedTimeStep);
             sw.Stop();
             if (i >= 5) stepMaxSteady = Math.Max(stepMaxSteady, sw.Elapsed.TotalMilliseconds); // 先頭は JIT 暖機
-            foreach (var r in dyn)
+            for (int k = 0; k < dyn.Count; k++)
             {
+                var r = dyn[k];
                 var o = r.WorldTransform.Origin; var v = r.LinearVelocity;
                 if (IsBad(o.x) || IsBad(o.y) || IsBad(o.z) || IsBad(v.x) || IsBad(v.y) || IsBad(v.z)) badNum = true;
                 float sp = v.Length; if (sp > maxSpeed) maxSpeed = sp;
+                float dr = (o - initPos[k]).Length; if (dr > maxDrift) { maxDrift = dr; driftName = r.Name; }
             }
         }
         long epaHits = GjkEpa.EpaIterCapHits + GjkEpa.EpaFaceCapHits;
         bool ok = !badNum && maxSpeed <= 100f && epaHits == 0 && stepMaxSteady <= 50.0;
         Check("IA.pmx スモーク (NaN/爆発/EPA暴走/遅延なし)", ok,
             $"NaN/Inf={badNum} maxSpeed={maxSpeed:F1}(<=100) EPAhit={epaHits}(=0) stepMax={stepMaxSteady:F2}ms(<=50)");
+        // 常設のドリフト指標。既知の問題(髪の静止爆散, 主因=ジョイントwarm-start欠如)。
+        // 現状の既知値 ~8.17。理論期待値は静止なので ~0。修正が入ったら閾値付き Check へ格上げする。
+        Note("IA.pmx 静止ドリフト (known-issue, 期待≈0)", $"maxDrift={maxDrift:F2} (最大: {driftName}) / 既知ベースライン≈8.17");
     }
 
     // ---- 静止押し出しの回帰テスト ----
@@ -197,4 +207,6 @@ static class Harness
         if (!ok) _fails++;
     }
     static void Skip(string name) => Console.WriteLine($"  [SKIP] {name}");
+    // 既知の問題を常設で計測・追跡するための情報項目 (合否には影響しない)。
+    static void Note(string name, string detail) => Console.WriteLine($"  [NOTE] {name}  ({detail})");
 }
