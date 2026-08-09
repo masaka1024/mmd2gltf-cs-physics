@@ -340,8 +340,24 @@ namespace BulletPhysics
         private int[] _pairA, _pairB; private int _pairCount = -1; private int _pairBuiltForCount = -1;
         private Aabb[] _aabbScratch; private readonly HashSet<long> _seenScratch = new(); private readonly List<long> _deadScratch = new();
 
-        /// <summary>Group/CollisionMask/Mode を実行時に変えたら呼ぶ (次ステップで候補ペアを作り直す)。</summary>
+        // ★このキャッシュが依存している前提 (崩れると「本来当たるペアが当たらない」形で静かに壊れる):
+        //   1. Body の Group / CollisionMask が実行中に変わらない
+        //   2. Body の Mode (static/kinematic/dynamic の別) が実行中に変わらない
+        //   3. Bodies の増減は AddBody 経由 (自動で無効化する)
+        // 現状の運用では全て成立するが、将来インパルスモーフ配線・剛体の動的追加/削除・
+        // 実行時のモード切替を入れる場合は必ず InvalidateCollisionPairs() を呼ぶこと。
+        // 壊れ方が静か(例外も警告も出ず、単に衝突しなくなる)なので、疑わしいときは
+        // DebugCollisionPairCount を before/after で比較すること。
+
+        /// <summary>Group/CollisionMask/Mode を実行時に変えたら呼ぶ (次ステップで候補ペアを作り直す)。
+        /// 剛体の追加は AddBody が自動で無効化する。削除APIを足す場合も必ずここを呼ぶこと。</summary>
         public void InvalidateCollisionPairs() { _pairCount = -1; }
+
+        /// <summary>診断/テスト用: 現在の候補ペア数 (未構築なら構築する)。挙動には影響しない。</summary>
+        public int DebugCollisionPairCount
+        {
+            get { if (_pairCount < 0 || _pairBuiltForCount != Bodies.Count) BuildCollisionPairs(); return _pairCount; }
+        }
 
         private void BuildCollisionPairs()
         {

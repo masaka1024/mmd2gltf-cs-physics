@@ -462,7 +462,13 @@ Custom の間は**毎FixedUpdateでパークを再主張**する。初回の再�
 毎サブステップの `new Aabb[n]` / `new HashSet<long>()` / `new List<long>()` も再利用に変更。
 → ブロードフェーズ 0.325→0.106ms (3.1倍速)、全体 1.73→1.17ms (中央値)。
    結果はビット不変 (chainbug_A 一致 / hairfid 深貫入11 一致 / bonecheck 11.20・12窓比1.0611 一致)。
-   ※Group/CollisionMask/Mode を実行時に変えたら `InvalidateCollisionPairs()` を呼ぶこと (AddBodyは自動)。
+   ※**このキャッシュの前提** (崩れると「本来当たるペアが当たらない」形で*静かに*壊れる。例外も警告も出ない):
+     1. Group / CollisionMask が実行中に変わらない  2. Mode(static/kinematic/dynamic) が実行中に変わらない
+     3. Bodies の増減は AddBody 経由 (自動で無効化)
+     将来 **インパルスモーフの配線 / 剛体の動的追加・削除 / 実行時のモード切替** を入れる場合は必ず
+     `PhysicsWorld.InvalidateCollisionPairs()` を呼ぶ (削除APIを新設する場合もそこで呼ぶこと)。
+     疑わしいときは `DebugCollisionPairCount` を変更前後で比較する。
+     回帰: compilecheck main「候補ペアキャッシュ」テスト (剛体追加で候補が増える/マスク変更+無効化で反映される)。
 
 ### 計測して却下した案 (実装しなかった)
 - **タイトAABB** (球バウンド立方体→形状+回転): 候補692→594通過 (14%減) にしかならない。
@@ -474,8 +480,15 @@ Custom の間は**毎FixedUpdateでパークを再主張**する。初回の再�
 ### 残る負荷はUnity層 (エンジン外)
 エンジンが3.5%である以上、体感の重さはUnity側の可能性が高い。確認順:
 1. `MmdPhysicsBehaviour.DrawGizmos=false` (117形状をエディタ描画毎に描く。エディタ専用コスト)
-2. PhysX側の診断スクリプトを止める (Custom運用では純粋な無駄):
+2. PhysX側の診断スクリプトを止める (Custom運用では純粋な無駄) → **`MmdPhysicsBackendSwitch.DisablePhysXHelpers`(既定ON)で自動化済み**:
    MmdJointProbe(72Jointを毎FixedUpdate計測+毎秒巨大文字列Debug.Log) / MmdMotionStats(101剛体を毎ステップ記録) /
-   MmdGravity(パーク済み108剛体へAddForce) / MmdCollisionMask(保留35組を毎FixedUpdate走査)
-3. 書き戻し 101 Transform/step (Unityのtransform書込はヒエラルキー更新を伴う)
-4. エディタ実行そのもの (ビルドすれば数倍速いのが通常)
+   MmdGravity(パーク済み108剛体へAddForce) / MmdCollisionMask(保留35組を毎FixedUpdate走査)。
+   型名照合なので importer への依存は持たない。PhysXへ戻すと復帰。対象は `PhysXHelperTypeNames` で増減可。
+3. 書き戻し 101 Transform/step。**確認済み: PullPhysicsToBones は FixedUpdate 1回=1フレーム1回**(サブステップ毎ではない)。
+   ただし `fixedDeltaTime=0.02` に対し内部刻みは 1/30 のため **約40%のFixedUpdateは内部ステップ0回**で、
+   その回の書き戻しは値が変わっておらず純粋な無駄。`World.LastStepsRun == 0` ならスキップすれば約4割削減できる
+   (未実装。注意: そのボーンをAnimatorも書いている場合はスキップするとAnimatorの値が残る。
+    現構成ではクリップに物理は入っていないため安全な見込みだが、要確認)。
+4. エディタ実行そのもの (ビルドすれば数倍速いのが通常)。
+   **計測はビルドで行うこと** (Editor Loop/Gizmo/Debug.Log/インスペクタ更新が乗ると効果判定が濁る)。
+   エディタとビルドの両方の数字を並べると「エディタ固有の重さ」と「本当の重さ」を分離できる。

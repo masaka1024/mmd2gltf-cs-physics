@@ -31,6 +31,21 @@ namespace BulletPhysics.Unity
         [Tooltip("自作エンジン (未指定ならこの GameObject 以下から自動検出)")]
         public MmdPhysicsBehaviour customEngine;
 
+        [Tooltip("Custom時、PhysX側の診断/補助スクリプトも自動停止する (Custom運用では純粋な無駄。PhysXへ戻すと復帰)")]
+        public bool DisablePhysXHelpers = true;
+
+        // 停止対象 (型名で照合するので importer への参照/依存は持たない。名前を足せば対象を増やせる)。
+        //  MmdJointProbe   : 72Jointを毎FixedUpdate計測+毎秒巨大文字列をDebug.Log (エディタでは特に重い)
+        //  MmdMotionStats  : 101剛体を毎ステップ記録
+        //  MmdGravity      : パーク済み108剛体へ毎FixedUpdate AddForce (完全に無駄)
+        //  MmdCollisionMask: 保留ペアを毎FixedUpdate走査
+        // ※MmdPhysicsWarmup は isKinematic を戻す張本人だが EnforceExclusive で無害化済み。
+        //   止めたい場合はここに "MmdPhysicsWarmup" を足す。
+        [Tooltip("停止するPhysX側スクリプトの型名 (importerへの依存を避けるため名前で照合)")]
+        public string[] PhysXHelperTypeNames = { "MmdJointProbe", "MmdMotionStats", "MmdGravity", "MmdCollisionMask" };
+
+        private readonly List<Behaviour> _disabledHelpers = new();
+
         private Rigidbody[] _rbs;
         private bool[] _origKinematic;
         private bool[] _origDetectCollisions;
@@ -78,6 +93,10 @@ namespace BulletPhysics.Unity
                 if (custom) { rb.isKinematic = true; rb.detectCollisions = false; }
                 else { rb.isKinematic = _origKinematic[i]; rb.detectCollisions = _origDetectCollisions[i]; }
             }
+            // PhysX側の診断/補助スクリプト: Custom で停止、PhysX で復帰 (型名照合=importer非依存)。
+            if (custom && DisablePhysXHelpers) DisableHelpers();
+            else RestoreHelpers();
+
             // ConfigurableJoint は Behaviour ではないため .enabled で無効化できない。
             // だが Custom では上のループで全 Rigidbody を isKinematic=true にパークしており、
             // kinematic なボディは Joint の拘束/ドライブで動かされない=Joint は自動的に無効(inert)になる。
@@ -112,6 +131,36 @@ namespace BulletPhysics.Unity
         [Tooltip("Custom中、PhysX剛体が他スクリプトに起こされても毎フレーム再パークして排他を維持する (実機の貫通対策)")]
         public bool EnforceExclusive = true;
         private int _reparked; private bool _reparkLogged;
+
+        private void DisableHelpers()
+        {
+            if (PhysXHelperTypeNames == null || PhysXHelperTypeNames.Length == 0) return;
+            var all = GetComponentsInChildren<Behaviour>(true);
+            var stopped = new List<string>();
+            foreach (var bh in all)
+            {
+                if (bh == null || !bh.enabled) continue;
+                string tn = bh.GetType().Name;
+                bool hit = false;
+                for (int i = 0; i < PhysXHelperTypeNames.Length; i++)
+                    if (tn == PhysXHelperTypeNames[i]) { hit = true; break; }
+                if (!hit) continue;
+                bh.enabled = false;
+                _disabledHelpers.Add(bh);
+                stopped.Add(tn);
+            }
+            if (stopped.Count > 0)
+                Debug.Log($"[BackendSwitch] Custom のためPhysX側スクリプトを停止しました: {string.Join(", ", stopped)} (計{stopped.Count}件)。PhysXへ戻すと復帰します。");
+        }
+
+        private void RestoreHelpers()
+        {
+            if (_disabledHelpers.Count == 0) return;
+            int n = 0;
+            foreach (var bh in _disabledHelpers) if (bh != null) { bh.enabled = true; n++; }
+            _disabledHelpers.Clear();
+            if (n > 0) Debug.Log($"[BackendSwitch] PhysX側スクリプトを復帰しました ({n}件)。");
+        }
 
         [ContextMenu("Use Custom (自作エンジン)")]
         public void UseCustom() { Mode = Backend.Custom; ApplyBackend(); }

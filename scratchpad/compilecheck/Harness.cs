@@ -42,6 +42,7 @@ static class Harness
         RegressionStaticPush();
         KinematicInterpRegression();
         KinematicDrivePathUnification();
+        CollisionPairCacheRegression();
 
         Console.WriteLine(_fails == 0 ? "\n=== 全 PASS ===" : $"\n=== {_fails} 件 FAIL ===");
         return _fails == 0 ? 0 : 1;
@@ -103,6 +104,29 @@ static class Harness
         float mn = 999f;
         for (int i = 0; i < 600; i++) { w.StepSimulation(1f / 60f); float y = bob.WorldTransform.Origin.y; if (i > 200) mn = Math.Min(mn, y); }
         Check("SpringPendulum (発散せず有限)", !float.IsNaN(mn) && mn > 0f && mn < 5f, $"minY={mn:F3}");
+    }
+
+    // ---- ブロードフェーズ候補ペアのキャッシュ回帰 ----
+    // キャッシュは Group/CollisionMask/Mode が実行中に変わらないことを前提にする。
+    // 壊れ方が静か(衝突しなくなるだけ)なので、無効化経路が生きていることをテストで守る。
+    static void CollisionPairCacheRegression()
+    {
+        var w = new PhysicsWorld();
+        RigidBody Mk(float x)
+        {
+            var b = new RigidBody(new SphereShape(0.5f)) { Mode = PhysicsMode.Dynamic, Group = 0, CollisionMask = 0xFFFF };
+            b.SetMassProps(1f); b.WorldTransform = new RigidTransform(Quat.Identity, new Vec3(x, 0, 0)); return b;
+        }
+        w.AddBody(Mk(0)); w.AddBody(Mk(1));
+        int p2 = w.DebugCollisionPairCount;                 // 2体 → 1ペア
+        w.AddBody(Mk(2));
+        int p3 = w.DebugCollisionPairCount;                 // AddBody が無効化 → 3ペアへ増える
+        // マスク変更 + 明示的な無効化で候補が減ることを確認 (将来の実行時変更に備えた経路)。
+        w.Bodies[2].CollisionMask = 0;
+        w.InvalidateCollisionPairs();
+        int p3masked = w.DebugCollisionPairCount;           // 3体目が誰とも当たらない → 1ペア
+        bool ok = p2 == 1 && p3 == 3 && p3masked == 1;
+        Check("候補ペアキャッシュ (追加で増える/無効化で反映)", ok, $"2体={p2}(期待1) 3体={p3}(期待3) マスク0後={p3masked}(期待1)");
     }
 
     // ---- 経路一致(駆動式)回帰 ----
