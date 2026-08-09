@@ -56,6 +56,12 @@ namespace BulletPhysics.Unity
         [Tooltip("本家の[ボーン位置合わせ]再現: 位置=親チェーン再構成(移動分を捨てる)/回転=物理。スカート/髪の貫通表示対策。")]
         public bool AlignBonePositions = false;
 
+        // [Jointロック内部演算] 再現の第一形: 親側ジョイントの相対eulerをリミット超過分だけ α で戻す。
+        // 0=無効(回転そのまま) / 1=完全clamp。本家ONの超過8-14°は完全clampでないことを示すため中間値。
+        // AlignBonePositions とセットで使う (位置だけONは有害と実測済: 深貫入47,749)。掃引結果で既定を更新予定。
+        [Tooltip("回転をジョイント角度リミットへ戻す割合 (AlignBonePositionsとセットで使用)。0=無効, 1=完全clamp。")]
+        [Range(0f, 1f)] public float AlignRotClampAlpha = 0.5f;
+
         [Header("Debug")]
         public bool DrawGizmos = true;
 
@@ -164,18 +170,15 @@ namespace BulletPhysics.Unity
 
         private void PushBonesToKinematic()
         {
-            foreach (var link in _builder.BoneLinks)
-            {
-                if (link.Mode != PhysicsMode.BoneFollow) continue;
-                var boneWorld = BoneWorld(link.BoneIndex);
-                link.Body.KinematicTarget = boneWorld * link.BodyOffsetFromBone;
-            }
+            // 駆動式は共通ヘルパに集約 (2026-08-09 hairfid誤配置事故の再発防止)。
+            // 旧実装は未解決ボーンで Identity フォールバック=原点へテレポートし得た。ヘルパは null=前回維持で安全。
+            _builder.ApplyKinematicTargets(BoneWorldOrNull);
         }
 
         private void PullPhysicsToBones()
         {
             // 補正層再現: 位置=親チェーン再構成 / 回転=物理 (共通ヘルパ)。
-            RigidTransform?[] aligned = AlignBonePositions ? _builder.ComputeAlignedBonePoses(BoneWorldOrNull) : null;
+            RigidTransform?[] aligned = AlignBonePositions ? _builder.ComputeAlignedBonePoses(BoneWorldOrNull, AlignRotClampAlpha) : null;
             foreach (var link in _builder.BoneLinks)
             {
                 if (link.Mode == PhysicsMode.BoneFollow) continue;

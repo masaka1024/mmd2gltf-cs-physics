@@ -158,6 +158,23 @@ namespace BulletPhysics.Pmx
         }
 
         /// <summary>
+        /// 駆動(BoneFollow)剛体の KinematicTarget を「ボーンworld姿勢 * BodyOffsetFromBone」で設定する共通ヘルパ。
+        /// ★駆動式は必ずこの1箇所を使うこと。ハーネス/Unityで手書きしない。
+        /// (2026-08-09 事故: hairfid が手書きで `= bw`(offset欠落)とし、体コライダーが誤配置のまま
+        ///  全simが走って貫入系の数字が全て汚染された。再発防止のため集約+回帰テストあり)
+        /// getDrivenBoneWorld が null を返したボーンは前回ターゲット維持 (テレポートしない)。
+        /// </summary>
+        public void ApplyKinematicTargets(System.Func<int, RigidTransform?> getDrivenBoneWorld)
+        {
+            foreach (var link in BoneLinks)
+            {
+                if (link.Mode != PhysicsMode.BoneFollow || link.BoneIndex < 0) continue;
+                var bw = getDrivenBoneWorld(link.BoneIndex);
+                if (bw.HasValue) link.Body.KinematicTarget = bw.Value * link.BodyOffsetFromBone;
+            }
+        }
+
+        /// <summary>
         /// [物理+ボーン位置合わせ] 再現 (本家PMXエディタの補正層。補正OFF/ON対照データで式を確定, 2026-08-09):
         ///   物理ボーンの出力姿勢 = 位置: 親ボーン(補正済)の位置 + 親回転で回した bind オフセット
         ///                          (物理の「移動分」を捨てる) / 回転: 物理回転そのまま。

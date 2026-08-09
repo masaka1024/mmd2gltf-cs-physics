@@ -43,7 +43,8 @@ namespace BoneCheck
         // ★取り違え検出 (2026-08-09): 提供された CSV が想定の IA_bone_world_pose.csv か検証する。
         //   バイト数/行数/列名/ボーン構成(43=追従7+スカート36) を確認し、1つでも外れたら
         //   合成ターンへフォールバックせず明示的に失敗させる (誤ったCSVで本家比較すると無意味なため)。
-        public const long ExpectedBytes = 27556907;   // 仕様値 (完全一致)
+        public const long ExpectedBytes = 27556907;   // 仕様値 (補正ON版, 完全一致)
+        public const long ExpectedBytesOff = 27397107; // 補正OFF版 (純Bullet正解, 構造同一・値のみ差)
         public const int ExpectedDataRows = 301043;    // 43ボーン × 7001フレーム
         public const int ExpectedBones = 43;           // 追従7 + スカート36
         public const int ExpectedSkirtBones = 36;
@@ -54,7 +55,7 @@ namespace BoneCheck
         {
             if (!File.Exists(path)) return $"ファイルが存在しない: {path}";
             long bytes = new FileInfo(path).Length;
-            if (bytes != ExpectedBytes) return $"バイト数不一致: {bytes} (期待 {ExpectedBytes})";
+            if (bytes != ExpectedBytes && bytes != ExpectedBytesOff) return $"バイト数不一致: {bytes} (期待 {ExpectedBytes} or OFF版 {ExpectedBytesOff})";
 
             long dataRows = 0; var bones = new System.Collections.Generic.HashSet<string>();
             bool first = true;

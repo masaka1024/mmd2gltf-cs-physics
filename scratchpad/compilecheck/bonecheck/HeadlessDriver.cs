@@ -84,7 +84,7 @@ namespace BoneCheck
 
             // 物理開始前に FK-rest で全剛体をボーン姿勢へ整合させる (MMDの物理リセット相当)。
             // 物理ボーン(スカート等)のCSV姿勢はFKヘルパが無視し親から前計算する。
-            ApplyPose(driven, csv, 0);
+            ApplyPose(builder, model, csv, 0);
             builder.ResetBodiesToBonePoseFk(i =>
                 (i >= 0 && i < model.BoneNames.Count && csv.TryGet(0, model.BoneNames[i], out var bw))
                     ? (RigidTransform?)bw : null);
@@ -96,7 +96,7 @@ namespace BoneCheck
             int alignMode = int.TryParse(System.Environment.GetEnvironmentVariable("ALIGN"), out var _am) ? _am : 0; // 2=補正フィードバック
             for (int f = 0; f < F; f++)
             {
-                ApplyPose(driven, csv, f);
+                ApplyPose(builder, model, csv, f);
                 world.StepSimulation(1f / 30f);
                 // 補正層再現(段階2): aligned姿勢(位置=親チェーン再構成/回転=物理)を剛体へ書き戻し=次stepへ影響。
                 if (alignMode == 2)
@@ -136,13 +136,11 @@ namespace BoneCheck
             RunSeconds = sw.Elapsed.TotalSeconds;
         }
 
-        private static void ApplyPose(List<(BoneLink link, string bone)> driven, BoneCsv csv, int frame)
+        // 駆動式は共通ヘルパ ApplyKinematicTargets に集約 (2026-08-09 hairfid誤配置事故の再発防止)。
+        private static void ApplyPose(PmxPhysicsBuilder builder, PmxPhysicsModel model, BoneCsv csv, int frame)
         {
-            foreach (var (link, bone) in driven)
-            {
-                if (csv.TryGet(frame, bone, out var boneWorld))
-                    link.Body.KinematicTarget = boneWorld * link.BodyOffsetFromBone;
-            }
+            builder.ApplyKinematicTargets(bi =>
+                (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(frame, model.BoneNames[bi], out var bw)) ? (RigidTransform?)bw : null);
         }
 
         // 剛体姿勢からボーン姿勢を復元 (MmdPhysicsBehaviour.PullPhysicsToBones と同一式)。

@@ -41,6 +41,7 @@ static class Harness
         SmokeTestIaPmx();
         RegressionStaticPush();
         KinematicInterpRegression();
+        KinematicDrivePathUnification();
 
         Console.WriteLine(_fails == 0 ? "\n=== 全 PASS ===" : $"\n=== {_fails} 件 FAIL ===");
         return _fails == 0 ? 0 : 1;
@@ -102,6 +103,35 @@ static class Harness
         float mn = 999f;
         for (int i = 0; i < 600; i++) { w.StepSimulation(1f / 60f); float y = bob.WorldTransform.Origin.y; if (i > 200) mn = Math.Min(mn, y); }
         Check("SpringPendulum (発散せず有限)", !float.IsNaN(mn) && mn > 0f && mn < 5f, $"minY={mn:F3}");
+    }
+
+    // ---- 経路一致(駆動式)回帰 ----
+    // ApplyKinematicTargets が全 BoneFollow 剛体に「bw * BodyOffsetFromBone」を設定することを独立計算と突き合わせる。
+    // 2026-08-09 の hairfid 誤配置事故(手書き駆動式で offset 欠落→貫入系の数字が全て汚染)の再発防止。
+    // 全経路(hairfid/HeadlessDriver/MmdPhysicsBehaviour)は本ヘルパ経由に統一済み。手書き駆動式を書いたら本テストでは守れない。
+    static void KinematicDrivePathUnification()
+    {
+        string pmx = FindPmx();
+        if (pmx == null) { Skip("駆動式統一テスト (PMX 未検出)"); return; }
+        var model = PmxReader.LoadFile(pmx);
+        var b = PmxPhysicsBuilder.Build(model);
+        RigidTransform Pose(int i) => new RigidTransform(
+            new Quat((float)Math.Sin(i * 0.1) * 0.3f, 0.1f, (float)Math.Cos(i * 0.2) * 0.2f, 1f).Normalized,
+            new Vec3(i * 0.01f, 1f + i * 0.02f, -i * 0.005f));
+        b.ApplyKinematicTargets(i => Pose(i));
+        float maxErr = 0; int nFollow = 0;
+        foreach (var link in b.BoneLinks)
+        {
+            if (link.Mode != PhysicsMode.BoneFollow || link.BoneIndex < 0) continue;
+            nFollow++;
+            var expect = Pose(link.BoneIndex) * link.BodyOffsetFromBone;
+            var got = link.Body.KinematicTarget;
+            maxErr = Math.Max(maxErr, (got.Origin - expect.Origin).Length);
+            float qd = Math.Abs(got.Rotation.x * expect.Rotation.x + got.Rotation.y * expect.Rotation.y + got.Rotation.z * expect.Rotation.z + got.Rotation.w * expect.Rotation.w);
+            maxErr = Math.Max(maxErr, Math.Abs(1f - qd));
+        }
+        // 許容 1e-6: 正規化クォータニオン内積の浮動小数ノイズ(~1e-7)のみ許す。offset欠落なら数十〜数百の誤差になる。
+        Check("駆動式統一 (KinematicTarget=bw*offset 共通ヘルパ)", nFollow > 0 && maxErr < 1e-6f, $"BoneFollow={nFollow} maxErr={maxErr:E2}");
     }
 
     // ---- IA.pmx スモークテスト ----

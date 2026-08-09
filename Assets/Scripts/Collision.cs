@@ -152,9 +152,15 @@ namespace BulletPhysics
                 SphereBox(a, b, sphereIsA: true, outPoints);
             else if (ta == ShapeType.Box && tb == ShapeType.Sphere)
                 SphereBox(b, a, sphereIsA: false, outPoints);
+            else if (ta == ShapeType.Capsule && tb == ShapeType.Box)
+                CapsuleBox(a, b, capsuleIsA: true, outPoints);
+            else if (ta == ShapeType.Box && tb == ShapeType.Capsule)
+                CapsuleBox(b, a, capsuleIsA: false, outPoints);
             else
             {
-                // カプセル×箱, 箱×箱 は GJK+EPA (タスクBの安全弁で保護)。
+                // 箱×箱 のみ GJK+EPA (タスクBの安全弁で保護)。
+                // カプセル×箱は解析化済み: 薄い箱(スカート厚み0.085等)での EPA 縮退による
+                // 接触取りこぼし=脚カプセル貫通を避けるため。
                 if (GjkEpaPenetration(a, b, out var cp))
                     outPoints.Add(cp);
             }
@@ -269,6 +275,48 @@ namespace BulletPhysics
             Emit(a, b, outPoints, n, sep, cA + n * rA, cB - n * rB);
         }
 
+        // 球中心(箱ローカル座標 local)・箱半サイズ he・実効半径 r から、
+        // 「箱→球」ローカル法線・分離(sep<0 で貫入)・箱表面点(ローカル)を解く。
+        // 非接触(SpeculativeMargin 超過)なら false。SphereBox / CapsuleBox の共通コア。
+        private static bool SolveSphereBoxLocal(Vec3 local, Vec3 he, float r,
+            out Vec3 nLocalBoxToSphere, out float sep, out Vec3 boxSurfLocal)
+        {
+            bool inside = Math.Abs(local.x) <= he.x &&
+                          Math.Abs(local.y) <= he.y &&
+                          Math.Abs(local.z) <= he.z;
+            if (!inside)
+            {
+                var q = new Vec3(
+                    Math.Clamp(local.x, -he.x, he.x),
+                    Math.Clamp(local.y, -he.y, he.y),
+                    Math.Clamp(local.z, -he.z, he.z));
+                var dl = local - q; float dist = dl.Length;
+                if (dist >= r + SpeculativeMargin)
+                {
+                    nLocalBoxToSphere = Vec3.YAxis; sep = 0f; boxSurfLocal = q;
+                    return false;
+                }
+                nLocalBoxToSphere = dist > ContactEps ? dl / dist : Vec3.YAxis;
+                boxSurfLocal = q;
+                sep = dist - r;
+                return true;
+            }
+            // 中心が箱内部 → 最も近い面へ押し出す。
+            float best = float.MaxValue; int axis = 0; float sign = 1f;
+            for (int i = 0; i < 3; i++)
+            {
+                float toPos = he[i] - local[i];
+                float toNeg = local[i] + he[i];
+                if (toPos < best) { best = toPos; axis = i; sign = +1f; }
+                if (toNeg < best) { best = toNeg; axis = i; sign = -1f; }
+            }
+            var nl = Vec3.Zero; nl[axis] = sign;
+            nLocalBoxToSphere = nl;
+            boxSurfLocal = local; boxSurfLocal[axis] = sign * he[axis];
+            sep = -(best + r); // 貫入深さ = 面までの距離 + 半径
+            return true;
+        }
+
         // --- 球×箱 (sphere, box を sphereIsA で指定) ---
         private static void SphereBox(RigidBody sphere, RigidBody box,
             bool sphereIsA, List<ContactPoint> outPoints)
@@ -278,39 +326,8 @@ namespace BulletPhysics
             var bt = box.WorldTransform;
 
             var local = bt.InverseTransformPoint(sc);
-            bool inside = Math.Abs(local.x) <= he.x &&
-                          Math.Abs(local.y) <= he.y &&
-                          Math.Abs(local.z) <= he.z;
-
-            Vec3 nLocalBoxToSphere; float sep; Vec3 boxSurfLocal;
-            if (!inside)
-            {
-                var q = new Vec3(
-                    Math.Clamp(local.x, -he.x, he.x),
-                    Math.Clamp(local.y, -he.y, he.y),
-                    Math.Clamp(local.z, -he.z, he.z));
-                var dl = local - q; float dist = dl.Length;
-                if (dist >= sr + SpeculativeMargin) return;
-                nLocalBoxToSphere = dist > ContactEps ? dl / dist : Vec3.YAxis;
-                boxSurfLocal = q;
-                sep = dist - sr;
-            }
-            else
-            {
-                // 中心が箱内部 → 最も近い面へ押し出す。
-                float best = float.MaxValue; int axis = 0; float sign = 1f;
-                for (int i = 0; i < 3; i++)
-                {
-                    float toPos = he[i] - local[i];
-                    float toNeg = local[i] + he[i];
-                    if (toPos < best) { best = toPos; axis = i; sign = +1f; }
-                    if (toNeg < best) { best = toNeg; axis = i; sign = -1f; }
-                }
-                var nl = Vec3.Zero; nl[axis] = sign;
-                nLocalBoxToSphere = nl;
-                boxSurfLocal = local; boxSurfLocal[axis] = sign * he[axis];
-                sep = -(best + sr); // 貫入深さ = 面までの距離 + 半径
-            }
+            if (!SolveSphereBoxLocal(local, he, sr, out var nLocalBoxToSphere, out var sep, out var boxSurfLocal))
+                return;
 
             var nWorldBoxToSphere = bt.TransformDirection(nLocalBoxToSphere).Normalized;
             var boxSurfWorld = bt.TransformPoint(boxSurfLocal);
@@ -320,6 +337,52 @@ namespace BulletPhysics
                 Emit(sphere, box, outPoints, -nWorldBoxToSphere, sep, sphereSurfWorld, boxSurfWorld);
             else
                 Emit(box, sphere, outPoints, nWorldBoxToSphere, sep, boxSurfWorld, sphereSurfWorld);
+        }
+
+        // --- カプセル×箱 (capsule, box を capsuleIsA で指定) ---
+        // カプセル線分と箱(OBB)の最近点対を交互射影で近似し、その線分上の点を
+        // 「球中心」とみなして球×箱コアで解く。薄い箱でも EPA の縮退を避け、
+        // 解析的に安定した接触(法線・貫入量)を与える。
+        private static void CapsuleBox(RigidBody capsule, RigidBody box,
+            bool capsuleIsA, List<ContactPoint> outPoints)
+        {
+            CapsuleSegment(capsule, out var p0, out var p1, out float cr);
+            var he = ((BoxShape)box.Shape).HalfExtents;
+            var bt = box.WorldTransform;
+
+            // 箱ローカル空間へ (OBB → 原点中心 AABB[-he,he])。距離は剛体変換で不変。
+            var q0 = bt.InverseTransformPoint(p0);
+            var q1 = bt.InverseTransformPoint(p1);
+
+            // 線分[q0,q1] と AABB の最近点対を交互射影で求める (凸集合間の最近点)。
+            var boxPt = new Vec3(
+                Math.Clamp((q0.x + q1.x) * 0.5f, -he.x, he.x),
+                Math.Clamp((q0.y + q1.y) * 0.5f, -he.y, he.y),
+                Math.Clamp((q0.z + q1.z) * 0.5f, -he.z, he.z));
+            var segPt = boxPt;
+            for (int k = 0; k < 8; k++)
+            {
+                segPt = ClosestPtPointSegment(boxPt, q0, q1);
+                var np = new Vec3(
+                    Math.Clamp(segPt.x, -he.x, he.x),
+                    Math.Clamp(segPt.y, -he.y, he.y),
+                    Math.Clamp(segPt.z, -he.z, he.z));
+                if ((np - boxPt).LengthSquared <= 1e-12f) { boxPt = np; break; }
+                boxPt = np;
+            }
+
+            // 線分上の最近点(ローカル)を球中心として球×箱で解く。
+            if (!SolveSphereBoxLocal(segPt, he, cr, out var nLocalBoxToCap, out var sep, out var boxSurfLocal))
+                return;
+
+            var nWorldBoxToCap = bt.TransformDirection(nLocalBoxToCap).Normalized;
+            var boxSurfWorld = bt.TransformPoint(boxSurfLocal);
+            var capSurfWorld = bt.TransformPoint(segPt) - nWorldBoxToCap * cr;
+
+            if (capsuleIsA)
+                Emit(capsule, box, outPoints, -nWorldBoxToCap, sep, capSurfWorld, boxSurfWorld);
+            else
+                Emit(box, capsule, outPoints, nWorldBoxToCap, sep, boxSurfWorld, capSurfWorld);
         }
 
         // --- 幾何ヘルパー ---

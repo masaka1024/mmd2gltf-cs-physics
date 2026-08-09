@@ -32,7 +32,6 @@ namespace BulletPhysics.Unity
         public MmdPhysicsBehaviour customEngine;
 
         private Rigidbody[] _rbs;
-        private ConfigurableJoint[] _joints;
         private bool[] _origKinematic;
         private bool[] _origDetectCollisions;
         private bool _snapped;
@@ -45,7 +44,6 @@ namespace BulletPhysics.Unity
         private void Snapshot()
         {
             _rbs = GetComponentsInChildren<Rigidbody>(true);
-            _joints = GetComponentsInChildren<ConfigurableJoint>(true);
             _origKinematic = new bool[_rbs.Length];
             _origDetectCollisions = new bool[_rbs.Length];
             for (int i = 0; i < _rbs.Length; i++)
@@ -80,8 +78,10 @@ namespace BulletPhysics.Unity
                 if (custom) { rb.isKinematic = true; rb.detectCollisions = false; }
                 else { rb.isKinematic = _origKinematic[i]; rb.detectCollisions = _origDetectCollisions[i]; }
             }
-            // ConfigurableJoint: Custom で無効、PhysX で有効。
-            foreach (var j in _joints) if (j != null) j.enabled = !custom;
+            // ConfigurableJoint は Behaviour ではないため .enabled で無効化できない。
+            // だが Custom では上のループで全 Rigidbody を isKinematic=true にパークしており、
+            // kinematic なボディは Joint の拘束/ドライブで動かされない=Joint は自動的に無効(inert)になる。
+            // PhysX へ戻すと isKinematic が元に戻り Joint も自然に復帰するため、個別操作は不要。
         }
 
         [ContextMenu("Use Custom (自作エンジン)")]

@@ -224,10 +224,10 @@ static class HairFid
         if (bindPosMax > 1e-3f || bindAngMax > 3e-3f) { Console.WriteLine("[FAIL] バインド相対が0でない。測定の土俵がずれているため中止。"); return 1; }
 
         // --- FK-rest 初期化 + warmup ---
-        // ★2026-08-09バグ修正: KinematicTarget は「剛体」のworld姿勢。従来 bw(ボーン姿勢)を渡しており
-        // 体コライダーが BodyOffsetFromBone 分(下半身は90°回転等)誤配置のまま全simが走っていた。
-        // HeadlessDriver/MmdPhysicsBehaviour は元から正しい(bw * offset)。hairfidのみのハーネスバグ。
-        void ApplyPose(int f) { foreach (var (link, bone) in driven) if (csv.TryGet(f, bone, out var bw)) link.Body.KinematicTarget = bw * link.BodyOffsetFromBone; }
+        // ★2026-08-09バグ修正+統一: 駆動式は共通ヘルパ ApplyKinematicTargets に集約 (手書き駆動式の再発防止)。
+        // (旧: 手書きで `= bw` と offset を掛け忘れ、体コライダー誤配置のまま全simが汚染された)
+        void ApplyPose(int f) => builder.ApplyKinematicTargets(bi =>
+            (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var bw)) ? (RigidTransform?)bw : null);
         ApplyPose(0);
         builder.ResetBodiesToBonePoseFk(i => (i >= 0 && i < model.BoneNames.Count && csv.TryGet(0, model.BoneNames[i], out var bw)) ? (RigidTransform?)bw : null);
         for (int s = 0; s < 60; s++) world.StepSimulation(DT);
