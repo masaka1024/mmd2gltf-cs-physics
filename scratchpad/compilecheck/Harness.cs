@@ -26,7 +26,7 @@ static class Harness
     static readonly bool WarmA = Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1";
     static readonly bool WarmOff = Environment.GetEnvironmentVariable("WARM_OFF") == "1";
     static readonly bool JointsFirst = Environment.GetEnvironmentVariable("JOINTS_FIRST") == "1";
-    static PhysicsWorld Cfg(PhysicsWorld w) { if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var wf)) Joint.WarmStartFactor = wf; w.UseJointSplitImpulse = JSplit; if (WarmOff) { w.UseJointWarmStart = false; w.UseJointWarmStartAngular = false; } if (JointsFirst) w.SolveJointsFirst = true; if (float.TryParse(Environment.GetEnvironmentVariable("CWFAC"), out var cwf)) w.ContactWarmStartFactor = cwf; return w; }
+    static PhysicsWorld Cfg(PhysicsWorld w) { if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var wf)) Joint.WarmStartFactor = wf; w.UseJointSplitImpulse = JSplit; if (WarmOff) { w.UseJointWarmStart = false; w.UseJointWarmStartAngular = false; } if (JointsFirst) w.SolveJointsFirst = true; if (float.TryParse(Environment.GetEnvironmentVariable("CWFAC"), out var cwf)) w.ContactWarmStartFactor = cwf; if (int.TryParse(Environment.GetEnvironmentVariable("LEVER"), out var lv)) Joint.LinearLeverMode = lv; return w; }
 
     static int Main()
     {

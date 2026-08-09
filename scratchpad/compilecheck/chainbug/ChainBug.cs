@@ -241,7 +241,105 @@ static class ChainBug
 
     static int Main()
     {
+        if (int.TryParse(Environment.GetEnvironmentVariable("LEVER"), out var _lv)) Joint.LinearLeverMode = _lv; // 線形レバーアーム 0=従来/1=Bullet非offset/2=Bullet offset
         var task = Environment.GetEnvironmentVariable("TASK") ?? "A";
+        if (task == "SLIDE2")
+        {
+            // 本命の最小再現: キネマティック親から垂直に吊るした全ロック鎖を、親を横に往復駆動。
+            // 理想(完全剛体)は鎖全体が親に追従=分解指標すべて0。
+            // 実スカートの署名: 方向変化角 >> 枠傾き (枠は立ったまま位置が横滑り) が出るか、LEVERで減るか。
+            int n = 10; float seg = 1.0f;
+            var world = new PhysicsWorld { Gravity = new Vec3(0, -98f, 0), FixedTimeStep = 1f / 30f, SubSteps = 2, SolverIterations = 10 };
+            if (Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
+            var anc = new RigidBody(new BoxShape(new Vec3(0.1f, 0.1f, 0.1f))) { Mode = PhysicsMode.BoneFollow, Name = "anchor" };
+            anc.WorldTransform = new RigidTransform(Quat.Identity, Vec3.Zero); anc.SetMassProps(0f); world.AddBody(anc);
+            var ch = new List<RigidBody> { anc };
+            RigidBody pb = anc;
+            for (int i = 1; i <= n; i++)
+            {
+                var b = new RigidBody(new BoxShape(new Vec3(0.1f, 0.1f, 0.1f))) { Mode = PhysicsMode.Dynamic, Name = $"link{i}" };
+                b.WorldTransform = new RigidTransform(Quat.Identity, new Vec3(0, -seg * i, 0)); // 垂直吊り
+                b.CollisionMask = 0; b.SetMassProps(1f); world.AddBody(b); ch.Add(b);
+                // ジョイント原点=子位置 (PMX標準。中点だと pA+pB=0 の対称性で mode2 と mode0 の差が消える)
+                world.AddJoint(Joint.FromPmx(JointType.Generic6Dof, pb, b, new RigidTransform(Quat.Identity, new Vec3(0, -seg * i, 0)),
+                    Vec3.Zero, Vec3.Zero, Vec3.Zero, Vec3.Zero, Vec3.Zero, Vec3.Zero)); // 全DOFロック
+                pb = b;
+            }
+            var bnd = new Vec3[ch.Count];
+            for (int i = 0; i < ch.Count; i++) bnd[i] = ch[i].WorldTransform.Origin;
+            // 親を X に振幅2, 1Hz で往復駆動 (VMDのターン相当の横加速)。
+            var dl = new List<float>(); var sl = new List<float>(); var tl = new List<float>();
+            for (int s = 0; s < 300; s++)
+            {
+                float t = (s + 1) / 30f;
+                float x = 2f * (float)Math.Sin(2 * Math.PI * 1.0 * t);
+                var tgt = new RigidTransform(Quat.Identity, new Vec3(x, 0, 0));
+                anc.KinematicTarget = tgt; anc.KinematicStepTarget = tgt;
+                world.StepSimulation(1f / 30f);
+                if (s < 30) continue; // 初期過渡は捨てる
+                for (int i = 1; i < ch.Count; i++)
+                {
+                    var r = ch[i].WorldTransform.Origin - ch[i - 1].WorldTransform.Origin;
+                    var rb2 = bnd[i] - bnd[i - 1];
+                    float den = r.Length * rb2.Length;
+                    dl.Add(den > 1e-9f ? (float)(Math.Acos(Math.Max(-1.0, Math.Min(1.0, r.Dot(rb2) / den))) * 180 / Math.PI) : 0);
+                    sl.Add(Math.Abs(r.Length - rb2.Length));
+                    var q = ch[i].WorldTransform.Rotation;
+                    tl.Add((float)(2 * Math.Acos(Math.Min(1.0, Math.Abs(q.w))) * 180 / Math.PI));
+                }
+            }
+            float Md(List<float> v) { var s2 = new List<float>(v); s2.Sort(); return s2[s2.Count / 2]; }
+            float Mx2(List<float> v) { float m2 = 0; foreach (var x2 in v) if (x2 > m2) m2 = x2; return m2; }
+            bool nan = false; foreach (var b in ch) { var o = b.WorldTransform.Origin; if (float.IsNaN(o.x + o.y + o.z)) nan = true; }
+            Console.WriteLine($"[SLIDE2] LEVER={Joint.LinearLeverMode} 垂直吊りN={n} 全ロック 親X往復(±2,1Hz) iters=10 300step NaN={nan} (理想=全て0)");
+            Console.WriteLine($"  方向変化角 中央={Md(dl):F2}° 最大={Mx2(dl):F2}°   伸び 中央={Md(sl):F4} 最大={Mx2(sl):F4}   枠傾き 中央={Md(tl):F2}° 最大={Mx2(tl):F2}°");
+            Console.WriteLine($"  横滑り度=方向/枠={(Md(tl) > 0.01f ? (Md(dl) / Md(tl)).ToString("F1") : "inf")}  (実スカート自前=6.0 / 純Bullet=1.3)");
+            return 0;
+        }
+        if (task == "SLIDE")
+        {
+            // 線形行監査#1の判定: 横チェーン(全DOFロック=剛体棒)を重力で垂らし、
+            // 「横滑り(方向変化角)」vs「枠傾き(tilt)」vs「伸び」を分解計測。理想は完全剛体=全て0。
+            // 実スカートの署名(方向66°>>枠11°)が合成でも出るか、LEVERで消えるかを見る。
+            int n = 10; float seg = 1.0f; float lmass = 1f;
+            var world = new PhysicsWorld { Gravity = new Vec3(0, -98f, 0), FixedTimeStep = 1f / 30f, SubSteps = 2, SolverIterations = 10 };
+            if (Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
+            var anchor0 = new RigidBody(new BoxShape(new Vec3(0.1f, 0.1f, 0.1f))) { Mode = PhysicsMode.BoneFollow, Name = "anchor" };
+            anchor0.WorldTransform = new RigidTransform(Quat.Identity, Vec3.Zero); anchor0.SetMassProps(0f); world.AddBody(anchor0);
+            var chain = new List<RigidBody> { anchor0 };
+            RigidBody pv = anchor0;
+            for (int i = 1; i <= n; i++)
+            {
+                var b = new RigidBody(new BoxShape(new Vec3(0.1f, 0.1f, 0.1f))) { Mode = PhysicsMode.Dynamic, Name = $"link{i}" };
+                b.WorldTransform = new RigidTransform(Quat.Identity, new Vec3(seg * i, 0, 0)); // 横(+X)
+                b.CollisionMask = 0; b.SetMassProps(lmass); world.AddBody(b); chain.Add(b);
+                var jp = new Vec3(seg * i - seg * 0.5f, 0, 0); // ジョイント=中点
+                world.AddJoint(Joint.FromPmx(JointType.Generic6Dof, pv, b, new RigidTransform(Quat.Identity, jp),
+                    Vec3.Zero, Vec3.Zero, Vec3.Zero, Vec3.Zero, Vec3.Zero, Vec3.Zero)); // 全DOFロック
+                pv = b;
+            }
+            var bind = new Vec3[chain.Count];
+            for (int i = 0; i < chain.Count; i++) bind[i] = chain[i].WorldTransform.Origin;
+            for (int s = 0; s < 300; s++) world.StepSimulation(1f / 30f);
+            var dirA = new List<float>(); var strA = new List<float>(); var tiltA = new List<float>();
+            for (int i = 1; i < chain.Count; i++)
+            {
+                var r = chain[i].WorldTransform.Origin - chain[i - 1].WorldTransform.Origin;
+                var rb = bind[i] - bind[i - 1];
+                float den = r.Length * rb.Length;
+                dirA.Add(den > 1e-9f ? (float)(Math.Acos(Math.Max(-1.0, Math.Min(1.0, r.Dot(rb) / den))) * 180 / Math.PI) : 0);
+                strA.Add(Math.Abs(r.Length - rb.Length));
+                var q = chain[i].WorldTransform.Rotation;
+                tiltA.Add((float)(2 * Math.Acos(Math.Min(1.0, Math.Abs(q.w))) * 180 / Math.PI));
+            }
+            float Med(List<float> v) { var s2 = new List<float>(v); s2.Sort(); return s2[s2.Count / 2]; }
+            float Mx(List<float> v) { float m2 = 0; foreach (var x in v) if (x > m2) m2 = x; return m2; }
+            var tip = chain[n].WorldTransform.Origin - bind[n];
+            Console.WriteLine($"[SLIDE] LEVER={Joint.LinearLeverMode} 横鎖N={n} 全ロック iters=10 300step (理想=全て0)");
+            Console.WriteLine($"  方向変化角 中央={Med(dirA):F2}° 最大={Mx(dirA):F2}°   伸び 中央={Med(strA):F4} 最大={Mx(strA):F4}   枠傾き 中央={Med(tiltA):F2}° 最大={Mx(tiltA):F2}°");
+            Console.WriteLine($"  先端drift=({tip.x:F3},{tip.y:F3},{tip.z:F3}) |{tip.Length:F3}|   横滑り度=方向変化角/枠傾き={(Med(tiltA) > 0.01f ? (Med(dirA) / Med(tiltA)).ToString("F1") : "inf")}");
+            return 0;
+        }
         if (task == "1") { var s1 = new StringBuilder(); Step1(s1); Console.Write(s1.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_step1_out.txt"), s1.ToString()); return 0; }
         if (task == "MIRROR")
         {

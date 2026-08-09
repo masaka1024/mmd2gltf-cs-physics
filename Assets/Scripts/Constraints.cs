@@ -71,7 +71,17 @@ namespace BulletPhysics
 
         // 位置補正係数 (Baumgarte)。
         public float Beta = 0.2f;
-        public const float MaxCorrectionVel = 10f;
+        // 位置補正速度の上限。Bullet の線形行には存在しない自前のみの安全弁 (監査#3)。
+        // 既定 10 =従来値(ビット不変)。1e9 相当で実質無効=Bullet同等。static につき env から A/B 可。
+        public static float MaxCorrectionVel = 10f;
+
+        // 線形ロック行のレバーアーム基準 (線形行監査#1, 2026-08-09)。既定 0=従来(ビット不変)。
+        //  0=従来: rA=anchorA-comA, rB=anchorB-comB (各剛体が自分側のアンカーを使う)
+        //  1=Bullet2.75系(非offset): 両剛体とも B側アンカー基準 ("Linear Torque Decoupling")
+        //     J1ang=(anchorB-posA)×ax, J2ang=-(anchorB-posB)×ax → 誤差があると親へ e×P の結合トルクが伝わる
+        //  2=Bullet2.8x系(offset, D6_USE_FRAME_OFFSET true 既定): 軸平行成分を除去した ortho +
+        //     totalDist を質量比 factA=miB/(miA+miB) で分配。hasStaticBody&&!rotAllowed で fact スケール。
+        public static int LinearLeverMode = 0;
 
         // 内部状態。
         private readonly List<ConstraintRow> _rows = new(6);
@@ -197,6 +207,27 @@ namespace BulletPhysics
             var invDt = dt > 0 ? 1f / dt : 0f;
             var linDelta = _anchorB - _anchorA;
 
+            // 回転相対 (角度行と、LinearLeverMode=2 の rotAllowed 判定で使用)。
+            var qRel = _worldA.Rotation.Conjugated() * _worldB.Rotation;
+            var euler = ToEulerXYZ(qRel.Normalized);
+
+            // LinearLeverMode=2 用の前計算 (Bullet calculateTransforms / setLinearLimits 相当)。
+            bool hasStatic = false; float factA = 0.5f, factB = 0.5f;
+            Span<bool> angActive = stackalloc bool[3];
+            if (LinearLeverMode == 2)
+            {
+                float miA = BodyA.InverseMass, miB = BodyB.InverseMass;
+                hasStatic = miA < 1e-9f || miB < 1e-9f;
+                float miS = miA + miB;
+                factA = miS > 0f ? miB / miS : 0.5f; factB = 1f - factA;
+                for (int i = 0; i < 3; i++)
+                {
+                    float alo = AngularLowerLimit[i], ahi = AngularUpperLimit[i];
+                    // Bullet testLimitValue 相当: free=0 / 範囲外 or ロック(誤差あり)=active
+                    angActive[i] = !IsFree(alo, ahi) && (IsLocked(alo, ahi) ? euler[i] != alo : (euler[i] < alo || euler[i] > ahi));
+                }
+            }
+
             // --- 並進 3 軸 ---
             for (int i = 0; i < 3; i++)
             {
@@ -211,12 +242,31 @@ namespace BulletPhysics
                 else if (cur > hi) { err = hi - cur; lower = -1e18f; upper = 0f; }
                 else continue; // 制限内 → バネのみ (後段)
 
-                AddLinearRow(axis, rA, rB, Clamp(err * Beta * invDt), lower, upper, i, IsLocked(lo, hi));
+                // レバーアームをモード別に決定 (LinearLeverMode コメント参照)。
+                Vec3 armA = rA, armB = rB;
+                if (LinearLeverMode == 1)
+                {
+                    armA = _anchorB - BodyA.CenterOfMass;   // 両剛体とも B側アンカー基準
+                    armB = rB;
+                }
+                else if (LinearLeverMode == 2)
+                {
+                    // Bullet get_limit_motor_info2 (m_useOffsetForConstraintFrame) の翻訳分岐そのまま。
+                    float pA = rA.Dot(axis), pB = rB.Dot(axis);
+                    var orthoA = rA - axis * pA;
+                    var orthoB = rB - axis * pB;
+                    float desiredOffs = cur + err;               // = 目標バウンド (locked なら lo)
+                    var totalDist = axis * (pA + desiredOffs - pB);
+                    armA = orthoA + totalDist * factA;
+                    armB = orthoB - totalDist * factB;
+                    bool rotAllowed = !(angActive[(i + 1) % 3] && angActive[(i + 2) % 3]);
+                    if (hasStatic && !rotAllowed) { armA *= factA; armB *= factB; }
+                }
+
+                AddLinearRow(axis, armA, armB, Clamp(err * Beta * invDt), lower, upper, i, IsLocked(lo, hi));
             }
 
             // --- 回転 3 軸 ---
-            var qRel = _worldA.Rotation.Conjugated() * _worldB.Rotation;
-            var euler = ToEulerXYZ(qRel.Normalized);
             for (int i = 0; i < 3; i++)
             {
                 var axis = _axesA[i];
@@ -377,9 +427,12 @@ namespace BulletPhysics
             for (int r = 0; r < _rows.Count; r++)
             {
                 var row = _rows[r];
+                // 線形行は行のレバーアーム(RelA/RelB)で速度を測る (J整合)。mode0 では
+                // RelA/RelB = anchor−COM なので従来の VelocityAtPoint(anchor) とビット同一。
                 float relVel = row.Angular
                     ? (BodyB.AngularVelocity - BodyA.AngularVelocity).Dot(row.Axis)
-                    : (BodyB.VelocityAtPoint(_anchorB) - BodyA.VelocityAtPoint(_anchorA)).Dot(row.Axis);
+                    : ((BodyB.LinearVelocity + Vec3.Cross(BodyB.AngularVelocity, row.RelB))
+                     - (BodyA.LinearVelocity + Vec3.Cross(BodyA.AngularVelocity, row.RelA))).Dot(row.Axis);
 
                 float dImpulse = (row.TargetVel - relVel) * row.EffMass;
                 float old = row.Accumulated;
@@ -415,7 +468,8 @@ namespace BulletPhysics
                 var row = _rows[r];
                 float relVel = row.Angular
                     ? (BodyB.PseudoAngularVelocity - BodyA.PseudoAngularVelocity).Dot(row.Axis)
-                    : (BodyB.PseudoVelocityAtPoint(_anchorB) - BodyA.PseudoVelocityAtPoint(_anchorA)).Dot(row.Axis);
+                    : ((BodyB.PseudoLinearVelocity + Vec3.Cross(BodyB.PseudoAngularVelocity, row.RelB))
+                     - (BodyA.PseudoLinearVelocity + Vec3.Cross(BodyA.PseudoAngularVelocity, row.RelA))).Dot(row.Axis);
 
                 float dImpulse = (row.PositionBias - relVel) * row.EffMass;
                 float old = row.PseudoAccumulated;

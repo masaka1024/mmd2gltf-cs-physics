@@ -71,6 +71,7 @@ static class RestSim
         if (float.TryParse(Environment.GetEnvironmentVariable("BETA"), out var bt)) { beta = bt; foreach (var j in world.Joints) j.Beta = bt; }
         if (Environment.GetEnvironmentVariable("SPLIT") == "1") world.UseSplitImpulse = true;
         if (Environment.GetEnvironmentVariable("JOINTS_FIRST") == "1") world.SolveJointsFirst = true;
+        if (int.TryParse(Environment.GetEnvironmentVariable("LEVER"), out var _lv)) BulletPhysics.Joint.LinearLeverMode = _lv;
         if (Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
         if (Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
         if (Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
