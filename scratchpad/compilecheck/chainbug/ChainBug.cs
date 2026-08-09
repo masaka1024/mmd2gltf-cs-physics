@@ -243,6 +243,27 @@ static class ChainBug
     {
         if (int.TryParse(Environment.GetEnvironmentVariable("LEVER"), out var _lv)) Joint.LinearLeverMode = _lv; // 線形レバーアーム 0=従来/1=Bullet非offset/2=Bullet offset
         var task = Environment.GetEnvironmentVariable("TASK") ?? "A";
+        if (task == "EULER")
+        {
+            // Joint.ToEulerXYZ と Qx*Qy*Qz 再構成が逆変換か検算 (合成角で規約ズレを検出)。
+            Quat QA(int ax, float a)
+            {
+                float s2 = (float)Math.Sin(a / 2), c2 = (float)Math.Cos(a / 2);
+                return ax == 0 ? new Quat(s2, 0, 0, c2) : ax == 1 ? new Quat(0, s2, 0, c2) : new Quat(0, 0, s2, c2);
+            }
+            float D2R = 0.0174533f;
+            var tests = new (float x, float y, float z)[] { (40, 30, 0), (60, 0, 20), (-80, 25, 10), (100, -40, 30) };
+            foreach (var (x, y, z) in tests)
+            {
+                var q = QA(0, x * D2R) * QA(1, y * D2R) * QA(2, z * D2R);
+                var e = Joint.ToEulerXYZ(q.Normalized);
+                var qr = QA(0, e.x) * QA(1, e.y) * QA(2, e.z);
+                float dot = Math.Abs(q.Normalized.x * qr.x + q.Normalized.y * qr.y + q.Normalized.z * qr.z + q.Normalized.w * qr.w);
+                float ang = 2f * (float)Math.Acos(Math.Min(1f, dot)) * 57.2958f;
+                Console.WriteLine($"  in=({x},{y},{z})deg  ToEulerXYZ=({e.x * 57.2958f:F1},{e.y * 57.2958f:F1},{e.z * 57.2958f:F1})  再構成誤差={ang:F2}deg");
+            }
+            return 0;
+        }
         if (task == "SLIDE2")
         {
             // 本命の最小再現: キネマティック親から垂直に吊るした全ロック鎖を、親を横に往復駆動。

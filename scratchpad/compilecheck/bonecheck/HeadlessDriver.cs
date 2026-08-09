@@ -101,8 +101,9 @@ namespace BoneCheck
                 // 補正層再現(段階2): aligned姿勢(位置=親チェーン再構成/回転=物理)を剛体へ書き戻し=次stepへ影響。
                 if (alignMode == 2)
                 {
+                    float _alpha = float.TryParse(System.Environment.GetEnvironmentVariable("ALPHA"), out var _av) ? _av : 0f;
                     var aligned = builder.ComputeAlignedBonePoses(bi =>
-                        (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var dw)) ? (RigidTransform?)dw : null);
+                        (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var dw)) ? (RigidTransform?)dw : null, _alpha);
                     foreach (var link in builder.BoneLinks)
                         if (link.Mode != PhysicsMode.BoneFollow && link.BoneIndex >= 0 && link.BoneIndex < aligned.Length && aligned[link.BoneIndex].HasValue)
                         { link.Body.WorldTransform = aligned[link.BoneIndex].Value * link.BodyOffsetFromBone; link.Body.UpdateInertiaWorld(); }

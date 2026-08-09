@@ -71,7 +71,9 @@ static class HairFid
         if (Environment.GetEnvironmentVariable("CNBF") == "1") world.ContactNormalBeforeFriction = true; // 法線→摩擦順(Bullet)
         // 補正層再現: 1=出力のみ(計測をaligned姿勢で行い剛体は復元) 2=フィードバック(aligned姿勢を剛体へ書き戻し=次stepへ影響)
         int alignMode = int.TryParse(Environment.GetEnvironmentVariable("ALIGN"), out var _al) ? _al : 0;
-        if (alignMode > 0) Console.WriteLine($"[cfg] ALIGN={alignMode} ({(alignMode == 1 ? "出力のみ" : "フィードバック")}: 位置=親チェーン再構成/回転=物理)");
+        float alpha = float.TryParse(Environment.GetEnvironmentVariable("ALPHA"), out var _aa) ? _aa : 0f; // 回転clamp割合(0=無効)
+        bool order2 = Environment.GetEnvironmentVariable("ORDER2") == "1"; // 順序比較: 位置=物理回転で再構成/回転のみclamp
+        if (alignMode > 0) Console.WriteLine($"[cfg] ALIGN={alignMode} ALPHA={alpha} ORDER2={order2} ({(alignMode == 1 ? "出力のみ" : "フィードバック")}: 位置=親チェーン再構成/回転={(alpha > 0 ? $"リミットへ{alpha:P0}clamp" : "物理")})");
         if (int.TryParse(Environment.GetEnvironmentVariable("SUBSTEPS"), out var _ss) && _ss > 0) world.SubSteps = _ss; // 計算予算掃引
         if (int.TryParse(Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it;
         // 決定的テスト: スカートジョイントを自由化して「接触だけ」で貫入が解消するか見る(綱引き vs 接触能力の切り分け)。
@@ -143,6 +145,8 @@ static class HairFid
         }
         string[] tName = { "取付", "縦", "横" };
         Console.WriteLine($"[スカートJoint分類] 取付={jClass.Count(x => x.t == 0)} 縦={jClass.Count(x => x.t == 1)} 横={jClass.Count(x => x.t == 2)}");
+        if (Environment.GetEnvironmentVariable("DUMPJAB") == "1")
+            foreach (var (j, t) in jClass) if (t == 0) Console.WriteLine($"   取付: A={j.BodyA?.Name} B={j.BodyB?.Name}");
         // 種別別自由化: env SKIRT_JTYPE=attach|vert|horiz でその種別のみ 並進+角度 自由(=外す)。
         string jt = Environment.GetEnvironmentVariable("SKIRT_JTYPE");
         if (jt != null)
@@ -186,14 +190,18 @@ static class HairFid
             foreach (var (j2, t2) in jClass)
             {
                 var qRel = (j2.BodyA.WorldTransform * j2.FrameInA).Rotation.Conjugated() * (j2.BodyB.WorldTransform * j2.FrameInB).Rotation;
-                var eu = EulerXYZ(qRel.Normalized);
+                var eu = Joint.ToEulerXYZ(qRel.Normalized); // エンジンと同一分解 (規約差排除)
                 for (int d = 0; d < 3; d++)
                 {
                     float lo = j2.AngularLowerLimit[d], hi = j2.AngularUpperLimit[d];
                     if (lo > hi) continue; // free
                     float over = eu[d] < lo ? lo - eu[d] : eu[d] > hi ? eu[d] - hi : 0f;
                     if (isRef) { angTotalR[t2]++; if (over > 1e-4f) { angOutR[t2]++; angOverRef[t2].Add(over * 57.29578f); } }
-                    else { angTotal[t2]++; if (over > 1e-4f) { angOut[t2]++; angOverOurs[t2].Add(over * 57.29578f); } }
+                    else
+                    {
+                        angTotal[t2]++; if (over > 1e-4f) { angOut[t2]++; angOverOurs[t2].Add(over * 57.29578f); }
+
+                    }
                 }
             }
         }
@@ -216,7 +224,10 @@ static class HairFid
         if (bindPosMax > 1e-3f || bindAngMax > 3e-3f) { Console.WriteLine("[FAIL] バインド相対が0でない。測定の土俵がずれているため中止。"); return 1; }
 
         // --- FK-rest 初期化 + warmup ---
-        void ApplyPose(int f) { foreach (var (link, bone) in driven) if (csv.TryGet(f, bone, out var bw)) link.Body.KinematicTarget = bw; }
+        // ★2026-08-09バグ修正: KinematicTarget は「剛体」のworld姿勢。従来 bw(ボーン姿勢)を渡しており
+        // 体コライダーが BodyOffsetFromBone 分(下半身は90°回転等)誤配置のまま全simが走っていた。
+        // HeadlessDriver/MmdPhysicsBehaviour は元から正しい(bw * offset)。hairfidのみのハーネスバグ。
+        void ApplyPose(int f) { foreach (var (link, bone) in driven) if (csv.TryGet(f, bone, out var bw)) link.Body.KinematicTarget = bw * link.BodyOffsetFromBone; }
         ApplyPose(0);
         builder.ResetBodiesToBonePoseFk(i => (i >= 0 && i < model.BoneNames.Count && csv.TryGet(0, model.BoneNames[i], out var bw)) ? (RigidTransform?)bw : null);
         for (int s = 0; s < 60; s++) world.StepSimulation(DT);
@@ -260,8 +271,16 @@ static class HairFid
             RigidTransform[] savedPose = null;
             if (alignMode > 0)
             {
-                var aligned = builder.ComputeAlignedBonePoses(bi =>
-                    (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var dw)) ? (RigidTransform?)dw : null);
+                RigidTransform? Drv(int bi) => (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var dw)) ? (RigidTransform?)dw : null;
+                var aligned = builder.ComputeAlignedBonePoses(Drv, order2 ? 0f : alpha);
+                if (order2 && alpha > 0f)
+                {
+                    // 順序比較: 位置は α=0 (物理回転の親チェーン) のまま、回転だけ α clamp 版から合成。
+                    var rotOnly = builder.ComputeAlignedBonePoses(Drv, alpha);
+                    for (int bi = 0; bi < aligned.Length; bi++)
+                        if (aligned[bi].HasValue && rotOnly[bi].HasValue)
+                            aligned[bi] = new RigidTransform(rotOnly[bi].Value.Rotation, aligned[bi].Value.Origin);
+                }
                 if (alignMode == 1) { savedPose = new RigidTransform[hairLinks.Count]; for (int k = 0; k < hairLinks.Count; k++) savedPose[k] = hairLinks[k].link.Body.WorldTransform; }
                 foreach (var (link, _, _) in hairLinks)
                     if (aligned[link.BoneIndex].HasValue)

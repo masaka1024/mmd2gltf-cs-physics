@@ -166,13 +166,48 @@ namespace BulletPhysics.Pmx
         /// 書き戻しは HeadlessDriver / MmdPhysicsBehaviour / 計測ハーネスで必ず本ヘルパを共用する
         /// (FK-rest リセットと同じ扱い。経路差のバグを避ける)。戻り値: boneIndex -> 補正済world姿勢。
         /// </summary>
-        public RigidTransform?[] ComputeAlignedBonePoses(System.Func<int, RigidTransform?> getDrivenBoneWorld)
+        /// <param name="getDrivenBoneWorld">駆動ボーンの現在world姿勢 (null=バインド)。</param>
+        /// <param name="rotClampAlpha">回転clamp割合 (0=無効=回転そのまま / 1=リミットへ完全clamp)。
+        ///   [Jointロック内部演算] 再現の第一形: 親側ジョイントの相対euler(補正済親フレーム基準)を
+        ///   リミット超過分だけ α で戻す。本家ONの超過8-14°は完全clampでないことを示すため中間αを掃引する。</param>
+        /// 順序比較(位置を物理回転で再構成→回転のみclamp)は、呼び出し側で α=0 と α>0 の2回呼びを合成する。
+        public RigidTransform?[] ComputeAlignedBonePoses(System.Func<int, RigidTransform?> getDrivenBoneWorld,
+            float rotClampAlpha = 0f)
         {
             int n = _model.BoneNames.Count;
             var physRot = new Quat?[n]; // 物理ボーンの復元回転 (位置は捨てる)
+            var linkOf = new System.Collections.Generic.Dictionary<RigidBody, BoneLink>();
             foreach (var link in BoneLinks)
+            {
+                if (link.Body != null) linkOf[link.Body] = link;
                 if (link.BoneIndex >= 0 && link.BoneIndex < n && link.Mode != PhysicsMode.BoneFollow)
                     physRot[link.BoneIndex] = (link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse()).Rotation;
+            }
+            // 物理ボーン -> 親側ジョイント (BodyB=自分の剛体)。clamp 用。
+            System.Collections.Generic.Dictionary<int, Joint> parentJoint = null;
+            if (rotClampAlpha > 0f)
+            {
+                parentJoint = new System.Collections.Generic.Dictionary<int, Joint>();
+                // 階層親(BoneParents)と一致するジョイントを優先 (ring0=取付, ring1/2=縦, 髪=鎖)。
+                // 横ジョイント(隣接同士)を誤って親に選ぶと clamp が的を外す (α=1でも取付超過が残った実測の原因)。
+                foreach (var j in World.Joints)
+                    if (j.BodyB != null && j.BodyA != null && linkOf.ContainsKey(j.BodyB) && linkOf.ContainsKey(j.BodyA))
+                    {
+                        int bi = linkOf[j.BodyB].BoneIndex;
+                        if (bi < 0 || bi >= n || !physRot[bi].HasValue) continue;
+                        int hierParent = (bi < _model.BoneParents.Count) ? _model.BoneParents[bi] : -1;
+                        bool isHier = linkOf[j.BodyA].BoneIndex == hierParent;
+                        if (!parentJoint.ContainsKey(bi)) parentJoint[bi] = j;
+                        else if (isHier && linkOf[parentJoint[bi].BodyA].BoneIndex != hierParent) parentJoint[bi] = j;
+                    }
+            }
+            Quat EulerQ(Vec3 e)
+            {
+                float sx = (float)System.Math.Sin(e.x * 0.5f), cx = (float)System.Math.Cos(e.x * 0.5f);
+                float sy = (float)System.Math.Sin(e.y * 0.5f), cy = (float)System.Math.Cos(e.y * 0.5f);
+                float sz = (float)System.Math.Sin(e.z * 0.5f), cz = (float)System.Math.Cos(e.z * 0.5f);
+                return new Quat(sx, 0, 0, cx) * new Quat(0, sy, 0, cy) * new Quat(0, 0, sz, cz);
+            }
 
             var world = new RigidTransform?[n];
             RigidTransform Align(int i, int depth)
@@ -195,12 +230,41 @@ namespace BulletPhysics.Pmx
                 }
                 else
                 {
-                    // 物理: 位置 = 親(補正済)から再構成, 回転 = 物理。親無しはバインド位置。
-                    if (p < 0 || p >= n) res = new RigidTransform(physRot[i].Value, _model.BonePositions[i]);
+                    // 物理: 回転 = 物理 (rotClampAlpha>0 なら親側ジョイントのリミットへ α で戻す)。
+                    //        位置 = 親(補正済)から再構成。親無しはバインド位置。
+                    var rot = physRot[i].Value;
+                    if (parentJoint != null && parentJoint.TryGetValue(i, out var pj))
+                    {
+                        // 補正済み親フレーム基準の相対euler (エンジンと同じ分解 Joint.ToEulerXYZ)。
+                        var aLink = linkOf[pj.BodyA];
+                        RigidTransform aBonePose;
+                        if (aLink.BoneIndex >= 0 && aLink.BoneIndex < n)
+                            aBonePose = Align(aLink.BoneIndex, depth + 1);
+                        else
+                            aBonePose = pj.BodyA.WorldTransform * aLink.BodyOffsetFromBone.Inverse();
+                        var qA = ((aBonePose * aLink.BodyOffsetFromBone).Rotation * pj.FrameInA.Rotation).Normalized;
+                        var bLink = linkOf[pj.BodyB];
+                        var qB = ((rot * bLink.BodyOffsetFromBone.Rotation) * pj.FrameInB.Rotation).Normalized;
+                        var eu = Joint.ToEulerXYZ((qA.Conjugated() * qB).Normalized);
+                        var ec = eu; bool changed = false;
+                        for (int d = 0; d < 3; d++)
+                        {
+                            float lo = pj.AngularLowerLimit[d], hi = pj.AngularUpperLimit[d];
+                            if (lo > hi) continue; // free
+                            if (ec[d] < lo) { ec[d] += rotClampAlpha * (lo - ec[d]); changed = true; }
+                            else if (ec[d] > hi) { ec[d] += rotClampAlpha * (hi - ec[d]); changed = true; }
+                        }
+                        if (changed)
+                        {
+                            var qBnew = qA * EulerQ(ec);
+                            rot = (qBnew * pj.FrameInB.Rotation.Conjugated()) * bLink.BodyOffsetFromBone.Rotation.Conjugated();
+                        }
+                    }
+                    if (p < 0 || p >= n) res = new RigidTransform(rot, _model.BonePositions[i]);
                     else
                     {
                         var pw = Align(p, depth + 1);
-                        res = new RigidTransform(physRot[i].Value, pw.Rotation * (_model.BonePositions[i] - _model.BonePositions[p]) + pw.Origin);
+                        res = new RigidTransform(rot, pw.Rotation * (_model.BonePositions[i] - _model.BonePositions[p]) + pw.Origin);
                     }
                 }
                 world[i] = res;
