@@ -182,6 +182,17 @@ static class RestSim
                 var p = model.BonePositions[i];
                 Console.WriteLine($"   {model.BoneNames[i],-8}: PMX=({p.x,7:F3},{p.y,7:F3},{p.z,7:F3}) | 鏡像予測=({p.x,7:F3},{p.y,7:F3},{-p.z,7:F3})");
             }
+            // |z|が大きい非物理(=書き戻されない体側)ボーン: 丸めに惑わされない判定用。髪/ツインテ/もみあげ/前髪は除外。
+            Console.WriteLine("[bind |z|大 非物理ボーン Top15] (つま先等の選定用)");
+            var big = new List<(string n, Vec3 p)>();
+            for (int i = 0; i < model.BoneNames.Count; i++)
+            {
+                var nm = model.BoneNames[i];
+                if (nm.Contains("髪") || nm.Contains("ツインテ") || nm.Contains("もみあげ") || nm.Contains("前髪")) continue;
+                big.Add((nm, model.BonePositions[i]));
+            }
+            foreach (var (n, p) in big.OrderByDescending(x => Math.Abs(x.p.z)).Take(15))
+                Console.WriteLine($"   {n,-12}: PMX z={p.z,8:F3}  (x={p.x,7:F3} y={p.y,7:F3})");
         }
 
         var skirt = builder.Bodies.Where(b => b.Name.StartsWith("スカート") && !b.IsStaticOrKinematic).ToList();
