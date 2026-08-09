@@ -41,7 +41,7 @@ IA などの MMD モデルは**再配布しないため、このリポジトリ�
 - どちらも無ければ、モデル依存の検証は自動で **SKIP** されます（他は動きます）。
 
 ### GLB (extras.mmd 付き) の作り方
-GLB 経由の物理入力（`Assets/Scripts/Pmx/GlbPhysicsReader.cs`）は、`extras.mmd` を含む GLB を要します。
+GLB 経由の物理入力（`Assets/MmdPhysics/Pmx/GlbPhysicsReader.cs`）は、`extras.mmd` を含む GLB を要します。
 [mmd2gltf-gui](https://github.com/masaka1024/) の変換器（標準ライブラリのみ・依存なし）で PMX から生成できます:
 
 ```bash
@@ -63,11 +63,11 @@ python -m mmd2gltf path/to/IA.pmx -o testdata/IA.glb
   (C# 9 で使える target-typed `new()`、パターン、タプル代入などは可)。
   - 例: 単位クォータニオン/単位行列が要る箇所は `new Quat()`/`new Matrix4x4()` に頼らず、
     必ず `Quat.Identity` / `Matrix4x4.Identity` を使う (C# 9 の既定 `new()` は全 0)。
-- **検証**: `scratchpad/compilecheck` の全 `.csproj` は `<LangVersion>9.0</LangVersion>` を
-  設定し、`Assets/Scripts/**` を Unity と同じ言語バージョンでコンパイル検証する。
+- **検証**: `tools` の全 `.csproj` は `<LangVersion>9.0</LangVersion>` を
+  設定し、`Assets/MmdPhysics/**` を Unity と同じ言語バージョンでコンパイル検証する。
   これにより C# 10 以降の機能が混入するとハーネスの時点でビルドが落ちる。
 
-## ファイル構成 (`Assets/Scripts/`)
+## ファイル構成 (`Assets/MmdPhysics/`)
 
 | ファイル | 対応する Bullet / PMX | 内容 |
 |---|---|---|
@@ -194,7 +194,7 @@ Inspector で下表を設定します。
 
 ヘッドレス検証(`HeadlessDriver`)と**同一入力・同一ロジック**で本家ベイク済み
 ボーン姿勢CSVを再生し、自前物理の剛体(緑)に**本家スカート剛体をマゼンタのゴースト**で
-重ねて表示するコンポーネントです (`Assets/Scripts/Unity/BonePoseCsvPlayer.cs`)。
+重ねて表示するコンポーネントです (`Assets/MmdPhysics/Unity/BonePoseCsvPlayer.cs`)。
 `ModelRoot` は不要 (Unityボーンには書き戻さず、Gizmo で描くだけの目視専用)。
 
 設定:
@@ -258,11 +258,11 @@ Inspector で下表を設定します。
 
 ## 検証 (ハーネスの回し方)
 
-`scratchpad/compilecheck` に UnityEngine の最小シムを使った **Unity 非依存の検証ハーネス**を
+`tools` に UnityEngine の最小シムを使った **Unity 非依存の検証ハーネス**を
 用意しています（合成4シナリオ + IA.pmx スモーク + 静止押し出し回帰 + キネマティック補間回帰 = 11項目）。
 
 ```bash
-cd scratchpad/compilecheck
+cd tools
 dotnet run -c Release
 ```
 
@@ -270,5 +270,5 @@ dotnet run -c Release
   機能が混入すると**ハーネスの時点でビルドが落ちます**。
 - IA モデル/CSV は各自用意（下記「必要な外部データ」）。**未指定なら IA 依存の項目は SKIP** され、
   Unity 非依存の項目だけが走ります（落ちません）。
-- `scratchpad/compilecheck/<name>/` 以下は各種の**診断ツール**（貫入・傾き・刻み掃引・物理リセット
+- `tools/<name>/` 以下は各種の**診断ツール**（貫入・傾き・刻み掃引・物理リセット
   検証など）。`cd <name> && dotnet run -c Release` で個別に実行できます。

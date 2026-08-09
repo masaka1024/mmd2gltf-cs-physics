@@ -1,4 +1,4 @@
-# build 生成物 (どこでも無視。scratchpad/compilecheck のソースは追跡する)
+# build 生成物 (どこでも無視。tools/ のソースは追跡する)
 bin/
 obj/
 *.user
@@ -20,7 +20,7 @@ ia.csv
 *_timeseries.csv
 
 # --- Unity (将来フルプロジェクト化する場合) ---
-# ※ ハーネスの手書き .csproj (compilecheck 系) は追跡必須なので *.csproj は無視しない。
+# ※ ハーネスの手書き .csproj (tools/ 配下) は追跡必須なので *.csproj は無視しない。
 #    Unity が自動生成する分だけ名指しで無視する。
 Assembly-CSharp*.csproj
 *.sln

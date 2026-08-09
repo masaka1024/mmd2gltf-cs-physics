@@ -243,7 +243,7 @@ Bullet の `btGeneric6DofConstraint::calculateTransforms` 風の混合軸
 重力がチェーン軸と平行になり角度DOFが励起されず、質量/慣性/レバー/長さを変えても
 maxDrift が不変になる(実測 0.147 固定)。実際の髪は斜め下に垂れて重力トルクが立つため、
 最小再現には**斜め/水平の荷重条件**が必須(水平カプセルで drift 12、iters増で単調収束)。
-`scratchpad/compilecheck/chainbug` (TASK=1)。
+`tools/chainbug` (TASK=1)。
 
 ### 投機的接触は (b) 方式
 接触生成には投機的マージン `SpeculativeMargin = 0.02` を用いるが、押し出し方は
@@ -291,7 +291,7 @@ IA.pmx (剛体117) 300ステップ・重力-98 での貫入量:
   有無で、スカート統計 (平時・12窓ピーク) は**完全一致** (最大差 0.0000)。カプセル慣性を
   円柱式↔外接箱式で切替えてもスカートは完全一致 (11.041/22.498/111.822 で不変)。
   → **スカートの接触・軌道を実際には変えない変更に対し、測定ノイズはゼロ**になった
-    (`scratchpad/compilecheck/determinism` の検証1で監視)。
+    (`tools/diagnostics/determinism` の検証1で監視)。
 
 - **ただしカオス感度そのものは消えていない**。スカート自身の接触・軌道を**実際に変える**変更
   (スカートに触れる剛体、スカートに効くパラメータ、初期条件) に対しては、上記「初期条件感度」
@@ -324,7 +324,7 @@ Bullet 2.75/2.83 solveSingleIteration は 1反復内で NonContact(ジョイン�
 深貫入>0.5 件数: 本家(補正ON)67 / 純Bullet(補正OFF)915 / 自前baseline17,407 / 自前JOINTS_FIRST2,241。
 純Bulletは補正層なしで915を達成。自前17,407はその19倍=**補正層の不在では説明できない自前のバグ**。
 補正層は915→67の話、17,407→915は当エンジンのバグ。**バグに蓋(補正層)をする前に915へ到達する**のが中間目標。
-そのための接触Bullet 1対1監査の差分は SOLVER_FINDINGS.md 参照。差はA/Bフラグ・既定OFF・ビット一致確認のうえ1つずつ計測。
+そのための接触Bullet 1対1監査の差分は docs/investigations/2026-08-08-solver-findings.md 参照。差はA/Bフラグ・既定OFF・ビット一致確認のうえ1つずつ計測。
 
 ## 既知の逸脱 一覧 (Bulletと異なると判明したが暫定維持しているもの)
 増える場合、それ自体が「どこかで根本を取り違えている」信号。正当化せず一覧管理する。
@@ -449,7 +449,7 @@ Custom の間は**毎FixedUpdateでパークを再主張**する。初回の再�
   刻みは fixedDeltaTime=0.02 に対し内部は蓄積式で1/30刻み(steps=0/1が交互)=設計通り。
 
 ## 性能: 実測と最適化 (2026-08-09)
-計測ハーネス `scratchpad/compilecheck/perf` (PhysicsWorld.ProfileEnabled による位相別直接計測。
+計測ハーネス `tools/perf` (PhysicsWorld.ProfileEnabled による位相別直接計測。
 差分プロファイル=構成を変えて引き算 は交絡が大きく使えない: Jointを外すと剛体が落ちて接触が消える等)。
 
 ### 実測 (IA.pmx 117剛体/165Joint, 30Hz SubSteps=2 iters=10)
