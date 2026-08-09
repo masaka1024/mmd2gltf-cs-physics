@@ -49,6 +49,13 @@ namespace BulletPhysics.Unity
         [Tooltip("起動直後にアニメのフレーム0姿勢へ物理を再整合する遅延フレーム数。バインド→フレーム0の瞬間移動による貫入(突き抜け)対策。0で無効。")]
         public int PoseResetDelayFrames = 2;
 
+        [Header("Correction (本家PMXエディタの補正層再現)")]
+        // [物理+ボーン位置合わせ] 再現: 書き戻し時、位置を「親ボーン(補正済)位置+親回転×bindオフセット」の
+        // 階層再構成に置換し、物理の移動分を捨てる (回転は物理のまま)。補正OFF/ON対照データで式を確定済み。
+        // 既定 false=従来(物理位置をそのまま書き戻し)。ヘルパは PmxPhysicsBuilder.ComputeAlignedBonePoses (共通)。
+        [Tooltip("本家の[ボーン位置合わせ]再現: 位置=親チェーン再構成(移動分を捨てる)/回転=物理。スカート/髪の貫通表示対策。")]
+        public bool AlignBonePositions = false;
+
         [Header("Debug")]
         public bool DrawGizmos = true;
 
@@ -167,6 +174,8 @@ namespace BulletPhysics.Unity
 
         private void PullPhysicsToBones()
         {
+            // 補正層再現: 位置=親チェーン再構成 / 回転=物理 (共通ヘルパ)。
+            RigidTransform?[] aligned = AlignBonePositions ? _builder.ComputeAlignedBonePoses(BoneWorldOrNull) : null;
             foreach (var link in _builder.BoneLinks)
             {
                 if (link.Mode == PhysicsMode.BoneFollow) continue;
@@ -176,7 +185,9 @@ namespace BulletPhysics.Unity
                 if (tr == null) continue;
 
                 // body = bone * offset  ->  bone = body * offset^-1
-                var boneWorld = link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse();
+                var boneWorld = (aligned != null && aligned[link.BoneIndex].HasValue)
+                    ? aligned[link.BoneIndex].Value
+                    : link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse();
                 tr.position = MmdToUnityPos(boneWorld.Origin);
                 tr.rotation = MmdToUnityRot(boneWorld.Rotation);
             }

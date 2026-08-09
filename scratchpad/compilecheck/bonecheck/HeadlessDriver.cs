@@ -93,10 +93,20 @@ namespace BoneCheck
             for (int s = 0; s < WarmupSteps; s++) world.StepSimulation(1f / 30f);
 
             // 計測本番。
+            int alignMode = int.TryParse(System.Environment.GetEnvironmentVariable("ALIGN"), out var _am) ? _am : 0; // 2=補正フィードバック
             for (int f = 0; f < F; f++)
             {
                 ApplyPose(driven, csv, f);
                 world.StepSimulation(1f / 30f);
+                // 補正層再現(段階2): aligned姿勢(位置=親チェーン再構成/回転=物理)を剛体へ書き戻し=次stepへ影響。
+                if (alignMode == 2)
+                {
+                    var aligned = builder.ComputeAlignedBonePoses(bi =>
+                        (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var dw)) ? (RigidTransform?)dw : null);
+                    foreach (var link in builder.BoneLinks)
+                        if (link.Mode != PhysicsMode.BoneFollow && link.BoneIndex >= 0 && link.BoneIndex < aligned.Length && aligned[link.BoneIndex].HasValue)
+                        { link.Body.WorldTransform = aligned[link.BoneIndex].Value * link.BodyOffsetFromBone; link.Body.UpdateInertiaWorld(); }
+                }
 
                 var tilt = new float[nj];
                 var tiltRigid = new float[nj];

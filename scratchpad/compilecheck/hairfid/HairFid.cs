@@ -69,6 +69,9 @@ static class HairFid
         if (float.TryParse(Environment.GetEnvironmentVariable("MAXCORR"), out var _mc)) Joint.MaxCorrectionVel = _mc; // 位置補正速度上限(既定10, Bulletは無制限)
         if (Environment.GetEnvironmentVariable("MIXAXES") == "1") Joint.AngularMixedAxes = true; // 角度リミット行=Bullet混合軸
         if (Environment.GetEnvironmentVariable("CNBF") == "1") world.ContactNormalBeforeFriction = true; // 法線→摩擦順(Bullet)
+        // 補正層再現: 1=出力のみ(計測をaligned姿勢で行い剛体は復元) 2=フィードバック(aligned姿勢を剛体へ書き戻し=次stepへ影響)
+        int alignMode = int.TryParse(Environment.GetEnvironmentVariable("ALIGN"), out var _al) ? _al : 0;
+        if (alignMode > 0) Console.WriteLine($"[cfg] ALIGN={alignMode} ({(alignMode == 1 ? "出力のみ" : "フィードバック")}: 位置=親チェーン再構成/回転=物理)");
         if (int.TryParse(Environment.GetEnvironmentVariable("SUBSTEPS"), out var _ss) && _ss > 0) world.SubSteps = _ss; // 計算予算掃引
         if (int.TryParse(Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it;
         // 決定的テスト: スカートジョイントを自由化して「接触だけ」で貫入が解消するか見る(綱引き vs 接触能力の切り分け)。
@@ -253,6 +256,17 @@ static class HairFid
             ApplyPose(f);
             dbg.Clear();
             world.StepSimulation(DT);
+            // 補正層再現 (ALIGN>0): aligned姿勢へ物理剛体を配置。mode1は計測後に復元(出力のみ)、mode2は恒久(フィードバック)。
+            RigidTransform[] savedPose = null;
+            if (alignMode > 0)
+            {
+                var aligned = builder.ComputeAlignedBonePoses(bi =>
+                    (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var dw)) ? (RigidTransform?)dw : null);
+                if (alignMode == 1) { savedPose = new RigidTransform[hairLinks.Count]; for (int k = 0; k < hairLinks.Count; k++) savedPose[k] = hairLinks[k].link.Body.WorldTransform; }
+                foreach (var (link, _, _) in hairLinks)
+                    if (aligned[link.BoneIndex].HasValue)
+                    { link.Body.WorldTransform = aligned[link.BoneIndex].Value * link.BodyOffsetFromBone; link.Body.UpdateInertiaWorld(); }
+            }
             foreach (var (j2, t2) in jClass) jErrOurs[t2].Add(JErr(j2)); // ジョイント種別別アンカー誤差(自前)
             CollectAng(false); // 角度リミット実効挙動(自前)
             // 下半身ヨー速度
@@ -331,6 +345,10 @@ static class HairFid
                         st.Add(f);
                     }
                 }
+            // ALIGN=1 (出力のみ): 計測が終わったので物理剛体の姿勢を復元 (次stepへは影響させない)。
+            if (savedPose != null)
+                for (int k = 0; k < hairLinks.Count; k++)
+                { hairLinks[k].link.Body.WorldTransform = savedPose[k]; hairLinks[k].link.Body.UpdateInertiaWorld(); }
         }
 
         // ===== 本家の貫入 (幾何): 髪も体も本家CSV姿勢に置いて Detect。仕様かバグかの切り分け =====

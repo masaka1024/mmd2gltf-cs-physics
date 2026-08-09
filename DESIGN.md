@@ -363,3 +363,20 @@ Joint.AngularMixedAxes(既定false=ビット不変, env MIXAXES)で復活し、�
 自前は「位置」で破れる(パネル直立のまま滑って脚へ=貫入多)。本家ONは補正層が破れを最小化。
 limitSoftnessは行パス(getInfo2)に登場せず休眠(m_useSolveConstraintObsolete=false)=ソフト化説は否定。
 自前の角度行がなぜ硬いか(=純Bulletがなぜ弱いか)の候補は反復収束の差・張り付き時の蓄積のみ。次段はユーザ判断。
+
+## 本家再現のための意図的追加 (Bullet逸脱一覧とは性質が異なるため別管理)
+Bulletからの逸脱(上の一覧=「Bulletと違うと判明したが暫定維持」)と異なり、こちらは
+**本家PMXエディタがBulletの外側で行っている処理を、データから式を確定した上で意図的に追加するもの**。
+
+### 1. ボーン位置合わせ (AlignBonePositions / ComputeAlignedBonePoses, 2026-08-09)
+本家の[物理+ボーン位置合わせ]の再現。補正OFF/ON対照ベイク(同一入力)の直接検証で式を確定:
+  **位置 = 親ボーン(補正済)の位置 + 親回転で回した bind オフセット (物理の移動分を捨てる) / 回転 = 物理回転のまま**
+  (検証: |ON子-(ON親+qON親·bindRel)| = skirt中央0.011 ≈ 厳密。純FK-rest射影ではない。貫入押し出しでもない
+   — 本家の貫入67はこの再構成の副作用で、補正は貫入と無相関 r≈0.02)。
+実装: PmxPhysicsBuilder.ComputeAlignedBonePoses (共通ヘルパ, HeadlessDriver/MmdPhysicsBehaviour/hairfid で共用。
+  経路差バグ防止のためFK-restリセットと同じ扱い)。
+段階1=出力のみ(hairfid ALIGN=1: 計測をaligned姿勢で行い剛体は復元) /
+段階2=フィードバック(ALIGN=2: aligned姿勢を剛体へ書き戻し=次stepへ影響)。
+Unity側フラグ: MmdPhysicsBehaviour.AlignBonePositions (既定false, 出力のみ=段階1相当)。
+本家ONのリミット超過が8-14°と非ゼロであることは「物理へ戻して毎フレーム少し外れるループ」(段階2)を示唆
+— 段階1/2の計測比較で判定する。

@@ -157,6 +157,59 @@ namespace BulletPhysics.Pmx
             ResetBodiesToBonePose(i => (i >= 0 && i < n) ? world[i] : null);
         }
 
+        /// <summary>
+        /// [物理+ボーン位置合わせ] 再現 (本家PMXエディタの補正層。補正OFF/ON対照データで式を確定, 2026-08-09):
+        ///   物理ボーンの出力姿勢 = 位置: 親ボーン(補正済)の位置 + 親回転で回した bind オフセット
+        ///                          (物理の「移動分」を捨てる) / 回転: 物理回転そのまま。
+        /// 検証: |ON子-(ON親+qON親·bindRel)| = skirt中央0.011 (本家ONでほぼ厳密成立, OFFは0.072)。
+        /// 駆動ボーンは getDrivenBoneWorld、物理ボーンの回転は剛体から復元 (body * offset^-1)。
+        /// 書き戻しは HeadlessDriver / MmdPhysicsBehaviour / 計測ハーネスで必ず本ヘルパを共用する
+        /// (FK-rest リセットと同じ扱い。経路差のバグを避ける)。戻り値: boneIndex -> 補正済world姿勢。
+        /// </summary>
+        public RigidTransform?[] ComputeAlignedBonePoses(System.Func<int, RigidTransform?> getDrivenBoneWorld)
+        {
+            int n = _model.BoneNames.Count;
+            var physRot = new Quat?[n]; // 物理ボーンの復元回転 (位置は捨てる)
+            foreach (var link in BoneLinks)
+                if (link.BoneIndex >= 0 && link.BoneIndex < n && link.Mode != PhysicsMode.BoneFollow)
+                    physRot[link.BoneIndex] = (link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse()).Rotation;
+
+            var world = new RigidTransform?[n];
+            RigidTransform Align(int i, int depth)
+            {
+                if (world[i].HasValue) return world[i].Value;
+                if (depth > 512) { world[i] = new RigidTransform(Quat.Identity, _model.BonePositions[i]); return world[i].Value; }
+                RigidTransform res;
+                int p = (i < _model.BoneParents.Count) ? _model.BoneParents[i] : -1;
+                if (!physRot[i].HasValue)
+                {
+                    // 非物理: 駆動姿勢があればそれ、無ければ FK (バインドは回転恒等)。
+                    RigidTransform? driven = getDrivenBoneWorld(i);
+                    if (driven.HasValue) res = driven.Value;
+                    else if (p < 0 || p >= n) res = new RigidTransform(Quat.Identity, _model.BonePositions[i]);
+                    else
+                    {
+                        var pw = Align(p, depth + 1);
+                        res = new RigidTransform(pw.Rotation, pw.Rotation * (_model.BonePositions[i] - _model.BonePositions[p]) + pw.Origin);
+                    }
+                }
+                else
+                {
+                    // 物理: 位置 = 親(補正済)から再構成, 回転 = 物理。親無しはバインド位置。
+                    if (p < 0 || p >= n) res = new RigidTransform(physRot[i].Value, _model.BonePositions[i]);
+                    else
+                    {
+                        var pw = Align(p, depth + 1);
+                        res = new RigidTransform(physRot[i].Value, pw.Rotation * (_model.BonePositions[i] - _model.BonePositions[p]) + pw.Origin);
+                    }
+                }
+                world[i] = res;
+                return res;
+            }
+            for (int i = 0; i < n; i++) if (!world[i].HasValue) Align(i, 0);
+            return world;
+        }
+
         private static RigidTransform ComputeOffset(PmxPhysicsModel model, PmxRigidBody rb)
         {
             var bodyWorld = RigidTransform.FromEuler(rb.Position, rb.Rotation);
