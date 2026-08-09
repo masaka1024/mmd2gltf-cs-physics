@@ -110,6 +110,17 @@ static class HairFid
         int nHair = hairLinks.Count(x => IsHair(x.link.Body.Name));
         Console.WriteLine($"[構成] 比較剛体={hairLinks.Count}(髪{nHair}+スカート{hairLinks.Count - nHair}) 体コライダー={bodyLinks.Count} 駆動BoneFollow={driven.Count}");
 
+        // ===== 補正層の相関分析モード (CORR=1): OFF(=MMD_TEST_HAIRCSV)→ON 差分の説明変数相関 =====
+        if (Environment.GetEnvironmentVariable("CORR") == "1")
+        {
+            string onCsvPath = Environment.GetEnvironmentVariable("CORR_ON_CSV") ?? @"C:/mytask2/_external_testdata/IA_bone_world_pose_hair.csv";
+            if (new FileInfo(onCsvPath).Length != 65805999L) { Console.WriteLine($"[FAIL] ON CSV バイト数不一致: {onCsvPath}"); return 1; }
+            if (bytes != 65617640L) { Console.WriteLine("[FAIL] CORR モードは MMD_TEST_HAIRCSV に OFF版(65617640B) を指定すること。"); return 1; }
+            var onCsv = BoneCsv.Load(onCsvPath);
+            Console.WriteLine($"[CORR] OFF(補正前)={Path.GetFileName(csvp)}  ON(補正後)={Path.GetFileName(onCsvPath)}");
+            return OffOnCorr.Run(model, builder, hairLinks, bodyLinks, driven, csv, onCsv);
+        }
+
         // ===== スカートジョイントの種別分類 (取付=体↔スカート / 縦=リング違い / 横=同リング) =====
         int RingOf(string n)
         {

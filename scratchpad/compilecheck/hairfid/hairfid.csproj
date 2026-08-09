@@ -14,6 +14,7 @@
     <Compile Include="..\TestData.cs" />
     <Compile Include="..\bonecheck\BoneCsv.cs" />
     <Compile Include="HairFid.cs" />
+    <Compile Include="OffOnCorr.cs" />
     <Compile Include="..\..\..\Assets\Scripts\**\*.cs" />
   </ItemGroup>
 </Project>
