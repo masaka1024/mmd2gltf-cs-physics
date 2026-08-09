@@ -80,6 +80,30 @@ static class OffOnCorr
         var buf = new List<ContactPoint>();
         bool IsSkirt(string n) => n != null && n.Contains("スカート");
 
+        // ===== 直接検証(タスク2) 用の収集器 =====
+        // 1) |ON位置-FK位置| 2) cos((ON-OFF),(FK-OFF)) 4) 回転: raw |ON-OFF| / keep(ON親+OFF相対) / clamp(ON親+clamp相対)
+        var onFkPos = new List<float>[3] { new(), new(), new() };   // 0=全体 1=skirt 2=hair
+        var reconErr = new List<float>[3] { new(), new(), new() };  // 1b) ON親チェーン再構成誤差
+        var reconErrOff = new List<float>[3] { new(), new(), new() }; // 対照: OFF側の同誤差
+        var dirCos = new List<float>[3] { new(), new(), new() };
+        var rotRaw = new List<float>[3] { new(), new(), new() };
+        var rotKeep = new List<float>[3] { new(), new(), new() };
+        var rotClamp = new List<float>[3] { new(), new(), new() };
+        // 剛体 -> (ボーン名, オフセット) 対応 (親のON姿勢の再構成に使用)
+        var bodyInfo = new Dictionary<RigidBody, (string bone, RigidTransform off)>();
+        foreach (var (link, bone, _) in physLinks) bodyInfo[link.Body] = (bone, link.BodyOffsetFromBone);
+        foreach (var (link, bone) in colliderLinks) if (!bodyInfo.ContainsKey(link.Body)) bodyInfo[link.Body] = (bone, link.BodyOffsetFromBone);
+        // 各物理剛体の「親側ジョイント」(BodyB=自分, BodyA=親でボーン既知)
+        var parentJoint = new Dictionary<RigidBody, Joint>();
+        foreach (var j in world.Joints)
+            if (j.BodyB != null && j.BodyA != null && bodyInfo.ContainsKey(j.BodyA) && !parentJoint.ContainsKey(j.BodyB))
+                parentJoint[j.BodyB] = j;
+        Quat QuatAxis(int axis, float a)
+        {
+            float s = (float)Math.Sin(a * 0.5f), c = (float)Math.Cos(a * 0.5f);
+            return axis == 0 ? new Quat(s, 0, 0, c) : axis == 1 ? new Quat(0, s, 0, c) : new Quat(0, 0, s, c);
+        }
+
         var fkPos = new Dictionary<int, Vec3>(); // boneIndex -> FK bone pos (このフレーム)
         for (int f = 0; f < F; f++)
         {
@@ -139,6 +163,73 @@ static class OffOnCorr
                     cPos[grp, v].Add(xs[v], dPos); cRot[grp, v].Add(xs[v], dRot);
                 }
                 dPosAll.Add(dPos); dRotAll.Add(dRot);
+
+                // ===== 直接検証 =====
+                // 1b) 親チェーン再構成: ON子位置 ≈ ON親位置 + qON親·(bind子-bind親) か
+                //     (readme「移動分を捨てて回転のみフィードバック」の厳密解釈。ONデータのみで判定, 軌道分岐の交絡なし)
+                {
+                    int pi = link.BoneIndex < model.BoneParents.Count ? model.BoneParents[link.BoneIndex] : -1;
+                    if (pi >= 0 && on.TryGet(f, model.BoneNames[pi], out var pOnW))
+                    {
+                        var bindRel = model.BonePositions[link.BoneIndex] - model.BonePositions[pi];
+                        var recon = pOnW.Origin + pOnW.Rotation.Rotate(bindRel);
+                        float dRecon = (onw.Origin - recon).Length;
+                        reconErr[0].Add(dRecon); reconErr[grp].Add(dRecon);
+                        // 対照: OFF側は満たさないはず
+                        if (off.TryGet(f, model.BoneNames[pi], out var pOffW))
+                        {
+                            var reconOff = pOffW.Origin + pOffW.Rotation.Rotate(bindRel);
+                            reconErrOff[0].Add((ofw.Origin - reconOff).Length); reconErrOff[grp].Add((ofw.Origin - reconOff).Length);
+                        }
+                    }
+                }
+                // 1) |ON位置 - FK位置|
+                if (fkPos.TryGetValue(link.BoneIndex, out var fp2))
+                {
+                    float dOnFk = (onw.Origin - fp2).Length;
+                    onFkPos[0].Add(dOnFk); onFkPos[grp].Add(dOnFk);
+                    // 2) 方向余弦 cos((ON-OFF),(FK-OFF))
+                    var u = onw.Origin - ofw.Origin; var v2 = fp2 - ofw.Origin;
+                    float du = u.Length, dv = v2.Length;
+                    if (du > 0.02f && dv > 0.02f)
+                    {
+                        float cs = u.Dot(v2) / (du * dv);
+                        dirCos[0].Add(cs); dirCos[grp].Add(cs);
+                    }
+                }
+                // 4) 回転: raw / keep(ON親+OFF相対) / clamp(ON親+clamp相対)
+                rotRaw[0].Add(dRot); rotRaw[grp].Add(dRot);
+                if (parentJoint.TryGetValue(link.Body, out var pj))
+                {
+                    var (pBone, pOff) = bodyInfo[pj.BodyA];
+                    if (on.TryGet(f, pBone, out var pOn))
+                    {
+                        // OFF配置での相対euler (bodyはOFF姿勢に配置済み)
+                        var wAoff = pj.BodyA.WorldTransform * pj.FrameInA;
+                        var wBoff = pj.BodyB.WorldTransform * pj.FrameInB;
+                        var eu2 = EulerXYZ((wAoff.Rotation.Conjugated() * wBoff.Rotation).Normalized);
+                        // clamp into limits (free dof はそのまま)
+                        var ec = eu2;
+                        for (int d = 0; d < 3; d++)
+                        {
+                            float lo = pj.AngularLowerLimit[d], hi = pj.AngularUpperLimit[d];
+                            if (lo > hi) continue;
+                            if (ec[d] < lo) ec[d] = lo; else if (ec[d] > hi) ec[d] = hi;
+                        }
+                        // ON親のworldAフレーム回転
+                        var qAon = ((pOn * pOff).Rotation * pj.FrameInA.Rotation).Normalized;
+                        Quat Recon(Vec3 e)
+                        {
+                            var qRel2 = QuatAxis(0, e.x) * QuatAxis(1, e.y) * QuatAxis(2, e.z);
+                            var bodyRot = (qAon * qRel2) * pj.FrameInB.Rotation.Conjugated();
+                            return bodyRot * link.BodyOffsetFromBone.Rotation.Conjugated(); // bone rot
+                        }
+                        float keepErr = RelAngleDeg(Recon(eu2), onw.Rotation);
+                        float clampErr = RelAngleDeg(Recon(ec), onw.Rotation);
+                        rotKeep[0].Add(keepErr); rotKeep[grp].Add(keepErr);
+                        rotClamp[0].Add(clampErr); rotClamp[grp].Add(clampErr);
+                    }
+                }
             }
         }
 
@@ -155,6 +246,24 @@ static class OffOnCorr
             O.Append($"   [{gName[g],-5}] 回転差との r: ");
             for (int v = 0; v < 4; v++) O.Append($"{varName[v]}={cRot[g, v].R:F3}  ");
             O.AppendLine();
+        }
+        // ===== 直接検証の集計 =====
+        (float m, float p, float x) St(List<float> v) { if (v.Count == 0) return (0, 0, 0); v.Sort(); return (v[v.Count / 2], v[(int)(v.Count * 0.9)], v[^1]); }
+        O.AppendLine("\n[直接検証1] |ON位置 - FK位置| (仮説「移動分を捨てる」なら ≈0):");
+        for (int g = 0; g < 3; g++) { var (m, p, x) = St(onFkPos[g]); O.AppendLine($"   {gName[g],-5}: 中央={m:F4} p90={p:F4} 最大={x:F4} (n={onFkPos[g].Count})"); }
+        O.AppendLine("[直接検証1b] 親チェーン再構成誤差 |ON子 - (ON親 + qON親·bindRel)| (回転のみフィードバック説なら ON≈0, OFF>0):");
+        for (int g = 0; g < 3; g++)
+        {
+            var (m, p, x) = St(reconErr[g]); var (mo, po, _) = St(reconErrOff[g]);
+            O.AppendLine($"   {gName[g],-5}: ON 中央={m:F4} p90={p:F4} 最大={x:F4}   OFF(対照) 中央={mo:F4} p90={po:F4}");
+        }
+        O.AppendLine("[直接検証2] cos((ON-OFF),(FK-OFF)) (FK方向への射影なら ≈1):");
+        for (int g = 0; g < 3; g++) { var (m, p, x) = St(dirCos[g]); O.AppendLine($"   {gName[g],-5}: 中央={m:F4} p10={(dirCos[g].Count > 0 ? dirCos[g][(int)(dirCos[g].Count * 0.1)] : 0):F4} (n={dirCos[g].Count})"); }
+        O.AppendLine("[直接検証4] 回転の再構成誤差(deg) raw=|ON-OFF| / keep=ON親+OFF相対 / clamp=ON親+clamp相対:");
+        for (int g = 0; g < 3; g++)
+        {
+            var (rm, rp, _) = St(rotRaw[g]); var (km, kp, _) = St(rotKeep[g]); var (cm, cp2, _) = St(rotClamp[g]);
+            O.AppendLine($"   {gName[g],-5}: raw 中央={rm:F1}/p90={rp:F1}   keep 中央={km:F1}/p90={kp:F1}   clamp 中央={cm:F1}/p90={cp2:F1}");
         }
         Console.Write(O.ToString());
         return 0;
