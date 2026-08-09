@@ -83,10 +83,13 @@ def parse_pmx(path):
         for _ in range(ec):
             tt=d[o]; o+=1; o+= bidx if tt==0 else mo
     rc=struct.unpack('<I',d[o:o+4])[0]; o+=4
-    rb_bonemap=[]  # (rbname, boneIndex)
+    rb_bonemap=[]  # (rbname, boneIndex, rbpos)
     for _ in range(rc):
-        nm,o=rt(o); _,o=rt(o); bn,o=ridx_read(o,bidx); o+=1+2+1+12+12+12+20+1
-        rb_bonemap.append((nm,bn))
+        nm,o=rt(o); _,o=rt(o); bn,o=ridx_read(o,bidx)
+        o+=1+2+1+12  # group,mask,shape,size
+        rbpos=struct.unpack('<3f',d[o:o+12]); o+=12
+        o+=12+20+1  # rot, 物性5f, mode
+        rb_bonemap.append((nm,bn,rbpos))
     return bones, rb_bonemap
 
 # ---------- VMD ----------
@@ -206,7 +209,7 @@ if __name__=='__main__':
     # hair bone <-> rigidbody (本体パーサ一本化)
     from collections import Counter
     hb_rb=Counter()
-    for rn,bi in rbmap:
+    for rn,bi,_ in rbmap:
         if 0<=bi<len(bones) and any(k in bones[bi]['name'] for k in ('髪','ツインテ','もみあげ','前髪','モミアゲ')): hb_rb[bones[bi]['name']]+=1
     print(f"[hair-rb対応] 剛体紐づく髪ボーン={len(hb_rb)}, 剛体数分布={dict(Counter(hb_rb.values()))}, 複数剛体ボーン={[a(b) for b,c in hb_rb.items() if c>1]}")
     # 43-bone order from REF
@@ -242,3 +245,80 @@ if __name__=='__main__':
             if sum(a*b for a,b in zip(qo,qr))<0: qo=[-x for x in qo]
             for a2,b2 in zip(qo,qr): maxq=max(maxq,abs(a2-b2))
     print(f"[値差] max位置={maxpos:.3e} max回転成分={maxq:.3e}")
+
+    # === 髪拡張版CSV (別名・既存非上書き): 43ボーン + 髪65本 = 108ボーン/フレーム ===
+    HAIROUT=r"C:/mytask2/_external_testdata/IA_bone_world_pose_hair.csv"
+    hair_idx=[i for i,b in enumerate(bones) if any(k in b['name'] for k in ('髪','ツインテ','もみあげ','前髪','モミアゲ'))]
+    hair_names=[bones[i]['name'] for i in hair_idx]
+    order108=list(zip(order43,idx43))+list(zip(hair_names,hair_idx))
+    set43=set(order43)
+    t1=time.time()
+    with open(HAIROUT,'w',encoding='utf-8',newline='') as f:
+        f.write("frame,boneName,posX,posY,posZ,quatX,quatY,quatZ,quatW\n")
+        for fr in range(NF):
+            for n,i in order108:
+                p=Wp[i][fr]; q=Wq[i][fr]
+                f.write(f"{fr},{n},{g%p[0]},{g%p[1]},{g%p[2]},{g%q[0]},{g%q[1]},{g%q[2]},{g%q[3]}\n")
+    print(f"[hair CSV] {HAIROUT} 出力 ({os.path.getsize(HAIROUT)}B, {len(order108)}ボーン×{NF}f) in {time.time()-t1:.1f}s")
+    # 43ボーン部が byte 不変か: hair CSVから43ボーン行だけ抽出→REFとbyte一致確認
+    import io
+    buf=io.StringIO()
+    with open(HAIROUT,encoding='utf-8') as f:
+        next(f)
+        for line in f:
+            nm=line.split(',',2)[1]
+            if nm in set43: buf.write(line)
+    sub=buf.getvalue().encode('utf-8')
+    refbody=open(REF,'rb').read(); refbody=refbody[refbody.index(b'\n')+1:]  # ヘッダ除く
+    print(f"[43部不変] 抽出43行bytes={len(sub)} REF(ヘッダ除)bytes={len(refbody)} {'byte一致OK' if sub==refbody else 'FAIL不一致'}")
+
+    # === (1) 本家の髪ドリフト (FK-rest基準・剛体位置復元・自前maxDrift定義) ===
+    hairrb=[(rn,bi,rp) for rn,bi,rp in rbmap if 0<=bi<len(bones) and any(k in bones[bi]['name'] for k in ('髪','ツインテ','もみあげ','前髪','モミアゲ'))]
+    hbset=set(bones[bi]['name'] for _,bi,_ in hairrb)
+    keys_fk={k:v for k,v in keys.items() if k not in hbset}
+    Wp_fk,Wq_fk=compose_all(bones,order,keys_fk,NF)  # FK-rest: 髪ローカル恒等・親は本家
+    def rbpos_arr(WP,WQ,bi,rp):
+        off=np.array([rp[j]-bones[bi]['pos'][j] for j in range(3)],dtype=np.float64)
+        return WP[bi]+qrot_b(WQ[bi],np.tile(off,(NF,1)))
+    # 妥当性: バインド(全恒等FK)で復元剛体位置 == builder配置(rp) 差0
+    Wpb,Wqb=fk_frame(bones,order,{}); vmax=0.0
+    for rn,bi,rp in hairrb:
+        off=tuple(rp[j]-bones[bi]['pos'][j] for j in range(3)); rr=qrot(Wqb[bi],off)
+        for j in range(3): vmax=max(vmax,abs(Wpb[bi][j]+rr[j]-rp[j]))
+    print(f"[妥当性] バインド復元剛体位置 vs builder配置 max差={vmax:.3e} 期待0")
+    NB=len(hairrb); refP=np.zeros((NB,NF,3)); fkP=np.zeros((NB,NF,3))
+    for k,(rn,bi,rp) in enumerate(hairrb):
+        refP[k]=rbpos_arr(Wp,Wq,bi,rp); fkP[k]=rbpos_arr(Wp_fk,Wq_fk,bi,rp)
+    drift=np.linalg.norm(refP-fkP,axis=2)  # (NB,NF) FK-rest基準ドリフト
+    def stt(x): x=np.sort(np.asarray(x,dtype=float)); return x[len(x)//2],x[int(len(x)*0.9)],x.max()
+    md,p9,mx=stt(drift.max(axis=1))
+    print(f"[本家 髪drift 全編] per-bone max: 中央={md:.3f} p90={p9:.3f} 最大={mx:.3f}  (自前静止maxDrift=7.95)")
+    # 静区間
+    def qrelang(q0,q1):
+        cx,cy,cz,cw=-q0[0],-q0[1],-q0[2],q0[3]; x1,y1,z1,w1=q1[0],q1[1],q1[2],q1[3]
+        dx=w1*cx+x1*cw+y1*cz-z1*cy; dy=w1*cy-x1*cz+y1*cw+z1*cx; dz=w1*cz+x1*cy-y1*cx+z1*cw; dw=w1*cw-x1*cx-y1*cy-z1*cz
+        return 2*math.atan2(math.sqrt(dx*dx+dy*dy+dz*dz),abs(dw))
+    lowi=nidx['下半身']; headi=nidx['頭']; dt=1/30
+    TH_YAW,TH_SPD,TH_HEAD=15.0,0.5,15.0
+    quiet=[False]*NF
+    for fr in range(1,NF):
+        yr=math.degrees(qrelang(Wq[lowi][fr-1],Wq[lowi][fr]))/dt
+        sp=float(np.linalg.norm(Wp[lowi][fr]-Wp[lowi][fr-1]))/dt
+        hr=math.degrees(qrelang(Wq[headi][fr-1],Wq[headi][fr]))/dt
+        quiet[fr]=(yr<TH_YAW and sp<TH_SPD and hr<TH_HEAD)
+    segs=[]; s=None
+    for fr in range(NF):
+        if quiet[fr]:
+            if s is None: s=fr
+        elif s is not None:
+            if fr-s>=60: segs.append((s,fr-1))
+            s=None
+    if s is not None and NF-s>=60: segs.append((s,NF-1))
+    print(f"[静区間] 下半身<{TH_YAW}°/s & 移動<{TH_SPD}u/s & 頭<{TH_HEAD}°/s, 長さ>=60f(2s): {len(segs)}区間")
+    allpbm=[]
+    for s0,s1 in segs:
+        pbm=drift[:,s0:s1+1].max(axis=1); allpbm.extend(pbm.tolist()); md,p9,mx=stt(pbm)
+        print(f"   f{s0}-{s1} ({s1-s0+1}f {s0/30:.1f}-{s1/30:.1f}s): 中央={md:.3f} p90={p9:.3f} 最大={mx:.3f}")
+    if allpbm:
+        md,p9,mx=stt(allpbm)
+        print(f"[静区間 統合] 中央={md:.3f} p90={p9:.3f} 最大={mx:.3f}  (自前静止maxDrift=7.95)")
