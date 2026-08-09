@@ -144,7 +144,8 @@ static class HairFid
         var penSeries = new Dictionary<string, Dictionary<int, float>>(); // pair -> frame -> pen (>0.3のみ), per-step回復速度用
         // 移動ロック相対保持: skirt子ボーンの(子-親)相対位置の bind相対からのズレ (ON0.371/OFF0.706 に対する自前値)
         var skirtChildren = hairLinks.Where(x => IsSkirt(x.link.Body.Name) && x.link.BoneIndex >= 0).Select(x => x.link.BoneIndex).ToList();
-        var relDriftVals = new List<float>();
+        var relDriftVals = new List<float>();     // 自前(sim)
+        var relDriftRef = new List<float>();      // 本家(CSV: ON or OFF, 同subset/同定義)
         var dbg = new List<(string a, string b, float dist, float ni)>();
         world.DebugContacts = dbg;
 
@@ -181,10 +182,14 @@ static class HairFid
                 foreach (int ci in skirtChildren)
                 {
                     int pi = (ci < model.BoneParents.Count) ? model.BoneParents[ci] : -1;
-                    if (pi < 0 || !wpos.ContainsKey(ci) || !wpos.ContainsKey(pi)) continue;
-                    var curRel = wpos[ci] - wpos[pi];
+                    if (pi < 0) continue;
                     var bindRel = model.BonePositions[ci] - model.BonePositions[pi];
-                    relDriftVals.Add((curRel - bindRel).Length);
+                    // 自前(sim): wpos に子・親があれば
+                    if (wpos.ContainsKey(ci) && wpos.ContainsKey(pi))
+                        relDriftVals.Add(((wpos[ci] - wpos[pi]) - bindRel).Length);
+                    // 本家(CSV): 同subset/同親定義で CSV 位置から
+                    if (csv.TryGet(f, model.BoneNames[ci], out var cc) && csv.TryGet(f, model.BoneNames[pi], out var cp))
+                        relDriftRef.Add(((cc.Origin - cp.Origin) - bindRel).Length);
                 }
             }
             // 髪×体 貫入 (自前物理の結果) + 診断
@@ -265,7 +270,9 @@ static class HairFid
         {
             relDriftVals.Sort();
             float rm = relDriftVals[relDriftVals.Count / 2], rp = relDriftVals[(int)(relDriftVals.Count * 0.9)], rx = relDriftVals[relDriftVals.Count - 1];
-            O.AppendLine($"[移動ロック相対保持 skirt 自前] 中央={rm:F3} p90={rp:F3} 最大={rx:F3}  (参考 本家ON=0.371 純BulletOFF=0.706. 小さい=固く保持)");
+            float refm = 0, refp = 0, refx = 0;
+            if (relDriftRef.Count > 0) { relDriftRef.Sort(); refm = relDriftRef[relDriftRef.Count / 2]; refp = relDriftRef[(int)(relDriftRef.Count * 0.9)]; refx = relDriftRef[relDriftRef.Count - 1]; }
+            O.AppendLine($"[移動ロック相対保持 skirt 同subset/同定義] 自前 中央={rm:F3}/p90={rp:F3}/最大={rx:F3}  本家(CSV) 中央={refm:F3}/p90={refp:F3}/最大={refx:F3}  (小さい=固く保持)");
         }
         // ターン窓 = ヨー>360°/s の frame を含む ±15f 窓 (簡易)。静区間=それ以外。
         bool[] turn = new bool[F];
