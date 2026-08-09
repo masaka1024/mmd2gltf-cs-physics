@@ -123,8 +123,9 @@ namespace BulletPhysics.Unity
 
         private void ApplyPose(int f)
         {
-            foreach (var (link, b) in _driven)
-                if (_csv.TryGet(f, b, out var bw)) link.Body.KinematicTarget = bw * link.BodyOffsetFromBone;
+            // 駆動式は共通ヘルパへ集約 (2026-08-09 hairfid誤配置事故の再発防止。式は同一)。
+            _builder.ApplyKinematicTargets(bi =>
+                (bi >= 0 && bi < _model.BoneNames.Count && _csv != null && _csv.TryGet(f, _model.BoneNames[bi], out var bw)) ? (RigidTransform?)bw : null);
         }
 
         // ボーンindex → フレーム0のCSV姿勢 (在れば)。FK-restリセットの駆動姿勢源。

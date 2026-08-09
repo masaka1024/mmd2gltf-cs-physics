@@ -65,6 +65,8 @@ namespace UnityEngine
     public static class Time
     {
         public static float fixedDeltaTime = 1f / 60f;
+        public static float deltaTime = 1f / 60f;
+        public static int frameCount = 0;
     }
 
     public static class Debug

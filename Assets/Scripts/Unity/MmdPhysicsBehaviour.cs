@@ -62,6 +62,40 @@ namespace BulletPhysics.Unity
         [Tooltip("回転をジョイント角度リミットへ戻す割合 (AlignBonePositionsとセットで使用)。0=無効, 1=完全clamp。")]
         [Range(0f, 1f)] public float AlignRotClampAlpha = 0.5f;
 
+
+        [Header("Timing Diagnosis (Animator遅れの実測)")]
+        // 1フレーム内の実行順序と「物理が見たボーン」vs「表示されるボーン」の遅れを実測する。
+        // ONにすると約120描画フレームをログして自動OFF。観点:
+        //  - FixedUpdate時のボーン位置(=物理が見る) と LateUpdate時(=Animator適用後, 表示に近い) の差 dFL。
+        //    dFL が動きに比例して大きい → 体コライダーは表示より1フレーム古い姿勢 = 速い動きで脚が刺さる機構。
+        [Tooltip("ONで約120フレーム、実行順序/dt/ボーン遅れをConsoleへログして自動OFF")]
+        public bool DiagnoseTiming = false;
+        [Tooltip("遅れ計測に使う速く動くボーン名")]
+        public string DiagnoseBone = "右ひざ";
+
+        private int _diagLeft = 0;
+        private Transform _diagTr;
+        private Vector3 _diagFixedPos, _diagUpdatePos;
+        private int _diagFixedCount; private float _diagDt; private int _diagSteps;
+        private readonly List<float> _diagDFL = new(); // |Fixed - Late|
+        private readonly List<float> _diagDUL = new(); // |Update - Late|
+        private static float Dist(Vector3 a, Vector3 b)
+        { float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z; return (float)System.Math.Sqrt(dx * dx + dy * dy + dz * dz); }
+
+        void Update()
+        {
+            if (DiagnoseTiming)
+            {
+                DiagnoseTiming = false; _diagLeft = 120; _diagDFL.Clear(); _diagDUL.Clear();
+                _diagTr = null;
+                if (_model != null && _boneTransforms != null)
+                    for (int i = 0; i < _model.BoneNames.Count && i < _boneTransforms.Length; i++)
+                        if (_model.BoneNames[i] == DiagnoseBone) { _diagTr = _boneTransforms[i]; break; }
+                Debug.Log($"[TimingDiag] 開始 bone={DiagnoseBone} 解決={(_diagTr != null)} fixedDeltaTime={Time.fixedDeltaTime:F4} FTS={FixedTimeStep:F4} SubSteps={SubSteps}");
+            }
+            if (_diagLeft > 0 && _diagTr != null) _diagUpdatePos = _diagTr.position;
+        }
+
         [Header("Debug")]
         public bool DrawGizmos = true;
 
@@ -147,11 +181,15 @@ namespace BulletPhysics.Unity
         {
             if (_builder == null) return;
 
+            // --- TimingDiag: FixedUpdate = 物理が見るボーン姿勢 (このフレームのPush前)。 ---
+            if (_diagLeft > 0 && _diagTr != null && _diagFixedCount == 0) _diagFixedPos = _diagTr.position;
+
             // 1. ボーン追従剛体に目標姿勢を渡す (物理前)。
             PushBonesToKinematic();
 
             // 2. 物理ステップ。
             _builder.World.StepSimulation(Time.fixedDeltaTime);
+            if (_diagLeft > 0) { _diagFixedCount++; _diagDt = Time.fixedDeltaTime; _diagSteps += _builder.World.LastStepsRun; }
 
             // 3. 物理剛体 -> ボーンへ反映 (物理後)。
             PullPhysicsToBones();
@@ -163,6 +201,28 @@ namespace BulletPhysics.Unity
         // 瞬間移動で生じる脚への深い貫入(突き抜け)平衡を回避する。指定フレーム経過後はライブ物理へ。
         void LateUpdate()
         {
+
+            // --- TimingDiag: LateUpdate = Animator(Normal)適用後。表示に最も近い姿勢。 ---
+            if (_diagLeft > 0 && _diagTr != null)
+            {
+                var late = _diagTr.position;
+                float dFL = _diagFixedCount > 0 ? Dist(_diagFixedPos, late) : -1f;
+                float dUL = Dist(_diagUpdatePos, late);
+                if (dFL >= 0) _diagDFL.Add(dFL);
+                _diagDUL.Add(dUL);
+                if (_diagLeft > 110 || dFL > 0.02f) // 最初の10フレームは全部、以降は大きい遅れのみ出力
+                    Debug.Log($"[TimingDiag] F{Time.frameCount} fixedCalls={_diagFixedCount} steps={_diagSteps} dt={_diagDt:F4} | bone Fixed=({_diagFixedPos.x:F3},{_diagFixedPos.y:F3},{_diagFixedPos.z:F3}) Late=({late.x:F3},{late.y:F3},{late.z:F3}) dFL={dFL:F4} dUL={dUL:F4}");
+                _diagFixedCount = 0; _diagSteps = 0;
+                if (--_diagLeft == 0)
+                {
+                    _diagDFL.Sort(); _diagDUL.Sort();
+                    float MedOf(List<float> v) => v.Count > 0 ? v[v.Count / 2] : 0f;
+                    float MaxOf(List<float> v) => v.Count > 0 ? v[v.Count - 1] : 0f;
+                    Debug.Log($"[TimingDiag] 要約: dFL(物理が見た姿勢と表示姿勢の差) 中央={MedOf(_diagDFL):F4} 最大={MaxOf(_diagDFL):F4} | dUL(Update vs Late=Animator書込タイミング) 中央={MedOf(_diagDUL):F4} 最大={MaxOf(_diagDUL):F4}"
+                        + " 判定: dFL,dULとも大 → AnimatorはUpdate後に書く=物理は1フレーム古い体を見ている(遅れ確定)。dFL≈0 → 遅れなし=別因。");
+                }
+            }
+
             if (_startupResetCountdown <= 0 || _builder == null) return;
             ResetPhysicsToBones();
             _startupResetCountdown--;

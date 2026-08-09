@@ -69,6 +69,9 @@ namespace BulletPhysics
         // 既定 false=従来順(ビット不変)。ON=Bullet 準拠。
         public bool SolveJointsFirst = false;
 
+        // 診断用: 直近の StepSimulation で実行された内部ステップ数 (0=蓄積のみ)。挙動に影響しない。
+        public int LastStepsRun;
+
         // 接触監査#5: Bullet は接触のwarm-startで蓄積インパルスに m_warmstartingFactor(0.85) を掛ける。
         // 当エンジンは従来 1.0 (そのまま適用)。既定 1.0=ビット不変, 0.85=Bullet準拠。
         public float ContactWarmStartFactor = 1.0f;
@@ -119,6 +122,7 @@ namespace BulletPhysics
             // 最初の内部ステップで目標へジャンプ→残り停止、という誤補間になる (30fps入力を細分できない)。
             int stepsToRun = 0;
             { float rem = _accumulator; while (rem >= FixedTimeStep && stepsToRun < 8) { rem -= FixedTimeStep; stepsToRun++; } }
+            LastStepsRun = stepsToRun; // 診断用 (タイミングログ)
             if (stepsToRun == 0) return;
 
             // フレーム開始時のキネマティック姿勢を保存。KinematicTarget はこのフレーム終端の姿勢。
