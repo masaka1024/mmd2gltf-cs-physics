@@ -33,10 +33,16 @@ namespace BulletPhysics.Unity
         [Header("Solver")]
         public float Gravity = 98f;         // MMD スケール重力 (約 9.8 * 10)
         public int SolverIterations = 10;
-        // リファレンスは実効 1/60 (FixedTimeStep=1/30 は 30fps 入力に合わせ、SubSteps=2 で刻む)。
-        // 詳細は DESIGN.md「リファレンス刻み」節。より忠実にしたい場合は SubSteps を 4 (=1/120) に。
-        public int SubSteps = 2;
-        public float FixedTimeStep = 1f / 30f;
+        // ★既定 = 1/60 × SubSteps 1 (2026-08-09 ジャダー対策で 1/30×2サブ から変更)。
+        //   実効刻みは 1/60 で従来と同一 → 本家忠実度は数値まで一致することをヘッドレスで確認済み
+        //   (bonecheck 傾き中央11.20 / p90 23.52 / 12窓比1.0611 が変更前と同値)。CPUも同等。
+        //   利点: Time.fixedDeltaTime(=1/60, 下の AlignUnityFixedTimestep が自動整列) と一致するため
+        //   毎FixedUpdateでちょうど1ステップ進み、更新間隔が等間隔になる(髪/スカートのコマ落ちが消える)。
+        //   従来の 1/30 では 1FixedUpdate あたりの内部ステップが 0,1,0,1,1,... と変動し
+        //   実時間の更新間隔が 20ms/40ms とバラついていた。詳細は DESIGN.md「コマ落ち(ジャダー)」節。
+        //   より忠実にしたい場合は SubSteps を 2 (=実効1/120) に。
+        public int SubSteps = 1;
+        public float FixedTimeStep = 1f / 60f;
 
         [Header("Smoothness (コマ落ち/ジャダー対策)")]
         // 症状: 髪やスカートがカクついて見える。原因は「物理の更新間隔が実時間で不均一」なこと。
@@ -47,8 +53,11 @@ namespace BulletPhysics.Unity
         // 対策: Time.fixedDeltaTime と FixedTimeStep を一致させ、毎FixedUpdateでちょうど1ステップ進める。
         //   FixedTimeStep=1/60・SubSteps=1 は実効刻みが現行(1/30×2サブ)と同一のため、
         //   ヘッドレス検証で本家忠実度が完全一致することを確認済み (傾き11.20/p90 23.52/12窓比1.0611)。CPUも同等。
+        // ★既定ON (2026-08-09)。Unity全体の物理刻み(Time.fixedDeltaTime)を FixedTimeStep に合わせる。
+        //   既定 0.02(50Hz) → 1/60(60Hz) になる。Custom運用では PhysX はパーク済みなので実害はない。
+        //   他のFixedUpdate処理も60Hzになる点だけ留意 (呼び出し回数が2割増)。OFFにすると未整列時に警告のみ。
         [Tooltip("ONで Time.fixedDeltaTime を FixedTimeStep に合わせる (毎FixedUpdate=1ステップ=等間隔)。Unity全体の物理刻みを変える点に注意")]
-        public bool AlignUnityFixedTimestep = false;
+        public bool AlignUnityFixedTimestep = true;
 
         [Header("Startup")]
         // 起動直後、アニメがフレーム0姿勢を確定させた後に物理をボーンへ再整合する遅延(フレーム数)。

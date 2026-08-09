@@ -501,6 +501,13 @@ Custom の間は**毎FixedUpdateでパークを再主張**する。初回の再�
 結果、**物理は毎回33.3ms分進むのに、実時間の更新間隔は 20ms/40ms とバラつく**=ジャダー。
 (さらに30Hz更新なので60fps表示では1姿勢が1〜2フレーム保持され、その保持数も交互に変わる)
 
+**★2026-08-09 既定値を変更**: `MmdPhysicsBehaviour` の既定を `FixedTimeStep=1/60・SubSteps=1・AlignUnityFixedTimestep=ON` にした。
+  変更したのは **Unityコンポーネントの既定値だけ**。以下は意図的に据え置き:
+  - `PhysicsWorld` の既定 (1/30・SubSteps=2): 5つのハーネスが `StepSimulation(w.FixedTimeStep)` で回しており、
+    変えると「1呼び出しで進む時間」が半分になりテストの意味が変わるため。
+  - `BonePoseCsvPlayer` の 1/30・SubSteps=2: 1回の `StepSimulation(FixedTimeStep)` = CSV1フレーム(1/30秒)という
+    前提で駆動しているため、1/60にすると再生が半速になりCSVと同期しなくなる。
+
 対策(検証済み): **FixedTimeStep と Time.fixedDeltaTime を一致させ、毎FixedUpdate=ちょうど1ステップにする**。
 推奨は `FixedTimeStep=1/60, SubSteps=1` + `Time.fixedDeltaTime=1/60`:
 - **忠実度は完全一致**: 実効刻みが現行(1/30×2サブ)と同じ1/60のため、bonecheckが数値まで一致
