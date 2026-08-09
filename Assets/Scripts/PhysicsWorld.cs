@@ -69,6 +69,14 @@ namespace BulletPhysics
         // 既定 false=従来順(ビット不変)。ON=Bullet 準拠。
         public bool SolveJointsFirst = false;
 
+        // 接触監査#5: Bullet は接触のwarm-startで蓄積インパルスに m_warmstartingFactor(0.85) を掛ける。
+        // 当エンジンは従来 1.0 (そのまま適用)。既定 1.0=ビット不変, 0.85=Bullet準拠。
+        public float ContactWarmStartFactor = 1.0f;
+
+        // 接触監査#1+2: Bullet は 1反復内で法線→摩擦の順(摩擦は同反復の法線インパルスで上限決定)。
+        // 当エンジンは従来 摩擦→法線(摩擦は前反復の法線を使用)。ON で Bullet 同順(法線先)。既定 false=ビット不変。
+        public bool ContactNormalBeforeFriction = false;
+
         public readonly List<RigidBody> Bodies = new();
         public readonly List<Joint> Joints = new();
 
@@ -475,9 +483,12 @@ namespace BulletPhysics
 
         private void WarmStart()
         {
+            float wf = ContactWarmStartFactor;
             for (int i = 0; i < _contacts.Count; i++)
             {
                 var c = _contacts[i];
+                // Bullet同様、蓄積インパルスに係数を掛けてから適用+アキュムレータ初期値にする(0.85時)。
+                if (wf != 1.0f) { c.NormalImpulse *= wf; c.TangentImpulse1 *= wf; c.TangentImpulse2 *= wf; }
                 var P = c.Normal * c.NormalImpulse
                       + c.Tangent1 * c.TangentImpulse1
                       + c.Tangent2 * c.TangentImpulse2;
@@ -495,21 +506,20 @@ namespace BulletPhysics
                 var c = _contacts[i];
                 var a = c.A; var b = c.B;
 
-                // 摩擦 (法線インパルスに従属)。
-                SolveFriction(ref c, a, b, c.Tangent1, c.TangentMass1, ref c.TangentImpulse1);
-                SolveFriction(ref c, a, b, c.Tangent2, c.TangentMass2, ref c.TangentImpulse2);
-
-                // 法線。
-                var pA = a.CenterOfMass + c.RelA;
-                var pB = b.CenterOfMass + c.RelB;
-                float relN = (b.VelocityAtPoint(pB) - a.VelocityAtPoint(pA)).Dot(c.Normal);
-                float dPn = (c.NormalBias - relN) * c.NormalMass;
-                float oldN = c.NormalImpulse;
-                c.NormalImpulse = Math.Max(0f, oldN + dPn);
-                dPn = c.NormalImpulse - oldN;
-                var Pn = c.Normal * dPn;
-                a.ApplyImpulse(-Pn, c.RelA);
-                b.ApplyImpulse(Pn, c.RelB);
+                if (!ContactNormalBeforeFriction)
+                {
+                    // 従来: 摩擦(前反復の法線で上限) → 法線。
+                    SolveFriction(ref c, a, b, c.Tangent1, c.TangentMass1, ref c.TangentImpulse1);
+                    SolveFriction(ref c, a, b, c.Tangent2, c.TangentMass2, ref c.TangentImpulse2);
+                    SolveNormal(ref c, a, b);
+                }
+                else
+                {
+                    // Bullet同順: 法線 → 摩擦(同反復の法線で上限)。
+                    SolveNormal(ref c, a, b);
+                    SolveFriction(ref c, a, b, c.Tangent1, c.TangentMass1, ref c.TangentImpulse1);
+                    SolveFriction(ref c, a, b, c.Tangent2, c.TangentMass2, ref c.TangentImpulse2);
+                }
 
                 _contacts[i] = c;
             }
@@ -537,6 +547,20 @@ namespace BulletPhysics
                 b.ApplyPushImpulse(P, c.RelB);
                 _contacts[i] = c;
             }
+        }
+
+        private static void SolveNormal(ref ContactConstraint c, RigidBody a, RigidBody b)
+        {
+            var pA = a.CenterOfMass + c.RelA;
+            var pB = b.CenterOfMass + c.RelB;
+            float relN = (b.VelocityAtPoint(pB) - a.VelocityAtPoint(pA)).Dot(c.Normal);
+            float dPn = (c.NormalBias - relN) * c.NormalMass;
+            float oldN = c.NormalImpulse;
+            c.NormalImpulse = Math.Max(0f, oldN + dPn);
+            dPn = c.NormalImpulse - oldN;
+            var Pn = c.Normal * dPn;
+            a.ApplyImpulse(-Pn, c.RelA);
+            b.ApplyImpulse(Pn, c.RelB);
         }
 
         private static void SolveFriction(ref ContactConstraint c, RigidBody a, RigidBody b,
