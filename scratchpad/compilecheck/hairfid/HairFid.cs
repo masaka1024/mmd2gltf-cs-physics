@@ -66,6 +66,8 @@ static class HairFid
         if (Environment.GetEnvironmentVariable("JOINTS_FIRST") == "1") world.SolveJointsFirst = true; // Bullet同順(ジョイント→接触,接触が後勝ち)
         if (float.TryParse(Environment.GetEnvironmentVariable("CWFAC"), out var _cwf)) world.ContactWarmStartFactor = _cwf; // 接触warm-start係数(Bullet=0.85)
         if (Environment.GetEnvironmentVariable("CNBF") == "1") world.ContactNormalBeforeFriction = true; // 法線→摩擦順(Bullet)
+        if (int.TryParse(Environment.GetEnvironmentVariable("SUBSTEPS"), out var _ss) && _ss > 0) world.SubSteps = _ss; // 計算予算掃引
+        if (int.TryParse(Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it;
         // 決定的テスト: スカートジョイントを自由化して「接触だけ」で貫入が解消するか見る(綱引き vs 接触能力の切り分け)。
         // 1=角度リミット自由(付いたまま回転自由) / 2=角度+並進自由(実質ジョイント無効=接触+重力のみ)。エンジン無改変。
         int skirtJFree = int.TryParse(Environment.GetEnvironmentVariable("SKIRT_JFREE"), out var sjf) ? sjf : 0;
@@ -140,6 +142,9 @@ static class HairFid
         var deepFrames = new List<(int f, string pair, float d, float ni, bool aabb, int mpts)>();
         var deepByPair = new Dictionary<string, SortedSet<int>>(); // 継続フレーム算出用
         var penSeries = new Dictionary<string, Dictionary<int, float>>(); // pair -> frame -> pen (>0.3のみ), per-step回復速度用
+        // 移動ロック相対保持: skirt子ボーンの(子-親)相対位置の bind相対からのズレ (ON0.371/OFF0.706 に対する自前値)
+        var skirtChildren = hairLinks.Where(x => IsSkirt(x.link.Body.Name) && x.link.BoneIndex >= 0).Select(x => x.link.BoneIndex).ToList();
+        var relDriftVals = new List<float>();
         var dbg = new List<(string a, string b, float dist, float ni)>();
         world.DebugContacts = dbg;
 
@@ -167,6 +172,20 @@ static class HairFid
                 else { sSx[f] += dv.x; sSy[f] += dv.y; sSz[f] += dv.z; sCn[f]++; }
                 oursDev[bone].Add(Deg(RelAngle(bindBone.Rotation, ours.Rotation)));
                 refDev[bone].Add(Deg(RelAngle(bindBone.Rotation, refb.Rotation)));
+            }
+            // 移動ロック相対保持: この frame の (子-親) 相対位置ズレ
+            {
+                var wpos = new Dictionary<int, Vec3>();
+                foreach (var (link, bn, _) in hairLinks) wpos[link.BoneIndex] = (link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse()).Origin;
+                foreach (var (link, bn) in driven) if (csv.TryGet(f, bn, out var bw)) wpos[link.BoneIndex] = bw.Origin;
+                foreach (int ci in skirtChildren)
+                {
+                    int pi = (ci < model.BoneParents.Count) ? model.BoneParents[ci] : -1;
+                    if (pi < 0 || !wpos.ContainsKey(ci) || !wpos.ContainsKey(pi)) continue;
+                    var curRel = wpos[ci] - wpos[pi];
+                    var bindRel = model.BonePositions[ci] - model.BonePositions[pi];
+                    relDriftVals.Add((curRel - bindRel).Length);
+                }
             }
             // 髪×体 貫入 (自前物理の結果) + 診断
             foreach (var (hl, hb, _) in hairLinks)
@@ -242,6 +261,12 @@ static class HairFid
             O.AppendLine($"  実効回復速度={-meanD / DT:F2} u/s (理論Baumgarte={0.2f * meanP0 / DT:F2} u/s, 1step理論={theoStep:F3})  実効/理論={(theoStep > 0 ? -meanD / theoStep : 0):P0}");
         }
         else O.AppendLine("[per-step 貫入回復] 静区間deepサンプル0");
+        if (relDriftVals.Count > 0)
+        {
+            relDriftVals.Sort();
+            float rm = relDriftVals[relDriftVals.Count / 2], rp = relDriftVals[(int)(relDriftVals.Count * 0.9)], rx = relDriftVals[relDriftVals.Count - 1];
+            O.AppendLine($"[移動ロック相対保持 skirt 自前] 中央={rm:F3} p90={rp:F3} 最大={rx:F3}  (参考 本家ON=0.371 純BulletOFF=0.706. 小さい=固く保持)");
+        }
         // ターン窓 = ヨー>360°/s の frame を含む ±15f 窓 (簡易)。静区間=それ以外。
         bool[] turn = new bool[F];
         for (int f = 0; f < F; f++) if (Math.Abs(yawRate[f]) > 360f) for (int k = Math.Max(0, f - 15); k < Math.Min(F, f + 15); k++) turn[k] = true;
