@@ -134,11 +134,20 @@ namespace BoneCheck
             L();
             L("========== 2) ターンイベント (瞬間ヨー角速度>360°/s の窓) ==========");
             L("  #  開始F  時刻s  ヨーpeak  傾きmax:自前  傾きmax:本家 (窓+30F)");
+            var winRatios = new List<float>();
             for (int i = 0; i < wins.Count; i++)
             {
                 var w = wins[i];
                 float mp = WinMax(w, physFrameMax, F), mr = WinMax(w, refFrameMax, F);
+                if (mr > 1e-3f) winRatios.Add(mp / mr);
                 L($"  {i + 1,2}  {w.StartFrame,5} {w.StartFrame / 30.0,6:F2} {w.PeakYaw,8:F1}   {mp,10:F1}   {mr,10:F1}");
+            }
+            // 12窓比サマリ (自前/本家 の窓ごとピーク比。1.0=本家一致)。既定ベースライン=中央1.0588。
+            if (winRatios.Count > 0)
+            {
+                winRatios.Sort();
+                float rmed = winRatios[winRatios.Count / 2], rmin = winRatios[0], rmax = winRatios[winRatios.Count - 1];
+                L($"  [12窓比 自前/本家] 中央={rmed:F4} 最小={rmin:F4} 最大={rmax:F4} (1.0=本家一致, 既定ベースライン中央1.0588)");
             }
 
             // ---- 3) 窓1・窓4 対決 ----
