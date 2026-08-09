@@ -334,3 +334,13 @@ Bullet 2.75/2.83 solveSingleIteration は 1反復内で NonContact(ジョイン�
 2. **接触warm-start係数 ContactWarmStartFactor=1.0** (2026-08-09): Bulletは 0.85 (m_warmstartingFactor)。
    当エンジン既定 1.0。実測で 0.85 は深貫入を悪化(JOINTS_FIRST 2241→7109)させたため 1.0 を暫定維持。
    ★「1.0が正しい」わけではない。持続接触で満額warm-startが効いて見えるだけの可能性。貫入の根本解明後に再評価。
+
+## 最小再現の設計知見: 単鎖は実スカートの横滑り署名を再現できない (2026-08-09)
+実スカートの失敗署名「方向変化角/枠傾き=6.0(枠は立ったまま位置が滑る)」は、合成単鎖では再現できない
+(chainbug SLIDE=横鎖全ロック: 比1.0=回転崩落 / SLIDE2=垂直吊り+親X往復駆動: 比0.7-0.8=枠の方が回る)。
+6:1の横滑りは格子(縦+横+取付ジョイントの連成)または実ジオメトリ特有の現象。
+今後この問題の最小再現を作る場合は格子構造(最低でも 2房×2段+横結合+取付)が必要。
+また合成ジョイントを中点に置くと pA+pB=0 の対称性で LinearLeverMode=2(offset variant) が mode0 に
+縮退して差が見えない。PMX同様「子位置」に置くこと。
+ソルバの反復入れ子は for iter { for joint { for row } } で Bullet の
+solveGroupCacheFriendlyIterations (for iteration { solveSingleIteration=全行1周 }) と同型(確認済)。

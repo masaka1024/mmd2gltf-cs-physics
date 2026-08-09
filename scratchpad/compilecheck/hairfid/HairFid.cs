@@ -109,6 +109,53 @@ static class HairFid
         int nHair = hairLinks.Count(x => IsHair(x.link.Body.Name));
         Console.WriteLine($"[構成] 比較剛体={hairLinks.Count}(髪{nHair}+スカート{hairLinks.Count - nHair}) 体コライダー={bodyLinks.Count} 駆動BoneFollow={driven.Count}");
 
+        // ===== スカートジョイントの種別分類 (取付=体↔スカート / 縦=リング違い / 横=同リング) =====
+        int RingOf(string n)
+        {
+            if (n == null || !n.StartsWith("スカート_")) return -1;
+            var p = n.Split('_');
+            return p.Length >= 3 && int.TryParse(p[1], out var r) ? r : -1;
+        }
+        var jClass = new List<(Joint j, int t)>(); // t: 0=取付 1=縦 2=横
+        foreach (var j in world.Joints)
+        {
+            bool aS = IsSkirt(j.BodyA?.Name), bS = IsSkirt(j.BodyB?.Name);
+            if (!aS && !bS) continue;
+            int t;
+            if (aS != bS) t = 0;
+            else { int ra = RingOf(j.BodyA.Name), rb2 = RingOf(j.BodyB.Name); t = (ra >= 0 && rb2 >= 0 && ra != rb2) ? 1 : 2; }
+            jClass.Add((j, t));
+        }
+        string[] tName = { "取付", "縦", "横" };
+        Console.WriteLine($"[スカートJoint分類] 取付={jClass.Count(x => x.t == 0)} 縦={jClass.Count(x => x.t == 1)} 横={jClass.Count(x => x.t == 2)}");
+        // 種別別自由化: env SKIRT_JTYPE=attach|vert|horiz でその種別のみ 並進+角度 自由(=外す)。
+        string jt = Environment.GetEnvironmentVariable("SKIRT_JTYPE");
+        if (jt != null)
+        {
+            int tf = jt == "attach" ? 0 : jt == "vert" ? 1 : jt == "horiz" ? 2 : -1;
+            if (tf >= 0)
+            {
+                int cnt = 0;
+                foreach (var (j, t) in jClass)
+                    if (t == tf)
+                    {
+                        j.LinearLowerLimit = new Vec3(1, 1, 1); j.LinearUpperLimit = new Vec3(-1, -1, -1);
+                        j.AngularLowerLimit = new Vec3(1, 1, 1); j.AngularUpperLimit = new Vec3(-1, -1, -1);
+                        cnt++;
+                    }
+                Console.WriteLine($"[cfg] SKIRT_JTYPE={jt}: {tName[tf]}ジョイント{cnt}本を完全自由化");
+            }
+        }
+        // ジョイントのアンカー誤差 |worldA-worldB| 収集 (自前sim / 本家CSV幾何)
+        var jErrOurs = new List<float>[3] { new(), new(), new() };
+        var jErrRef = new List<float>[3] { new(), new(), new() };
+        float JErr(Joint j)
+        {
+            var aA = (j.BodyA.WorldTransform * j.FrameInA).Origin;
+            var aB = (j.BodyB.WorldTransform * j.FrameInB).Origin;
+            return (aA - aB).Length;
+        }
+
         // --- バインド相対0 確認: 各髪剛体を bind に置き、ボーン姿勢復元 vs PMX bind bone ---
         float bindPosMax = 0, bindAngMax = 0;
         foreach (var (link, bone, bindBone) in hairLinks)
@@ -161,6 +208,7 @@ static class HairFid
             ApplyPose(f);
             dbg.Clear();
             world.StepSimulation(DT);
+            foreach (var (j2, t2) in jClass) jErrOurs[t2].Add(JErr(j2)); // ジョイント種別別アンカー誤差(自前)
             // 下半身ヨー速度
             if (csv.TryGet(f, "下半身", out var low))
             {
@@ -245,6 +293,7 @@ static class HairFid
         {
             foreach (var (bl, bbn) in bodyLinks) if (csv.TryGet(f, bbn, out var bw)) { bl.Body.WorldTransform = bw * bl.BodyOffsetFromBone; bl.Body.UpdateInertiaWorld(); }
             foreach (var (hl, hbn, _) in hairLinks) if (csv.TryGet(f, hbn, out var bw)) { hl.Body.WorldTransform = bw * hl.BodyOffsetFromBone; hl.Body.UpdateInertiaWorld(); }
+            foreach (var (j2, t2) in jClass) jErrRef[t2].Add(JErr(j2)); // ジョイント種別別アンカー誤差(本家CSV幾何)
             foreach (var (hl, hb, _) in hairLinks)
                 foreach (var (bl, bbn) in bodyLinks)
                 {
@@ -276,6 +325,14 @@ static class HairFid
 
         // ===== 集計 =====
         var O = new StringBuilder();
+        // ジョイント種別別 アンカー誤差 (格子のどこで滑っているか)
+        O.AppendLine("[ジョイント種別別 アンカー誤差 |worldA-worldB| (自前sim / 本家CSV幾何)]");
+        for (int t = 0; t < 3; t++)
+        {
+            var (om, op, ox) = Stat(jErrOurs[t]);
+            var (rm2, rp2, rx2) = Stat(jErrRef[t]);
+            O.AppendLine($"   {tName[t],-3}: 自前 中央={om:F4}/p90={op:F4}/最大={ox:F4}   本家 中央={rm2:F4}/p90={rp2:F4}/最大={rx2:F4}");
+        }
         if (stepDeltas.Count > 0)
         {
             var sorted = new List<float>(stepDeltas); sorted.Sort();
