@@ -67,6 +67,7 @@ static class HairFid
         if (float.TryParse(Environment.GetEnvironmentVariable("CWFAC"), out var _cwf)) world.ContactWarmStartFactor = _cwf; // 接触warm-start係数(Bullet=0.85)
         if (int.TryParse(Environment.GetEnvironmentVariable("LEVER"), out var _lv)) Joint.LinearLeverMode = _lv; // 線形レバーアーム 0/1/2
         if (float.TryParse(Environment.GetEnvironmentVariable("MAXCORR"), out var _mc)) Joint.MaxCorrectionVel = _mc; // 位置補正速度上限(既定10, Bulletは無制限)
+        if (Environment.GetEnvironmentVariable("MIXAXES") == "1") Joint.AngularMixedAxes = true; // 角度リミット行=Bullet混合軸
         if (Environment.GetEnvironmentVariable("CNBF") == "1") world.ContactNormalBeforeFriction = true; // 法線→摩擦順(Bullet)
         if (int.TryParse(Environment.GetEnvironmentVariable("SUBSTEPS"), out var _ss) && _ss > 0) world.SubSteps = _ss; // 計算予算掃引
         if (int.TryParse(Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it;
@@ -149,6 +150,39 @@ static class HairFid
         // ジョイントのアンカー誤差 |worldA-worldB| 収集 (自前sim / 本家CSV幾何)
         var jErrOurs = new List<float>[3] { new(), new(), new() };
         var jErrRef = new List<float>[3] { new(), new(), new() };
+        // 角度リミット実効挙動: 種別×サンプル(joint×DOF×frame)で「リミット外に居る率」と「超過量」。
+        // 同じ物差し(XYZ euler)で 自前sim と 本家CSV幾何 を比較=リミットが実効的にどれだけ破られているか。
+        var angTotal = new long[3]; var angOut = new long[3];
+        var angOverOurs = new List<float>[3] { new(), new(), new() };
+        var angTotalR = new long[3]; var angOutR = new long[3];
+        var angOverRef = new List<float>[3] { new(), new(), new() };
+        Vec3 EulerXYZ(Quat q) // Bullet matrixToEulerXYZ と同型 (行列経由)
+        {
+            float xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z;
+            float xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z, wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
+            float m02 = 2f * (xz + wy);
+            if (m02 < 1f - 1e-6f && m02 > -1f + 1e-6f)
+                return new Vec3((float)Math.Atan2(-2f * (yz - wx), 1f - 2f * (xx + yy)),
+                                (float)Math.Asin(m02),
+                                (float)Math.Atan2(-2f * (xy - wz), 1f - 2f * (yy + zz)));
+            return new Vec3((float)Math.Atan2(2f * (yz + wx), 1f - 2f * (xx + zz)), m02 >= 1f ? 1.5707963f : -1.5707963f, 0f);
+        }
+        void CollectAng(bool isRef)
+        {
+            foreach (var (j2, t2) in jClass)
+            {
+                var qRel = (j2.BodyA.WorldTransform * j2.FrameInA).Rotation.Conjugated() * (j2.BodyB.WorldTransform * j2.FrameInB).Rotation;
+                var eu = EulerXYZ(qRel.Normalized);
+                for (int d = 0; d < 3; d++)
+                {
+                    float lo = j2.AngularLowerLimit[d], hi = j2.AngularUpperLimit[d];
+                    if (lo > hi) continue; // free
+                    float over = eu[d] < lo ? lo - eu[d] : eu[d] > hi ? eu[d] - hi : 0f;
+                    if (isRef) { angTotalR[t2]++; if (over > 1e-4f) { angOutR[t2]++; angOverRef[t2].Add(over * 57.29578f); } }
+                    else { angTotal[t2]++; if (over > 1e-4f) { angOut[t2]++; angOverOurs[t2].Add(over * 57.29578f); } }
+                }
+            }
+        }
         float JErr(Joint j)
         {
             var aA = (j.BodyA.WorldTransform * j.FrameInA).Origin;
@@ -209,6 +243,7 @@ static class HairFid
             dbg.Clear();
             world.StepSimulation(DT);
             foreach (var (j2, t2) in jClass) jErrOurs[t2].Add(JErr(j2)); // ジョイント種別別アンカー誤差(自前)
+            CollectAng(false); // 角度リミット実効挙動(自前)
             // 下半身ヨー速度
             if (csv.TryGet(f, "下半身", out var low))
             {
@@ -294,6 +329,7 @@ static class HairFid
             foreach (var (bl, bbn) in bodyLinks) if (csv.TryGet(f, bbn, out var bw)) { bl.Body.WorldTransform = bw * bl.BodyOffsetFromBone; bl.Body.UpdateInertiaWorld(); }
             foreach (var (hl, hbn, _) in hairLinks) if (csv.TryGet(f, hbn, out var bw)) { hl.Body.WorldTransform = bw * hl.BodyOffsetFromBone; hl.Body.UpdateInertiaWorld(); }
             foreach (var (j2, t2) in jClass) jErrRef[t2].Add(JErr(j2)); // ジョイント種別別アンカー誤差(本家CSV幾何)
+            CollectAng(true); // 角度リミット実効挙動(本家幾何)
             foreach (var (hl, hb, _) in hairLinks)
                 foreach (var (bl, bbn) in bodyLinks)
                 {
@@ -332,6 +368,15 @@ static class HairFid
             var (om, op, ox) = Stat(jErrOurs[t]);
             var (rm2, rp2, rx2) = Stat(jErrRef[t]);
             O.AppendLine($"   {tName[t],-3}: 自前 中央={om:F4}/p90={op:F4}/最大={ox:F4}   本家 中央={rm2:F4}/p90={rp2:F4}/最大={rx2:F4}");
+        }
+        O.AppendLine("[角度リミット実効挙動 (リミット外率% / 超過量deg 中央/p90)]");
+        for (int t = 0; t < 3; t++)
+        {
+            var (oM, oP, _) = Stat(angOverOurs[t]);
+            var (rM, rP, _) = Stat(angOverRef[t]);
+            double oPct = angTotal[t] > 0 ? 100.0 * angOut[t] / angTotal[t] : 0;
+            double rPct = angTotalR[t] > 0 ? 100.0 * angOutR[t] / angTotalR[t] : 0;
+            O.AppendLine($"   {tName[t],-3}: 自前 外率={oPct:F1}% 超過={oM:F2}/{oP:F2}°   本家 外率={rPct:F1}% 超過={rM:F2}/{rP:F2}°");
         }
         if (stepDeltas.Count > 0)
         {

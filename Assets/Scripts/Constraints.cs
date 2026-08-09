@@ -75,6 +75,14 @@ namespace BulletPhysics
         // 既定 10 =従来値(ビット不変)。1e9 相当で実質無効=Bullet同等。static につき env から A/B 可。
         public static float MaxCorrectionVel = 10f;
 
+        // 角度リミット行の軸: Bullet 混合軸 (calculateAngleInfo, 2026-08-09 実ソース取得済み)。
+        //   axis0 = B基底列0, axis2 = A基底列2,
+        //   axis[1]=axis2×axis0, axis[0]=axis[1]×axis2, axis[2]=axis0×axis[1] (各 normalize, 一般に非直交)。
+        // 自前既定は A基底の直交列(_axesA)。8/07に一度試して破棄したが、当時は
+        // (1)軸と誤差の対応順序が未確認のままで実装誤りの可能性 (2)判定相手が補正ON版のみ。
+        // 補正OFF版(純Bullet)を相手に再評価するため復活。既定 false=従来(ビット不変)。
+        public static bool AngularMixedAxes = false;
+
         // 線形ロック行のレバーアーム基準 (線形行監査#1, 2026-08-09)。既定 0=従来(ビット不変)。
         //  0=従来: rA=anchorA-comA, rB=anchorB-comB (各剛体が自分側のアンカーを使う)
         //  1=Bullet2.75系(非offset): 両剛体とも B側アンカー基準 ("Linear Torque Decoupling")
@@ -267,9 +275,21 @@ namespace BulletPhysics
             }
 
             // --- 回転 3 軸 ---
+            // Bullet混合軸 (AngularMixedAxes=true): calculateAngleInfo をそのまま再現。
+            Vec3 mix0 = default, mix1 = default, mix2 = default;
+            if (AngularMixedAxes)
+            {
+                var basisB = Matrix3x3.FromQuat(_worldB.Rotation);
+                var axis0 = basisB.Column(0);   // B col0
+                var axis2 = _axesA[2];          // A col2
+                var m1 = Vec3.Cross(axis2, axis0);
+                var m0 = Vec3.Cross(m1, axis2);
+                var m2 = Vec3.Cross(axis0, m1);
+                mix0 = m0.Normalized; mix1 = m1.Normalized; mix2 = m2.Normalized;
+            }
             for (int i = 0; i < 3; i++)
             {
-                var axis = _axesA[i];
+                var axis = AngularMixedAxes ? (i == 0 ? mix0 : i == 1 ? mix1 : mix2) : _axesA[i];
                 float lo = AngularLowerLimit[i], hi = AngularUpperLimit[i];
                 if (IsFree(lo, hi)) continue;
 
