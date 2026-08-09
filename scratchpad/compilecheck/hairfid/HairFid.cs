@@ -62,7 +62,23 @@ static class HairFid
         var builder = PmxPhysicsBuilder.Build(model);
         var world = builder.World;
         if (Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
-        Console.WriteLine($"[cfg] warm={world.UseJointWarmStart}/{world.UseJointWarmStartAngular} fac={Joint.WarmStartFactor} frames={csv.FrameCount}");
+        if (Environment.GetEnvironmentVariable("SPLIT") == "1") world.UseSplitImpulse = true; // 接触の貫入回復を擬似速度側へ(綱引き回避の検証)
+        // 決定的テスト: スカートジョイントを自由化して「接触だけ」で貫入が解消するか見る(綱引き vs 接触能力の切り分け)。
+        // 1=角度リミット自由(付いたまま回転自由) / 2=角度+並進自由(実質ジョイント無効=接触+重力のみ)。エンジン無改変。
+        int skirtJFree = int.TryParse(Environment.GetEnvironmentVariable("SKIRT_JFREE"), out var sjf) ? sjf : 0;
+        if (skirtJFree > 0)
+        {
+            int cnt = 0;
+            foreach (var j in world.Joints)
+            {
+                if (!(IsSkirt(j.BodyA?.Name) || IsSkirt(j.BodyB?.Name))) continue;
+                j.AngularLowerLimit = new Vec3(1, 1, 1); j.AngularUpperLimit = new Vec3(-1, -1, -1);
+                if (skirtJFree >= 2) { j.LinearLowerLimit = new Vec3(1, 1, 1); j.LinearUpperLimit = new Vec3(-1, -1, -1); }
+                cnt++;
+            }
+            Console.WriteLine($"[cfg] SKIRT_JFREE={skirtJFree} スカート絡みジョイント{cnt}本を自由化(1=角度,2=角度+並進)");
+        }
+        Console.WriteLine($"[cfg] warm={world.UseJointWarmStart}/{world.UseJointWarmStartAngular} fac={Joint.WarmStartFactor} split={world.UseSplitImpulse} frames={csv.FrameCount}");
 
         // 髪 dynamic 剛体リンクと、体コライダー(BoneFollow)リンク。
         var hairLinks = new List<(BoneLink link, string bone, RigidTransform bindBone)>();
@@ -120,6 +136,7 @@ static class HairFid
         var penMax = new Dictionary<string, float>();
         var deepFrames = new List<(int f, string pair, float d, float ni, bool aabb, int mpts)>();
         var deepByPair = new Dictionary<string, SortedSet<int>>(); // 継続フレーム算出用
+        var penSeries = new Dictionary<string, Dictionary<int, float>>(); // pair -> frame -> pen (>0.3のみ), per-step回復速度用
         var dbg = new List<(string a, string b, float dist, float ni)>();
         world.DebugContacts = dbg;
 
@@ -158,6 +175,7 @@ static class HairFid
                     if (pen <= 0) continue;
                     string pair = hb + "×" + bl.Body.Name;
                     penMax[pair] = Math.Max(penMax.GetValueOrDefault(pair), pen);
+                    if (pen > 0.3f) { if (!penSeries.TryGetValue(pair, out var ps)) { ps = new(); penSeries[pair] = ps; } ps[f] = pen; }
                     if (pen > 0.5f)
                     {
                         // 診断: 法線インパルス合計, AABB, ★永続マニフォールド点数(=このペアのDebugContacts件数)
@@ -190,8 +208,37 @@ static class HairFid
                 }
         }
 
+        // ===== per-step 貫入回復速度 (静区間・連続deep・同ペアでの pen 変化) =====
+        // 「押し返せない」か「押し返しが遅い」かの切り分け。理論: Baumgarte 0.2 で 1step あたり pen×0.2 減るはず。
+        var stepDeltas = new List<float>(); var pen0s = new List<float>();
+        foreach (var kv in penSeries)
+        {
+            var s = kv.Value;
+            foreach (var f in s.Keys)
+            {
+                if (f + 1 >= F || !s.ContainsKey(f + 1)) continue;
+                float p0 = s[f], p1 = s[f + 1];
+                if (p0 <= 0.5f) continue;                              // deep状態からの1ステップ
+                if (yawRate[f] >= 15f || yawRate[f + 1] >= 15f) continue; // 静区間のみ(脚がほぼ動かない=接触回復を純粋に見る)
+                stepDeltas.Add(p1 - p0); pen0s.Add(p0);
+            }
+        }
+
         // ===== 集計 =====
         var O = new StringBuilder();
+        if (stepDeltas.Count > 0)
+        {
+            var sorted = new List<float>(stepDeltas); sorted.Sort();
+            float medD = sorted[sorted.Count / 2];
+            float meanD = 0; foreach (var d in stepDeltas) meanD += d; meanD /= stepDeltas.Count;
+            float meanP0 = 0; foreach (var p in pen0s) meanP0 += p; meanP0 /= pen0s.Count;
+            int dec = stepDeltas.Count(d => d < -1e-4f), inc = stepDeltas.Count(d => d > 1e-4f);
+            float theoStep = 0.2f * meanP0;         // Baumgarte 期待 1step 回復量
+            O.AppendLine($"[per-step 貫入回復(静区間,deep,同ペア)] n={stepDeltas.Count} 平均pen={meanP0:F3}");
+            O.AppendLine($"  1step Δpen: 中央={medD:F4} 平均={meanD:F4} (負=回復)  減少={dec}/増加={inc}");
+            O.AppendLine($"  実効回復速度={-meanD / DT:F2} u/s (理論Baumgarte={0.2f * meanP0 / DT:F2} u/s, 1step理論={theoStep:F3})  実効/理論={(theoStep > 0 ? -meanD / theoStep : 0):P0}");
+        }
+        else O.AppendLine("[per-step 貫入回復] 静区間deepサンプル0");
         // ターン窓 = ヨー>360°/s の frame を含む ±15f 窓 (簡易)。静区間=それ以外。
         bool[] turn = new bool[F];
         for (int f = 0; f < F; f++) if (Math.Abs(yawRate[f]) > 360f) for (int k = Math.Max(0, f - 15); k < Math.Min(F, f + 15); k++) turn[k] = true;
