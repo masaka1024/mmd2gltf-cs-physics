@@ -72,6 +72,19 @@ namespace BulletPhysics
         // 診断用: 直近の StepSimulation で実行された内部ステップ数 (0=蓄積のみ)。挙動に影響しない。
         public int LastStepsRun;
 
+        // --- 位相別プロファイル (既定OFF=Stopwatch呼び出しゼロ=挙動/性能ともビット不変) ---
+        // ON にすると SubStep 内の各位相の累積時間(ms)と回数を積む。最適化の効果測定用。
+        public static bool ProfileEnabled = false;
+        public static double ProfBroad, ProfBuild, ProfPrepare, ProfSpring, ProfWarm, ProfSolveContact, ProfSolveJoint, ProfIntegrate, ProfStore;
+        public static long ProfSubSteps, ProfContacts, ProfManifolds;
+        public static void ProfReset()
+        {
+            ProfBroad = ProfBuild = ProfPrepare = ProfSpring = ProfWarm = ProfSolveContact = ProfSolveJoint = ProfIntegrate = ProfStore = 0;
+            ProfSubSteps = ProfContacts = ProfManifolds = 0;
+        }
+        private static readonly System.Diagnostics.Stopwatch _psw = new();
+        private static double Tick() { _psw.Stop(); double ms = _psw.Elapsed.TotalMilliseconds; _psw.Restart(); return ms; }
+
         // 接触監査#5: Bullet は接触のwarm-startで蓄積インパルスに m_warmstartingFactor(0.85) を掛ける。
         // 当エンジンは従来 1.0 (そのまま適用)。既定 1.0=ビット不変, 0.85=Bullet準拠。
         public float ContactWarmStartFactor = 1.0f;
@@ -96,6 +109,7 @@ namespace BulletPhysics
             if (b.IsStaticOrKinematic)
                 b.KinematicTarget = b.WorldTransform;
             Bodies.Add(b);
+            _pairCount = -1; // 候補ペアを作り直す
         }
 
         public void AddJoint(Joint j) => Joints.Add(j);
@@ -159,14 +173,21 @@ namespace BulletPhysics
                 b.KinematicStepTarget = InterpTransform(_frameKinStart[i], b.KinematicTarget, frac);
             }
 
+            if (ProfileEnabled) { _psw.Restart(); }
             IntegrateVelocities(dt);
+            if (ProfileEnabled) ProfIntegrate += Tick();
             BroadphaseNarrowphase();
+            if (ProfileEnabled) { ProfBroad += Tick(); ProfManifolds += _manifolds.Count; }
             BuildContactConstraints(dt);
+            if (ProfileEnabled) { ProfBuild += Tick(); ProfContacts += _contacts.Count; ProfSubSteps++; }
 
             foreach (var j in Joints) j.Prepare(dt, UseJointSplitImpulse, UseJointWarmStart, UseJointWarmStartAngular);
+            if (ProfileEnabled) ProfPrepare += Tick();
             foreach (var j in Joints) j.ApplySprings(dt);
+            if (ProfileEnabled) ProfSpring += Tick();
 
             WarmStart();
+            if (ProfileEnabled) ProfWarm += Tick();
 
             for (int it = 0; it < SolverIterations; it++)
             {
@@ -174,13 +195,17 @@ namespace BulletPhysics
                 {
                     // Bullet 2.75 同順: ジョイント → 接触 (接触が後勝ち)。
                     foreach (var j in Joints) j.SolveVelocity();
+                    if (ProfileEnabled) ProfSolveJoint += Tick();
                     SolveContacts();
+                    if (ProfileEnabled) ProfSolveContact += Tick();
                 }
                 else
                 {
                     // 従来順: 接触 → ジョイント (ジョイントが後勝ち)。
                     SolveContacts();
+                    if (ProfileEnabled) ProfSolveContact += Tick();
                     foreach (var j in Joints) j.SolveVelocity();
+                    if (ProfileEnabled) ProfSolveJoint += Tick();
                 }
             }
 
@@ -201,6 +226,7 @@ namespace BulletPhysics
             }
 
             StoreImpulses();
+            if (ProfileEnabled) ProfStore += Tick();
             IntegratePositions(dt);
         }
 
@@ -305,42 +331,69 @@ namespace BulletPhysics
         }
 
         // --- ブロードフェーズ + ナローフェーズ ---
-        private void BroadphaseNarrowphase()
+        // --- ブロードフェーズの候補ペア (最適化, 2026-08-09) ---
+        // static/kinematic 同士の除外と ShouldCollide(Group/Mask) は「不変な情報」なので毎サブステップ
+        // 総当たりで再判定する必要がない。初回に候補ペアを作り置きし、以後はそれだけを走査する。
+        // (IA: 総当たり6786 → 候補のみへ削減。ペア順序は i昇順→k昇順 で従来と同一=結果ビット不変)
+        // 剛体の追加や Group/CollisionMask/Mode を実行時に変更した場合は InvalidateCollisionPairs() を呼ぶこと
+        // (AddBody は自動で無効化する。ハーネスは構築直後に変更するため初回構築前に確定する)。
+        private int[] _pairA, _pairB; private int _pairCount = -1; private int _pairBuiltForCount = -1;
+        private Aabb[] _aabbScratch; private readonly HashSet<long> _seenScratch = new(); private readonly List<long> _deadScratch = new();
+
+        /// <summary>Group/CollisionMask/Mode を実行時に変えたら呼ぶ (次ステップで候補ペアを作り直す)。</summary>
+        public void InvalidateCollisionPairs() { _pairCount = -1; }
+
+        private void BuildCollisionPairs()
         {
             int n = Bodies.Count;
-            var aabbs = new Aabb[n];
-            for (int i = 0; i < n; i++) aabbs[i] = Bodies[i].ComputeAabb();
-
-            var seen = new HashSet<long>();
+            int cap = n * (n - 1) / 2;
+            if (_pairA == null || _pairA.Length < cap) { _pairA = new int[cap]; _pairB = new int[cap]; }
+            int c = 0;
             for (int i = 0; i < n; i++)
-            {
                 for (int k = i + 1; k < n; k++)
                 {
                     var a = Bodies[i]; var b = Bodies[k];
                     if (a.IsStaticOrKinematic && b.IsStaticOrKinematic) continue;
                     if (!ShouldCollide(a, b)) continue;
-                    if (!aabbs[i].Intersects(ref aabbs[k])) continue;
-
-                    long key = PairKey(a.Index, b.Index);
-                    seen.Add(key);
-                    if (!_manifolds.TryGetValue(key, out var m))
-                    {
-                        m = new PersistentManifold(a, b);
-                        _manifolds[key] = m;
-                    }
-                    m.Refresh();
-                    _detectBuffer.Clear();
-                    GjkEpa.Detect(a, b, _detectBuffer);
-                    for (int di = 0; di < _detectBuffer.Count; di++)
-                        m.AddPoint(_detectBuffer[di]);
+                    _pairA[c] = i; _pairB[c] = k; c++;
                 }
+            _pairCount = c; _pairBuiltForCount = n;
+        }
+
+        private void BroadphaseNarrowphase()
+        {
+            int n = Bodies.Count;
+            if (_pairCount < 0 || _pairBuiltForCount != n) BuildCollisionPairs();
+            if (_aabbScratch == null || _aabbScratch.Length < n) _aabbScratch = new Aabb[n];
+            var aabbs = _aabbScratch;
+            for (int i = 0; i < n; i++) aabbs[i] = Bodies[i].ComputeAabb();
+
+            var seen = _seenScratch; seen.Clear();
+            for (int p = 0; p < _pairCount; p++)
+            {
+                int i = _pairA[p], k = _pairB[p];
+                if (!aabbs[i].Intersects(ref aabbs[k])) continue;
+                var a = Bodies[i]; var b = Bodies[k];
+
+                long key = PairKey(a.Index, b.Index);
+                seen.Add(key);
+                if (!_manifolds.TryGetValue(key, out var m))
+                {
+                    m = new PersistentManifold(a, b);
+                    _manifolds[key] = m;
+                }
+                m.Refresh();
+                _detectBuffer.Clear();
+                GjkEpa.Detect(a, b, _detectBuffer);
+                for (int di = 0; di < _detectBuffer.Count; di++)
+                    m.AddPoint(_detectBuffer[di]);
             }
             // 消えたペアを掃除。
             if (_manifolds.Count > seen.Count)
             {
-                var dead = new List<long>();
+                var dead = _deadScratch; dead.Clear();
                 foreach (var kv in _manifolds) if (!seen.Contains(kv.Key)) dead.Add(kv.Key);
-                foreach (var d in dead) _manifolds.Remove(d);
+                for (int d = 0; d < dead.Count; d++) _manifolds.Remove(dead[d]);
             }
         }
 

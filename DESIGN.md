@@ -447,3 +447,35 @@ Custom の間は**毎FixedUpdateでパークを再主張**する。初回の再�
 補足(同時に実測): Animator遅れ dFL 中央0.0028/最大0.0144 Unity単位 = 0.035/0.18 PMX単位。
   深貫入閾値0.5の1/3以下で、貫通の主因ではない(1フレーム遅れ自体は存在する)。
   刻みは fixedDeltaTime=0.02 に対し内部は蓄積式で1/30刻み(steps=0/1が交互)=設計通り。
+
+## 性能: 実測と最適化 (2026-08-09)
+計測ハーネス `scratchpad/compilecheck/perf` (PhysicsWorld.ProfileEnabled による位相別直接計測。
+差分プロファイル=構成を変えて引き算 は交絡が大きく使えない: Jointを外すと剛体が落ちて接触が消える等)。
+
+### 実測 (IA.pmx 117剛体/165Joint, 30Hz SubSteps=2 iters=10)
+1ステップ 中央値 **1.17ms** (30Hz予算33.3msの3.5%)。GC: 636B/step (300stepでgen0回収0回) = 実質アロケーション無し。
+位相別: ソルバJoint 28% / ブロードフェーズ+ナローフェーズ 20% / ソルバ接触 19% / 接触制約構築 17% / Joint Prepare 13%。
+
+### 実施した最適化 (ビット不変を確認)
+**ブロードフェーズ候補ペアのキャッシュ**: static/kinematic同士の除外と ShouldCollide(Group/Mask) は不変情報なので
+毎サブステップ総当たり(6786ペア)で再判定していたのを、初回に候補ペア(1326)を作り置きする方式へ。
+毎サブステップの `new Aabb[n]` / `new HashSet<long>()` / `new List<long>()` も再利用に変更。
+→ ブロードフェーズ 0.325→0.106ms (3.1倍速)、全体 1.73→1.17ms (中央値)。
+   結果はビット不変 (chainbug_A 一致 / hairfid 深貫入11 一致 / bonecheck 11.20・12窓比1.0611 一致)。
+   ※Group/CollisionMask/Mode を実行時に変えたら `InvalidateCollisionPairs()` を呼ぶこと (AddBodyは自動)。
+
+### 計測して却下した案 (実装しなかった)
+- **タイトAABB** (球バウンド立方体→形状+回転): 候補692→594通過 (14%減) にしかならない。
+  スカート板/髪節は実際に近接しておりAABBは正当に重なる。空振り659→561では割に合わない。
+- **反復数を減らす**: iters 10→6→4 で 1.27→1.34→1.48ms と**逆に遅くなる**。
+  収束が悪いと剛体が動きすぎて接触が増え、支配的な衝突検出コストが増えるため。忠実度も落ちるので二重に損。
+- **SubSteps 1**: 1.03ms (19%減) だが 12窓比 1.061→1.220 と本家から離れる。割に合わない。
+
+### 残る負荷はUnity層 (エンジン外)
+エンジンが3.5%である以上、体感の重さはUnity側の可能性が高い。確認順:
+1. `MmdPhysicsBehaviour.DrawGizmos=false` (117形状をエディタ描画毎に描く。エディタ専用コスト)
+2. PhysX側の診断スクリプトを止める (Custom運用では純粋な無駄):
+   MmdJointProbe(72Jointを毎FixedUpdate計測+毎秒巨大文字列Debug.Log) / MmdMotionStats(101剛体を毎ステップ記録) /
+   MmdGravity(パーク済み108剛体へAddForce) / MmdCollisionMask(保留35組を毎FixedUpdate走査)
+3. 書き戻し 101 Transform/step (Unityのtransform書込はヒエラルキー更新を伴う)
+4. エディタ実行そのもの (ビルドすれば数倍速いのが通常)
