@@ -84,6 +84,35 @@ namespace BulletPhysics.Unity
             // PhysX へ戻すと isKinematic が元に戻り Joint も自然に復帰するため、個別操作は不要。
         }
 
+        // ★2026-08-09 実機バグ修正: パークは Awake の1回では保たない。
+        // 既存インポーターの MmdPhysicsWarmup が FixedUpdate で isKinematic=false に戻す
+        // (ログ「[MMD 始動] 101個の揺れ物を物理へ引き渡しました(t=0.22s)」) ため、
+        // Custom 中でも PhysX がスカート/髪を動かし、自作エンジンと同じボーンを奪い合っていた
+        // (Unityだけスカートが貫通し、ヘッドレス/CSVプレイヤーでは出なかった真因)。
+        // 対策: Custom の間は毎 FixedUpdate でパークを再主張する (importer への依存は持たない)。
+        void FixedUpdate()
+        {
+            if (!EnforceExclusive || Mode != Backend.Custom || _rbs == null) return;
+            for (int i = 0; i < _rbs.Length; i++)
+            {
+                var rb = _rbs[i];
+                if (rb == null) continue;
+                if (!rb.isKinematic) { rb.isKinematic = true; _reparked++; }
+                if (rb.detectCollisions) rb.detectCollisions = false;
+            }
+            if (_reparked > 0 && !_reparkLogged)
+            {
+                _reparkLogged = true;
+                Debug.Log($"[BackendSwitch] Custom中にPhysX剛体が起こされたため再パークしました ({_reparked}件)。" +
+                          "原因: 既存インポーターの Warmup/他スクリプトが実行時に isKinematic=false へ戻すため。" +
+                          "以後も毎FixedUpdateで排他を維持します (EnforceExclusive)。");
+            }
+        }
+
+        [Tooltip("Custom中、PhysX剛体が他スクリプトに起こされても毎フレーム再パークして排他を維持する (実機の貫通対策)")]
+        public bool EnforceExclusive = true;
+        private int _reparked; private bool _reparkLogged;
+
         [ContextMenu("Use Custom (自作エンジン)")]
         public void UseCustom() { Mode = Backend.Custom; ApplyBackend(); }
 

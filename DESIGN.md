@@ -430,3 +430,20 @@ JOINTS_FIRST 正配置再評価: 貫入11→3(僅差)、方向17.4(不変)。bon
 | MaxCorrectionVel | 10 | — | 貫入17324(不変)…再測定不要級 |
 | UseJointWarmStart(0.85) | ON | bonecheck 中央11.20≈本家11.39(有効)→**採用維持は有効** | hairfid系の副次数値 |
 ※「無効化された評価」は判断の根拠から外すこと。再測定は必要になった時点で正配置hairfidにて。
+
+## Unity実機「再生中だけスカート貫通」の真因: バックエンド二重稼働 (2026-08-09)
+症状: ヘッドレス(深貫入11 vs 本家67)もUnityのBonePoseCsvPlayer(橙わずかのみ)も正常なのに、
+Animator再生シーンだけスカートが貫通する。
+真因: **PhysXバックエンドが実行中に復活し、自作エンジンと同じボーンを奪い合っていた**。
+- `MmdPhysicsBackendSwitch` は Awake でのみ PhysX剛体をパーク(isKinematic=true, detectCollisions=false)。
+- 既存インポーターの `MmdPhysicsWarmup.cs:61` が **FixedUpdate で isKinematic=false** に戻す
+  (実機ログ「[MMD 始動] 101 個の揺れ物を物理へ引き渡しました（t=0.22s）」)。
+- 以後 MmdGravity が108剛体へ加力、MmdCollisionMask が実行時に衝突を復活。
+  MmdJointProbe の「円錐到達率 中央880%/最大1236%(sy=-40〜-61° vs limY=5°)」はこの二重稼働の結果を測っていた
+  (=我々のエンジンの評価値ではない。ヘッドレスの取付超過は p90 3.4°)。
+対策(自分のファイル内で完結, importer非依存): BackendSwitch に `EnforceExclusive`(既定ON)を追加し、
+Custom の間は**毎FixedUpdateでパークを再主張**する。初回の再パーク時に1度だけ理由をログする。
+教訓: 「排他」を初期化1回で担保しない。相手が実行時に状態を戻すなら、毎フレーム再主張するか相手を止める。
+補足(同時に実測): Animator遅れ dFL 中央0.0028/最大0.0144 Unity単位 = 0.035/0.18 PMX単位。
+  深貫入閾値0.5の1/3以下で、貫通の主因ではない(1フレーム遅れ自体は存在する)。
+  刻みは fixedDeltaTime=0.02 に対し内部は蓄積式で1/30刻み(steps=0/1が交互)=設計通り。
