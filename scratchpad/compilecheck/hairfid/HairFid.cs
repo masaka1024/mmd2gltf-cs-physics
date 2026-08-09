@@ -55,7 +55,7 @@ static class HairFid
         if (pmx == null || !File.Exists(pmx)) { Console.WriteLine("[SKIP] no pmx"); return 0; }
         if (!File.Exists(csvp)) { Console.WriteLine($"[SKIP] no hair csv: {csvp}"); return 0; }
         long bytes = new FileInfo(csvp).Length;
-        if (bytes != 65805999L) { Console.WriteLine($"[FAIL] hair CSV バイト数不一致 {bytes} (期待65805999)。取り違え防止のため中止。"); return 1; }
+        if (bytes != 65805999L && bytes != 65617640L) { Console.WriteLine($"[FAIL] hair CSV バイト数不一致 {bytes} (期待65805999=ON or 65617640=OFF)。取り違え防止のため中止。"); return 1; }
 
         var model = PmxReader.LoadFile(pmx);
         var csv = BoneCsv.Load(csvp);
