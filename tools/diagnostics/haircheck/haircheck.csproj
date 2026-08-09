@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>9.0</LangVersion>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>HairCheck</AssemblyName>
+    <StartupObject>HairCheck</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\compilecheck\UnityShim.cs" />
+    <Compile Include="..\..\compilecheck\TestData.cs" />
+    <Compile Include="..\..\bonecheck\BoneCsv.cs" />
+    <Compile Include="..\..\bonecheck\SkirtMeasure.cs" />
+    <Compile Include="..\..\bonecheck\HeadlessDriver.cs" />
+    <Compile Include="HairCheck.cs" />
+    <Compile Include="..\..\..\Assets\MmdPhysics\**\*.cs" />
+  </ItemGroup>
+</Project>

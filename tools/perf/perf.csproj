@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>9.0</LangVersion>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>Perf</AssemblyName>
+    <StartupObject>Perf</StartupObject>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\compilecheck\UnityShim.cs" />
+    <Compile Include="..\compilecheck\TestData.cs" />
+    <Compile Include="Perf.cs" />
+    <Compile Include="..\..\Assets\MmdPhysics\**\*.cs" />
+  </ItemGroup>
+</Project>
