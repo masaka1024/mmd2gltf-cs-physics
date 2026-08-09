@@ -1,0 +1,234 @@
+// ===========================================================================
+// (2) 髪のフレーム単位 本家突合 (スカートと同じ土俵)。
+//   本家VMD由来の hair CSV(108ボーン)で BoneFollow(体)を駆動し、髪(dynamic)を自前物理で動かす。
+//   髪ボーン姿勢(ボーン空間 = body.WorldTransform * BodyOffsetFromBone.Inverse())を本家と突合。
+//   位置(ワールド)と角度差(閾値3e-3rad, acos不使用)を 房別/段別/静区間・ターン窓で集計。
+//   髪×体の貫入も同時計測(元症状の第一候補)。
+// warm-start(0.85)は既定ON。A/Bは env WARM_OFF=1。
+// ===========================================================================
+using System;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Collections.Generic;
+using BulletPhysics;
+using BulletPhysics.Pmx;
+using BoneCheck;
+
+static class HairFid
+{
+    const float DT = 1f / 30f;
+    static bool IsHair(string n) => n != null && (n.Contains("髪") || n.Contains("ツインテ") || n.Contains("もみあげ") || n.Contains("前髪") || n.Contains("モミアゲ"));
+    static readonly string[] BodyColliderBones = { "頭", "頭2", "首", "上半身", "上半身2", "下半身", "下半身1", "下半身3", "下半身4", "右足", "左足", "右ひざ", "左ひざ", "右太もも", "左太もも" };
+
+    // 相対回転角(rad)。dq=b*conj(a); angle=2*atan2(|xyz|,|w|)。acos不使用。
+    static float RelAngle(Quat a, Quat b)
+    {
+        float cx = -a.x, cy = -a.y, cz = -a.z, cw = a.w; // conj(a)
+        float dx = b.w * cx + b.x * cw + b.y * cz - b.z * cy;
+        float dy = b.w * cy - b.x * cz + b.y * cw + b.z * cx;
+        float dz = b.w * cz + b.x * cy - b.y * cx + b.z * cw;
+        float dw = b.w * cw - b.x * cx - b.y * cy - b.z * cz;
+        float s = (float)Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        return 2f * (float)Math.Atan2(s, Math.Abs(dw));
+    }
+    static float Deg(float rad) => rad * 57.29578f;
+
+    static (float med, float p90, float max) Stat(List<float> v)
+    {
+        if (v.Count == 0) return (0, 0, 0);
+        v.Sort(); return (v[v.Count / 2], v[(int)(v.Count * 0.9)], v[v.Count - 1]);
+    }
+    // 房(strand)と段(segment番号)を名前から: 例 髪FR5 -> strand=髪FR, seg=5。末尾数字を分離。
+    static (string strand, int seg) Parse(string n)
+    {
+        int i = n.Length; while (i > 0 && char.IsDigit(n[i - 1])) i--;
+        int seg = i < n.Length ? int.Parse(n.Substring(i)) : 0;
+        return (n.Substring(0, i), seg);
+    }
+
+    static int Main()
+    {
+        string pmx = TestData.PmxPath();
+        string csvp = Environment.GetEnvironmentVariable("MMD_TEST_HAIRCSV") ?? @"C:/mytask2/_external_testdata/IA_bone_world_pose_hair.csv";
+        if (pmx == null || !File.Exists(pmx)) { Console.WriteLine("[SKIP] no pmx"); return 0; }
+        if (!File.Exists(csvp)) { Console.WriteLine($"[SKIP] no hair csv: {csvp}"); return 0; }
+        long bytes = new FileInfo(csvp).Length;
+        if (bytes != 65805999L) { Console.WriteLine($"[FAIL] hair CSV バイト数不一致 {bytes} (期待65805999)。取り違え防止のため中止。"); return 1; }
+
+        var model = PmxReader.LoadFile(pmx);
+        var csv = BoneCsv.Load(csvp);
+        var builder = PmxPhysicsBuilder.Build(model);
+        var world = builder.World;
+        if (Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
+        Console.WriteLine($"[cfg] warm={world.UseJointWarmStart}/{world.UseJointWarmStartAngular} fac={Joint.WarmStartFactor} frames={csv.FrameCount}");
+
+        // 髪 dynamic 剛体リンクと、体コライダー(BoneFollow)リンク。
+        var hairLinks = new List<(BoneLink link, string bone, RigidTransform bindBone)>();
+        var bodyLinks = new List<(BoneLink link, string bone)>();
+        var driven = new List<(BoneLink link, string bone)>();
+        for (int i = 0; i < builder.BoneLinks.Count; i++)
+        {
+            var link = builder.BoneLinks[i];
+            string bone = (link.BoneIndex >= 0 && link.BoneIndex < model.BoneNames.Count) ? model.BoneNames[link.BoneIndex] : null;
+            if (link.Mode == PhysicsMode.BoneFollow)
+            {
+                if ((BodyColliderBones.Contains(link.Body.Name) || (bone != null && BodyColliderBones.Contains(bone))) && bone != null && csv.HasBone(bone)) bodyLinks.Add((link, bone));
+                if (bone != null && csv.HasBone(bone)) driven.Add((link, bone));
+            }
+            else if (IsHair(link.Body.Name) && bone != null && csv.HasBone(bone))
+            {
+                var bindBone = new RigidTransform(Quat.Identity, model.BonePositions[link.BoneIndex]);
+                hairLinks.Add((link, bone, bindBone));
+            }
+        }
+        Console.WriteLine($"[構成] 髪剛体={hairLinks.Count} 体コライダー={bodyLinks.Count} 駆動BoneFollow={driven.Count}");
+
+        // --- バインド相対0 確認: 各髪剛体を bind に置き、ボーン姿勢復元 vs PMX bind bone ---
+        float bindPosMax = 0, bindAngMax = 0;
+        foreach (var (link, bone, bindBone) in hairLinks)
+        {
+            var bw = link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse(); // 復元ボーン姿勢
+            bindPosMax = Math.Max(bindPosMax, (bw.Origin - bindBone.Origin).Length);
+            bindAngMax = Math.Max(bindAngMax, RelAngle(bw.Rotation, bindBone.Rotation));
+        }
+        Console.WriteLine($"[バインド相対0] 復元ボーン姿勢 vs PMX bind: 位置max={bindPosMax:F5} 角度max={Deg(bindAngMax):F4}° 期待0");
+        if (bindPosMax > 1e-3f || bindAngMax > 3e-3f) { Console.WriteLine("[FAIL] バインド相対が0でない。測定の土俵がずれているため中止。"); return 1; }
+
+        // --- FK-rest 初期化 + warmup ---
+        void ApplyPose(int f) { foreach (var (link, bone) in driven) if (csv.TryGet(f, bone, out var bw)) link.Body.KinematicTarget = bw; }
+        ApplyPose(0);
+        builder.ResetBodiesToBonePoseFk(i => (i >= 0 && i < model.BoneNames.Count && csv.TryGet(0, model.BoneNames[i], out var bw)) ? (RigidTransform?)bw : null);
+        for (int s = 0; s < 60; s++) world.StepSimulation(DT);
+
+        int F = csv.FrameCount;
+        var buf = new List<ContactPoint>();
+        // per-frame メトリクス収集
+        var posDiff = new Dictionary<string, List<float>>();  // 髪ボーン -> 位置差列
+        var angDiff = new Dictionary<string, List<float>>();  // -> 角度差列(deg)
+        var oursDev = new Dictionary<string, List<float>>();   // 自前 bind からの角度偏差(deg)
+        var refDev = new Dictionary<string, List<float>>();    // 本家 bind からの角度偏差(deg)
+        foreach (var (l, b, _) in hairLinks) { posDiff[b] = new(); angDiff[b] = new(); oursDev[b] = new(); refDev[b] = new(); }
+        // ターン窓判定用: 下半身ヨー角速度
+        var yawRate = new float[F];
+        // 貫入: pair -> max, deep>0.5 のフレーム記録
+        var penMax = new Dictionary<string, float>();
+        var deepFrames = new List<(int f, string pair, float d)>();
+
+        Quat prevLow = Quat.Identity; bool havePrev = false;
+        for (int f = 0; f < F; f++)
+        {
+            ApplyPose(f);
+            world.StepSimulation(DT);
+            // 下半身ヨー速度
+            if (csv.TryGet(f, "下半身", out var low))
+            {
+                if (havePrev) yawRate[f] = Deg(RelAngle(prevLow, low.Rotation)) / DT;
+                prevLow = low.Rotation; havePrev = true;
+            }
+            // 髪ボーン突合
+            foreach (var (link, bone, bindBone) in hairLinks)
+            {
+                var ours = link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse();
+                if (!csv.TryGet(f, bone, out var refb)) continue;
+                posDiff[bone].Add((ours.Origin - refb.Origin).Length);
+                angDiff[bone].Add(Deg(RelAngle(ours.Rotation, refb.Rotation)));
+                oursDev[bone].Add(Deg(RelAngle(bindBone.Rotation, ours.Rotation)));
+                refDev[bone].Add(Deg(RelAngle(bindBone.Rotation, refb.Rotation)));
+            }
+            // 髪×体 貫入 (自前物理の結果)
+            foreach (var (hl, hb, _) in hairLinks)
+                foreach (var (bl, bbn) in bodyLinks)
+                {
+                    if (!PhysicsWorld.ShouldCollide(hl.Body, bl.Body)) continue;
+                    buf.Clear(); GjkEpa.Detect(hl.Body, bl.Body, buf);
+                    float pen = 0; foreach (var cp in buf) pen = Math.Max(pen, -cp.Distance);
+                    if (pen <= 0) continue;
+                    string pair = hb + "×" + bl.Body.Name;
+                    penMax[pair] = Math.Max(penMax.GetValueOrDefault(pair), pen);
+                    if (pen > 0.5f) deepFrames.Add((f, pair, pen));
+                }
+        }
+
+        // ===== 本家の貫入 (幾何): 髪も体も本家CSV姿勢に置いて Detect。仕様かバグかの切り分け =====
+        var refPenMax = new Dictionary<string, float>(); int refDeep = 0; float refDeepMax = 0;
+        for (int f = 0; f < F; f++)
+        {
+            foreach (var (bl, bbn) in bodyLinks) if (csv.TryGet(f, bbn, out var bw)) { bl.Body.WorldTransform = bw * bl.BodyOffsetFromBone; bl.Body.UpdateInertiaWorld(); }
+            foreach (var (hl, hbn, _) in hairLinks) if (csv.TryGet(f, hbn, out var bw)) { hl.Body.WorldTransform = bw * hl.BodyOffsetFromBone; hl.Body.UpdateInertiaWorld(); }
+            foreach (var (hl, hb, _) in hairLinks)
+                foreach (var (bl, bbn) in bodyLinks)
+                {
+                    if (!PhysicsWorld.ShouldCollide(hl.Body, bl.Body)) continue;
+                    buf.Clear(); GjkEpa.Detect(hl.Body, bl.Body, buf);
+                    float pen = 0; foreach (var cp in buf) pen = Math.Max(pen, -cp.Distance);
+                    if (pen <= 0) continue;
+                    string pair = hb + "×" + bl.Body.Name;
+                    refPenMax[pair] = Math.Max(refPenMax.GetValueOrDefault(pair), pen);
+                    if (pen > 0.5f) { refDeep++; refDeepMax = Math.Max(refDeepMax, pen); }
+                }
+        }
+
+        // ===== 集計 =====
+        var O = new StringBuilder();
+        // ターン窓 = ヨー>360°/s の frame を含む ±15f 窓 (簡易)。静区間=それ以外。
+        bool[] turn = new bool[F];
+        for (int f = 0; f < F; f++) if (Math.Abs(yawRate[f]) > 360f) for (int k = Math.Max(0, f - 15); k < Math.Min(F, f + 15); k++) turn[k] = true;
+        int nturn = turn.Count(x => x), nquiet = F - nturn;
+        O.AppendLine($"\n===== (2) 髪 本家突合 (自前 warm={world.UseJointWarmStart} fac={Joint.WarmStartFactor}) =====");
+        O.AppendLine($"フレーム {F} (ターン窓={nturn}f 静区間={nquiet}f)");
+
+        // 全体 位置/角度 差 (全frame×全髪ボーン)
+        List<float> allPos = new(), allAng = new(); float signSum = 0; int signN = 0;
+        foreach (var (l, b, _) in hairLinks)
+        {
+            allPos.AddRange(posDiff[b]); allAng.AddRange(angDiff[b]);
+            for (int k = 0; k < oursDev[b].Count; k++) { signSum += oursDev[b][k] - refDev[b][k]; signN++; }
+        }
+        var (pm, pp, px) = Stat(allPos); var (am, ap, ax) = Stat(allAng);
+        O.AppendLine($"[全体] 位置差(u) 中央={pm:F3}/p90={pp:F3}/最大={px:F3}   角度差(°) 中央={am:F2}/p90={ap:F2}/最大={ax:F2}");
+        O.AppendLine($"[符号] 平均(自前bind偏差 - 本家bind偏差)={signSum / Math.Max(1, signN):F2}° (正=自前が動きすぎ / 負=動かなさすぎ)");
+
+        // 静区間/ターン窓 別 (角度差)
+        List<float> qAng = new(), tAng = new(), qPos = new(), tPos = new();
+        foreach (var (l, b, _) in hairLinks)
+        {
+            var pl = posDiff[b]; var al = angDiff[b];
+            // posDiff/angDiff は f昇順(欠損スキップ無し=全frame)。turn[] と同長。
+            for (int f = 0, idx = 0; f < F; f++) { if (idx >= al.Count) break; (turn[f] ? tAng : qAng).Add(al[idx]); (turn[f] ? tPos : qPos).Add(pl[idx]); idx++; }
+        }
+        var (qam, qap, qax) = Stat(qAng); var (tam, tap, tax) = Stat(tAng);
+        var (qpm, qpp, qpx) = Stat(qPos); var (tpm, tpp, tpx) = Stat(tPos);
+        O.AppendLine($"[静区間] 角度差 中央={qam:F2}/p90={qap:F2}/最大={qax:F2}  位置差 中央={qpm:F3}/p90={qpp:F3}/最大={qpx:F3}");
+        O.AppendLine($"[ターン窓] 角度差 中央={tam:F2}/p90={tap:F2}/最大={tax:F2}  位置差 中央={tpm:F3}/p90={tpp:F3}/最大={tpx:F3}");
+
+        // 段(segment tier)別 角度差
+        O.AppendLine("[段別] seg=末尾番号 の角度差(中央/p90/最大):");
+        var bySeg = new Dictionary<int, List<float>>();
+        foreach (var (l, b, _) in hairLinks) { int seg = Parse(b).seg; if (!bySeg.ContainsKey(seg)) bySeg[seg] = new(); bySeg[seg].AddRange(angDiff[b]); }
+        foreach (var kv in bySeg.OrderBy(k => k.Key)) { var (m, p, x) = Stat(kv.Value); O.AppendLine($"   seg{kv.Key}: {m:F2}/{p:F2}/{x:F2} (°)"); }
+
+        // 房別 上位(角度差最大が大きい房)
+        O.AppendLine("[房別] 角度差最大 上位8房:");
+        var byStrand = new Dictionary<string, List<float>>();
+        foreach (var (l, b, _) in hairLinks) { string st = Parse(b).strand; if (!byStrand.ContainsKey(st)) byStrand[st] = new(); byStrand[st].AddRange(angDiff[b]); }
+        foreach (var kv in byStrand.Select(k => (k.Key, Stat(k.Value))).OrderByDescending(x => x.Item2.max).Take(8)) O.AppendLine($"   {kv.Key}: 中央={kv.Item2.med:F2}/p90={kv.Item2.p90:F2}/最大={kv.Item2.max:F2}°");
+
+        // 髪×体 貫入
+        O.AppendLine("\n[髪×体 貫入] ペア別 最大貫入 上位10:");
+        foreach (var kv in penMax.OrderByDescending(k => k.Value).Take(10)) O.AppendLine($"   {kv.Key}: {kv.Value:F3}");
+        O.AppendLine($"[自前 深い貫入>0.5] 件数={deepFrames.Count}");
+        if (deepFrames.Count > 0)
+        {
+            int deepTurn = deepFrames.Count(x => turn[x.f]);
+            O.AppendLine($"   区間分布: ターン窓内={deepTurn} 静区間={deepFrames.Count - deepTurn}  最大={deepFrames.Max(x => x.d):F3} @ {deepFrames.OrderByDescending(x => x.d).First().pair}");
+        }
+        // 本家の幾何貫入 (仕様かバグかの切り分け)
+        O.AppendLine($"[本家 深い貫入>0.5(幾何)] 件数={refDeep} 最大={refDeepMax:F3}");
+        O.AppendLine("   本家 ペア別最大 上位5: " + string.Join(", ", refPenMax.OrderByDescending(k => k.Value).Take(5).Select(k => $"{k.Key}:{k.Value:F3}")));
+        O.AppendLine($"   ★判定材料: 本家も深く貫入するなら仕様(MMDの衝突も抜ける)。本家がほぼ0なら自前の衝突抜けバグ。");
+
+        Console.Write(O.ToString());
+        return 0;
+    }
+}
