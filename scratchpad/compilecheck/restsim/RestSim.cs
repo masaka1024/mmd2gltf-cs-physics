@@ -103,8 +103,21 @@ static class RestSim
         Console.WriteLine($"[cfg] subs={subs} grav={grav} iters={world.SolverIterations} beta={(beta < 0 ? "default" : beta.ToString())} split={world.UseSplitImpulse}");
 
         // アニメOFF=bindポーズ維持: 追従(kinematic)剛体の目標をbind世界姿勢で固定。
+        // MIRROR_BF=1: Unityブリッジの「対を持たない3回目のZ反転」を模擬。ボーン追従目標だけを
+        // MirrorZ(=pos.z反転, rot(-x,-y,z,w))して、物理定義(ジョイント枠/動的体初期位置=+z真値)との
+        // Z鏡像ズレを再現する。これで髪が正面(-z)へ引かれ体を貫通すれば、Unity症状のヘッドレス再現。
+        bool mirrorBF = Environment.GetEnvironmentVariable("MIRROR_BF") == "1";
+        RigidTransform MirrorZ(RigidTransform t) => new RigidTransform(
+            new Quat(-t.Rotation.x, -t.Rotation.y, t.Rotation.z, t.Rotation.w),
+            new Vec3(t.Origin.x, t.Origin.y, -t.Origin.z));
         foreach (var b in builder.Bodies)
-            if (b.Mode == PhysicsMode.BoneFollow) { b.KinematicTarget = b.WorldTransform; b.KinematicStepTarget = b.WorldTransform; }
+            if (b.Mode == PhysicsMode.BoneFollow)
+            {
+                var tgt = mirrorBF ? MirrorZ(b.WorldTransform) : b.WorldTransform;
+                b.KinematicTarget = tgt; b.KinematicStepTarget = tgt;
+                if (mirrorBF) b.WorldTransform = tgt; // 初期位置も鏡像側へ(Unityは毎フレームPushで上書き)
+            }
+        if (mirrorBF) Console.WriteLine("[cfg] MIRROR_BF: bone-follow targets Z-mirrored (Unityブリッジ3回目Z反転の模擬)");
 
         // 切り分け: ANGFREE=1 で全ジョイントの角度リミットを自由化 (角度拘束を無効化)。
         if (Environment.GetEnvironmentVariable("ANGFREE") == "1")
@@ -155,6 +168,20 @@ static class RestSim
         {
             foreach (var b in builder.Bodies) b.CollisionMask = 0;
             Console.WriteLine("[cfg] NOCONTACT: all collision masks zeroed (joints only)");
+        }
+
+        // DUMP_BIND=1: 対象ボーンのPMXバインド世界位置と、UnityToMmdPos(=Zのみ反転)予測値を並記。
+        // Unityログの UnityToMmd(boneTransform.position) がこの「予測(鏡像)」と一致すれば鏡像バグ確定。
+        if (Environment.GetEnvironmentVariable("DUMP_BIND") == "1")
+        {
+            string[] targets = { "頭", "上半身2", "上半身", "下半身", "右腕", "左腕", "髪FR5", "髪FL5", "髪FR4" };
+            Console.WriteLine("[bind] bone : PMXバインド(x,y,z) | UnityToMmd予測=(x,y,-z) ← Unityログがこの鏡像に一致すればバグ");
+            for (int i = 0; i < model.BoneNames.Count; i++)
+            {
+                if (Array.IndexOf(targets, model.BoneNames[i]) < 0) continue;
+                var p = model.BonePositions[i];
+                Console.WriteLine($"   {model.BoneNames[i],-8}: PMX=({p.x,7:F3},{p.y,7:F3},{p.z,7:F3}) | 鏡像予測=({p.x,7:F3},{p.y,7:F3},{-p.z,7:F3})");
+            }
         }
 
         var skirt = builder.Bodies.Where(b => b.Name.StartsWith("スカート") && !b.IsStaticOrKinematic).ToList();
