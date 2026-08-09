@@ -38,6 +38,18 @@ namespace BulletPhysics.Unity
         public int SubSteps = 2;
         public float FixedTimeStep = 1f / 30f;
 
+        [Header("Smoothness (コマ落ち/ジャダー対策)")]
+        // 症状: 髪やスカートがカクついて見える。原因は「物理の更新間隔が実時間で不均一」なこと。
+        //   Unity の FixedUpdate は Time.fixedDeltaTime 間隔(既定0.02s=50Hz)で呼ばれるが、
+        //   エンジンは FixedTimeStep(既定1/30) のアキュムレータなので、内部ステップは
+        //   実時間 20ms / 40ms とバラバラな間隔でしか進まない (実測: 0,1,0,1,1,... の周期)。
+        //   物理は毎回33.3ms分進むのに表示間隔が揃わない=ジャダー。
+        // 対策: Time.fixedDeltaTime と FixedTimeStep を一致させ、毎FixedUpdateでちょうど1ステップ進める。
+        //   FixedTimeStep=1/60・SubSteps=1 は実効刻みが現行(1/30×2サブ)と同一のため、
+        //   ヘッドレス検証で本家忠実度が完全一致することを確認済み (傾き11.20/p90 23.52/12窓比1.0611)。CPUも同等。
+        [Tooltip("ONで Time.fixedDeltaTime を FixedTimeStep に合わせる (毎FixedUpdate=1ステップ=等間隔)。Unity全体の物理刻みを変える点に注意")]
+        public bool AlignUnityFixedTimestep = false;
+
         [Header("Startup")]
         // 起動直後、アニメがフレーム0姿勢を確定させた後に物理をボーンへ再整合する遅延(フレーム数)。
         // バインド姿勢→フレーム0への瞬間移動でスカート等が脚へ貫入(突き抜け)するのを防ぐ。
@@ -142,7 +154,30 @@ namespace BulletPhysics.Unity
             // アニメがフレーム0を適用するのは Start より後(Update→LateUpdate 間)。この時点の
             // リセットはバインド基準なので、LateUpdate で posed 姿勢へ再整合し直す予約を入れる。
             _startupResetCountdown = PoseResetDelayFrames > 0 ? PoseResetDelayFrames : 0;
+            CheckTimestepAlignment();
         }
+
+        // 物理刻みと Unity の FixedUpdate 間隔が食い違うと、内部ステップが実時間で不均一になり
+        // 髪/スカートがカクついて見える (ジャダー)。起動時に1度だけ整列 or 警告する。
+        private void CheckTimestepAlignment()
+        {
+            if (AlignUnityFixedTimestep)
+            {
+                if (System.Math.Abs(Time.fixedDeltaTime - FixedTimeStep) > 1e-6f)
+                {
+                    Time.fixedDeltaTime = FixedTimeStep;
+                    Debug.Log($"[MmdPhysics] Time.fixedDeltaTime を {FixedTimeStep:F6} に整列しました " +
+                              $"(毎FixedUpdateでちょうど1ステップ=等間隔更新。SubSteps={SubSteps} で実効刻み {FixedTimeStep / SubSteps:F6})");
+                }
+                return;
+            }
+            float ratio = FixedTimeStep / Time.fixedDeltaTime;
+            if (System.Math.Abs(ratio - Mathf_Round(ratio)) > 1e-3f)
+                Debug.LogWarning($"[MmdPhysics] 物理刻みが Unity と整列していません: FixedTimeStep={FixedTimeStep:F5} / Time.fixedDeltaTime={Time.fixedDeltaTime:F5} " +
+                    $"(比 {ratio:F3})。内部ステップが実時間で不均一(例 20ms/40ms交互)になり、髪やスカートがカクついて見えます。" +
+                    "対策: AlignUnityFixedTimestep を ON にするか、FixedTimeStep=1/60・SubSteps=1 にして Fixed Timestep も 0.0166667 に合わせてください。");
+        }
+        private static float Mathf_Round(float v) => (float)System.Math.Round(v);
 
         /// <summary>物理開始/リセット時に、全剛体を現在のボーン姿勢へ整合させる
         /// (MMD の物理演算リセット相当)。フレーム0で脚が曲がっていても動的剛体がバインド位置に

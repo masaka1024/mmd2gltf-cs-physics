@@ -48,6 +48,7 @@ namespace BoneCheck
             if (System.Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
             if (int.TryParse(System.Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it; // 反復掃引(診断)
             if (int.TryParse(System.Environment.GetEnvironmentVariable("SUBSTEPS"), out var _ss) && _ss > 0) world.SubSteps = _ss; // substep掃引(診断)
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("FTS_DIV"), out var _fd) && _fd > 0) world.FixedTimeStep = 1f / _fd; // 刻み掃引(診断, 1/N を正確に)
             if (System.Environment.GetEnvironmentVariable("JOINTS_FIRST") == "1") world.SolveJointsFirst = true; // Bullet同順(ジョイント→接触)
             if (System.Environment.GetEnvironmentVariable("SPLIT") == "1") world.UseSplitImpulse = true; // 接触の貫入回復を擬似速度側(参考)
             if (float.TryParse(System.Environment.GetEnvironmentVariable("CWFAC"), out var _cwf)) world.ContactWarmStartFactor = _cwf; // 接触warm-start係数

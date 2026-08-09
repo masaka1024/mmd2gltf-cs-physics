@@ -21,10 +21,11 @@ static class Perf
         var model = PmxReader.LoadFile(pmx);
         int iters = int.TryParse(Environment.GetEnvironmentVariable("ITERS"), out var it) ? it : 10;
         int subs = int.TryParse(Environment.GetEnvironmentVariable("SUBSTEPS"), out var ss) ? ss : 2;
+        int ftsDiv = int.TryParse(Environment.GetEnvironmentVariable("FTS_DIV"), out var fd) ? fd : 30;
 
         var b = PmxPhysicsBuilder.Build(model);
         var w = b.World;
-        w.Gravity = new Vec3(0, -98f, 0); w.SolverIterations = iters; w.SubSteps = subs; w.FixedTimeStep = 1f / 30f;
+        w.Gravity = new Vec3(0, -98f, 0); w.SolverIterations = iters; w.SubSteps = subs; w.FixedTimeStep = 1f / ftsDiv;
         foreach (var body in b.Bodies) if (body.Mode == PhysicsMode.BoneFollow) { body.KinematicTarget = body.WorldTransform; body.KinematicStepTarget = body.WorldTransform; }
         for (int i = 0; i < Warm; i++) w.StepSimulation(1f / 30f);
 
