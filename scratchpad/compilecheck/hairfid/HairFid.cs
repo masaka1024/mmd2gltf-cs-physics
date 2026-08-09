@@ -111,14 +111,18 @@ static class HairFid
         foreach (var (l, b, _) in hairLinks) { posDiff[b] = new(); angDiff[b] = new(); oursDev[b] = new(); refDev[b] = new(); }
         // ターン窓判定用: 下半身ヨー角速度
         var yawRate = new float[F];
-        // 貫入: pair -> max, deep>0.5 のフレーム記録
+        // 貫入: pair -> max, deep>0.5 のフレーム記録(診断込み)
         var penMax = new Dictionary<string, float>();
-        var deepFrames = new List<(int f, string pair, float d)>();
+        var deepFrames = new List<(int f, string pair, float d, float ni, bool aabb, int mpts)>();
+        var deepByPair = new Dictionary<string, SortedSet<int>>(); // 継続フレーム算出用
+        var dbg = new List<(string a, string b, float dist, float ni)>();
+        world.DebugContacts = dbg;
 
         Quat prevLow = Quat.Identity; bool havePrev = false;
         for (int f = 0; f < F; f++)
         {
             ApplyPose(f);
+            dbg.Clear();
             world.StepSimulation(DT);
             // 下半身ヨー速度
             if (csv.TryGet(f, "下半身", out var low))
@@ -136,7 +140,7 @@ static class HairFid
                 oursDev[bone].Add(Deg(RelAngle(bindBone.Rotation, ours.Rotation)));
                 refDev[bone].Add(Deg(RelAngle(bindBone.Rotation, refb.Rotation)));
             }
-            // 髪×体 貫入 (自前物理の結果)
+            // 髪×体 貫入 (自前物理の結果) + 診断
             foreach (var (hl, hb, _) in hairLinks)
                 foreach (var (bl, bbn) in bodyLinks)
                 {
@@ -146,7 +150,15 @@ static class HairFid
                     if (pen <= 0) continue;
                     string pair = hb + "×" + bl.Body.Name;
                     penMax[pair] = Math.Max(penMax.GetValueOrDefault(pair), pen);
-                    if (pen > 0.5f) deepFrames.Add((f, pair, pen));
+                    if (pen > 0.5f)
+                    {
+                        // 診断: 法線インパルス(このペアの接触の合計), AABB重なり, マニフォールド点数
+                        float ni = 0; foreach (var c in dbg) if ((c.a == hl.Body.Name && c.b == bl.Body.Name) || (c.a == bl.Body.Name && c.b == hl.Body.Name)) ni += c.ni;
+                        var aa = hl.Body.ComputeAabb(); var bb = bl.Body.ComputeAabb(); bool aabb = aa.Intersects(ref bb);
+                        deepFrames.Add((f, pair, pen, ni, aabb, buf.Count));
+                        if (!deepByPair.TryGetValue(pair, out var st)) { st = new(); deepByPair[pair] = st; }
+                        st.Add(f);
+                    }
                 }
         }
 
@@ -217,16 +229,24 @@ static class HairFid
         // 髪×体 貫入
         O.AppendLine("\n[髪×体 貫入] ペア別 最大貫入 上位10:");
         foreach (var kv in penMax.OrderByDescending(k => k.Value).Take(10)) O.AppendLine($"   {kv.Key}: {kv.Value:F3}");
-        O.AppendLine($"[自前 深い貫入>0.5] 件数={deepFrames.Count}");
-        if (deepFrames.Count > 0)
+        // 分母明示 (過去の 158 vs 7001 誤り防止): 自前も本家も 全Fフレーム × 同一ペア集合 × pen>0.5。
+        int selfDF = deepFrames.Select(x => x.f).Distinct().Count();
+        int selfDP = deepFrames.Select(x => x.pair).Distinct().Count();
+        int deepTurn = deepFrames.Count(x => turn[x.f]);
+        O.AppendLine($"[分母] 全{F}f × 髪{hairLinks.Count}×体{bodyLinks.Count}ペア を同一条件で計数(自前=物理結果/本家=幾何配置, 定義pen>0.5, GjkEpa.Detect)");
+        O.AppendLine($"[自前 深貫入>0.5] イベント={deepFrames.Count} (ユニークフレーム={selfDF}, ユニークペア={selfDP}) 区間: ターン窓={deepTurn} 静={deepFrames.Count - deepTurn} 最大={(deepFrames.Count > 0 ? deepFrames.Max(x => x.d) : 0):F3}");
+        O.AppendLine($"[本家 深貫入>0.5(幾何)] イベント={refDeep} 最大={refDeepMax:F3}  ★同分母。自前>>本家=自前固有の衝突抜け");
+
+        // ★上位20 深貫入 診断: 検出されてないか / 検出済みで押し戻せてないか の分岐
+        O.AppendLine("\n[上位20 深貫入 診断] (AABB=broadphase重なり, 点=マニフォールド接触点数, ni=法線力積, 継続=連続deepフレーム数)");
+        foreach (var e in deepFrames.OrderByDescending(x => x.d).Take(20))
         {
-            int deepTurn = deepFrames.Count(x => turn[x.f]);
-            O.AppendLine($"   区間分布: ターン窓内={deepTurn} 静区間={deepFrames.Count - deepTurn}  最大={deepFrames.Max(x => x.d):F3} @ {deepFrames.OrderByDescending(x => x.d).First().pair}");
+            var st = deepByPair[e.pair]; int dur = 1;
+            for (int k = e.f - 1; st.Contains(k); k--) dur++;
+            for (int k = e.f + 1; st.Contains(k); k++) dur++;
+            O.AppendLine($"   f{e.f,4} {e.pair,-20} pen={e.d:F3} AABB={(e.aabb ? "重" : "離")} 点={e.mpts} ni={e.ni:F4} 継続={dur}f {(turn[e.f] ? "[ターン]" : "[静]")}");
         }
-        // 本家の幾何貫入 (仕様かバグかの切り分け)
-        O.AppendLine($"[本家 深い貫入>0.5(幾何)] 件数={refDeep} 最大={refDeepMax:F3}");
-        O.AppendLine("   本家 ペア別最大 上位5: " + string.Join(", ", refPenMax.OrderByDescending(k => k.Value).Take(5).Select(k => $"{k.Key}:{k.Value:F3}")));
-        O.AppendLine($"   ★判定材料: 本家も深く貫入するなら仕様(MMDの衝突も抜ける)。本家がほぼ0なら自前の衝突抜けバグ。");
+        O.AppendLine("   ★読み: AABB離 or 点0 → 未検出(broadphase/形状ペア/マスク)。 AABB重&点>0&ni≈0 → 検出済だが未解決(接触が構築されてない/インパルス0)。 ni>0で継続 → 押してるが綱引き負け(ジョイントが体へ押し付け)。");
 
         Console.Write(O.ToString());
         return 0;

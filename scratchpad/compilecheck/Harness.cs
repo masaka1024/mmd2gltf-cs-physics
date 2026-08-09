@@ -144,10 +144,15 @@ static class Harness
         bool ok = !badNum && maxSpeed <= 100f && epaHits == 0 && stepMaxSteady <= 50.0;
         Check("IA.pmx スモーク (NaN/爆発/EPA暴走/遅延なし)", ok,
             $"NaN/Inf={badNum} maxSpeed={maxSpeed:F1}(<=100) EPAhit={epaHits}(=0) stepMax={stepMaxSteady:F2}ms(<=50)");
-        // 常設のドリフト指標。warm-start(0.85)を既定ONにした後の基準は ~7.95 (warp無効=WARM_OFFで~8.17)。
-        // 残差7.95は「±60°の正当な自由スイング」の疑いが濃く、本家VMD突合(髪, task2型)が出るまで
-        // バグ/仕様は未確定。それまで閾値付き Check へは格上げせず NOTE のまま追跡する。
-        Note("IA.pmx 静止ドリフト (known-issue, 本家突合待ち)", $"maxDrift={maxDrift:F2} (最大: {driftName}) / 新既定warm≈7.95 warp無効≈8.17");
+        // 静止ドリフトの2段判定 (2026-08-09, 本家突合で 7.95=仕様と確定後に格上げ)。
+        // 本家の髪は静区間でも最大12.89動く(FK-rest基準)。正当な自由スイングは通し、真の爆散だけ赤にする。
+        //   FAIL: maxDrift>=15.0 (本家静区間最大12.89+余裕)。真の爆散(旧20+〜NaN)を捕捉。
+        //   WARN: maxDrift>=10.0 で値を明示 (8→12 のじわ悪化の兆しを拾う帯。合否には非影響)。
+        // 現状 warm(0.85)=~7.95 は両方クリア (warm無効=WARM_OFF で~8.17, これもクリア)。
+        Check("IA.pmx 静止ドリフト (爆散番人, <15)", maxDrift < 15.0f,
+            $"maxDrift={maxDrift:F2} (最大: {driftName}) / FAIL>=15 WARN>=10 / 本家静区間最大12.89=仕様");
+        if (maxDrift >= 10.0f && maxDrift < 15.0f)
+            Note("IA.pmx 静止ドリフト WARN", $"maxDrift={maxDrift:F2} >=10 じわ悪化の兆し (合否には非影響)");
     }
 
     // ---- 静止押し出しの回帰テスト ----
