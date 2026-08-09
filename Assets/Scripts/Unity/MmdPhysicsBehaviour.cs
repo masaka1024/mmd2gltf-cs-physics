@@ -319,6 +319,78 @@ namespace BulletPhysics.Unity
         public static Quaternion MmdToUnityRot(Quat q) => new(q.x, q.y, q.z, q.w);
         public static Quat UnityToMmdRot(Quaternion q) => new(q.x, q.y, q.z, q.w);
 
+        // Z符号確定用の診断: Play中に Inspector で本コンポーネントを右クリック→"Dump Z history"。
+        // UnityToMmdPos(ボーン世界位置) を PMXバインド位置と成分比較する。
+        //   X一致・Zだけ符号反転 → 鏡像(ブリッジの余分なZ反転) / X,Z両方反転 → メッシュ側Y180° / 全一致 → 座標無罪。
+        [ContextMenu("Dump Z history")]
+        public void DumpZHistory()
+        {
+            // PhysX既定時など Start が走っていない場合に備え、計測に必要な _model/_boneTransforms を自前構築。
+            // 物理は駆動しない(Unityボーンの世界位置とPMXバインドを比較するだけ)。ModelRoot と GlbPath/PmxPath は必要。
+            if (_model == null)
+            {
+                try
+                {
+                    if (Source == InputSource.Glb) { if (!string.IsNullOrEmpty(GlbPath)) _model = GlbPhysicsReader.LoadFile(GlbPath, out _, out _); }
+                    else if (!string.IsNullOrEmpty(PmxPath)) _model = PmxReader.LoadFile(PmxPath);
+                }
+                catch (System.Exception e) { Debug.LogWarning($"[DumpZ] モデル読込失敗: {e.Message}"); }
+            }
+            // stale配列や物理未構築との不整合を避けるため、_model があれば毎回ボーンを再解決して長さを揃える。
+            if (_model != null && ModelRoot != null) ResolveBones();
+            if (_model == null || _boneTransforms == null)
+            {
+                Debug.LogWarning($"[DumpZ] 初期化不可 (model={( _model==null?"null":"ok")} bones={(_boneTransforms==null?"null":"ok")} ModelRoot={(ModelRoot==null?"未設定":"ok")} Source={Source} GlbPath='{GlbPath}' PmxPath='{PmxPath}')。ModelRootとパスを設定して実行してください。");
+                return;
+            }
+            // 判定は体側(物理で書き戻されない)ボーンで行う。髪/モミアゲ等は物理書き戻しで鏡像と物理変位が混ざるため除外。
+            // 頭(z=+0.193)と上半身2(z=-0.213)は符号が逆=両方が符号反転かつ絶対値一致なら鏡像の決定的証拠。
+            // つま先系(|z|≈2.15)は大きい値で丸めに惑わされない確証用。
+            string[] targets = {
+                "頭", "上半身2", "上半身", "下半身", "右腕", "左腕",
+                "右つま先", "左つま先", "右つま先ＩＫ", "左つま先ＩＫ"
+            };
+            var sb = new System.Text.StringBuilder("[DumpZ] 体側ボーン : UnityToMmd(bone.pos) vs PMXバインド\n");
+            // モデルのシーン配置(並進/回転)を明示。これが非恒等だと world 基準の物理駆動に影響する。
+            if (ModelRoot != null)
+            {
+                var e = ModelRoot.eulerAngles; var pos = ModelRoot.position; var sc = ModelRoot.lossyScale;
+                sb.AppendLine($"  ModelRoot: pos=({pos.x:F3},{pos.y:F3},{pos.z:F3}) euler=({e.x:F1},{e.y:F1},{e.z:F1}) scale=({sc.x:F3},{sc.y:F3},{sc.z:F3})");
+            }
+            var U2M = new System.Collections.Generic.Dictionary<string, Vec3>();
+            var PMX = new System.Collections.Generic.Dictionary<string, Vec3>();
+            int nSafe = System.Math.Min(_model.BoneNames.Count, System.Math.Min(_boneTransforms.Length, _model.BonePositions.Count));
+            for (int i = 0; i < nSafe; i++)
+            {
+                if (System.Array.IndexOf(targets, _model.BoneNames[i]) < 0) continue;
+                var tr = _boneTransforms[i]; if (tr == null) continue;
+                var m = UnityToMmdPos(tr.position); var p = _model.BonePositions[i];
+                U2M[_model.BoneNames[i]] = m; PMX[_model.BoneNames[i]] = p;
+                sb.AppendLine($"  {_model.BoneNames[i],-8}: U2M=({m.x,7:F3},{m.y,7:F3},{m.z,7:F3}) PMX=({p.x,7:F3},{p.y,7:F3},{p.z,7:F3})");
+            }
+            // ★配置(並進・回転)に依存しない鏡映判定: X-Z平面の掌性(符号付き面積)が反転すれば reflection=鏡像。
+            //   横方向ベクトル(左腕-右腕) と 上下方向ベクトルの水平成分(頭-下半身) の2D外積の符号を PMX と U2M で比較。
+            string verdict = "判定不能(基準ボーン不足: 右腕/左腕/頭/下半身/上半身2 が要る)";
+            bool Has(string n) => U2M.ContainsKey(n);
+            string vRef = Has("下半身") ? "下半身" : (Has("上半身") ? "上半身" : null);
+            string vTop = Has("頭") ? "頭" : (Has("上半身2") ? "上半身2" : null);
+            if (Has("右腕") && Has("左腕") && vRef != null && vTop != null)
+            {
+                Vec3 latP = PMX["左腕"] - PMX["右腕"], latU = U2M["左腕"] - U2M["右腕"];      // 横(主にX)
+                Vec3 sagP = PMX[vTop] - PMX[vRef], sagU = U2M[vTop] - U2M[vRef];              // 縦(水平成分にZ)
+                float crossP = latP.x * sagP.z - latP.z * sagP.x;   // X-Z平面の符号付き面積
+                float crossU = latU.x * sagU.z - latU.z * sagU.x;
+                float dyTop = System.Math.Abs((U2M[vTop].y - U2M[vRef].y) - (PMX[vTop].y - PMX[vRef].y));
+                bool reflected = crossP * crossU < 0f;
+                bool magOk = System.Math.Abs(System.Math.Abs(crossP) - System.Math.Abs(crossU)) <= 0.15f * System.Math.Max(System.Math.Abs(crossP), 1e-3f);
+                verdict = $"掌性 PMX={crossP:F3} U2M={crossU:F3} (縦Y差={dyTop:F3}) → "
+                    + (reflected ? (magOk ? "★鏡映(reflection)=鏡像確定→ブリッジZ反転除去でFix" : "★鏡映だが絶対値差大(回転/歪み混在,要確認)")
+                                 : "掌性同符号=鏡映なし(座標無罪 or Y180回転)");
+            }
+            sb.AppendLine($"[判定] {verdict}");
+            Debug.Log(sb.ToString());
+        }
+
         void OnDrawGizmos()
         {
             if (!DrawGizmos || _builder == null) return;
