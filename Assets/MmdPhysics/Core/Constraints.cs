@@ -387,12 +387,29 @@ namespace BulletPhysics
         }
 
         // --- バネ (明示力積, サブステップ毎に 1 回) ---
+        //
+        // ★安定化クランプ (2026-08-10)。
+        //   陽的(前進オイラー)ばね impulse = -k*err*dt は k*dt²/m が 1 を超えると必ず発散する。
+        //   1ステップの速度変化が k*err*dt/m、それが次ステップの誤差を |err| より大きくするため、
+        //   誤差が毎ステップ k*dt²/m 倍に増幅されるからである。
+        //   実測: ぬこ式レーシングミク2023 は spring=100000 に対し錘の質量 0.01 で
+        //   k*dt²/m = 2778 → 毎ステップ約30倍に発散し、25ステップで float が溢れて NaN になった
+        //   (ツインテール先端の錘が起点。重力ゼロでも発散するので外力ではなくばねが原因)。
+        //   PMXモデルの 6/13 が同じ発散域にあり、これまで表面化しなかったのは忠実度検証に使っていた
+        //   IA のジョイントがばね定数ゼロだったため（＝1モデルでの検証は安定性を保証しない）。
+        //
+        //   対策: 力積を「1ステップで誤差をちょうど打ち消す量」= |err| * mEff / dt で頭打ちにする。
+        //   これは k*dt²/m = 1（デッドビート）に相当する安定限界で、行き過ぎが原理的に起きない。
+        //   mEff はソルバ本体 (AddLinearRow / AddAngularRow) と同一の式で求めるため、
+        //   クランプが効かない範囲 (k*dt²/m < 1) では従来と1ビットも変わらない。
+        //   実測A/B(300step 全剛体姿勢ハッシュ): IA系3モデルはビット完全一致、Racing_Miku2023 は NaN→完走。
         public void ApplySprings(float dt)
         {
             if (BodyA == null || BodyB == null) return;
             bool hasLin = SpringLinear.LengthSquared > 0;
             bool hasAng = SpringAngular.LengthSquared > 0;
             if (!hasLin && !hasAng) return;
+            float invDtSpring = dt > 0 ? 1f / dt : 0f;
 
             var rA = _anchorA - BodyA.CenterOfMass;
             var rB = _anchorB - BodyB.CenterOfMass;
@@ -409,6 +426,13 @@ namespace BulletPhysics
                     float err = linDelta.Dot(axis) - eq;
                     // Bullet の 6DOF バネには速度比例の粘性項が無いので付けない (force = -delta*k のみ)。
                     float impulse = (-k * err) * dt;
+                    // 安定化: AddLinearRow と同一の実効質量でデッドビート量に頭打ち。
+                    var rAxn = Vec3.Cross(rA, axis);
+                    var rBxn = Vec3.Cross(rB, axis);
+                    float invMEff = BodyA.InverseMass + BodyB.InverseMass
+                                  + rAxn.Dot(BodyA.InverseInertiaWorld * rAxn)
+                                  + rBxn.Dot(BodyB.InverseInertiaWorld * rBxn);
+                    impulse = ClampSpringImpulse(impulse, err, invMEff, invDtSpring);
                     var P = axis * impulse;
                     BodyA.ApplyImpulse(-P, rA);
                     BodyB.ApplyImpulse(P, rB);
@@ -428,11 +452,27 @@ namespace BulletPhysics
                     float err = euler[i] - eq;
                     // Bullet の 6DOF バネには速度比例の粘性項が無いので付けない (force = -delta*k のみ)。
                     float impulse = (-k * err) * dt;
+                    // 安定化: AddAngularRow と同一の実効慣性でデッドビート量に頭打ち。
+                    float invMEff = axis.Dot(BodyA.InverseInertiaWorld * axis)
+                                  + axis.Dot(BodyB.InverseInertiaWorld * axis);
+                    impulse = ClampSpringImpulse(impulse, err, invMEff, invDtSpring);
                     var L = axis * impulse;
                     BodyA.ApplyTorqueImpulse(-L);
                     BodyB.ApplyTorqueImpulse(L);
                 }
             }
+        }
+
+        /// <summary>陽的ばねの力積を安定限界（デッドビート＝1ステップで誤差をちょうど打ち消す量）で
+        /// 頭打ちにする。invMEff はソルバ行と同じ「1/実効質量」。これを超える力積は必ず行き過ぎを生み、
+        /// 誤差が毎ステップ増幅されて発散する。k*dt²/m &lt; 1 の健全なモデルでは一度も発動しない。</summary>
+        private static float ClampSpringImpulse(float impulse, float err, float invMEff, float invDt)
+        {
+            if (invMEff <= 0f || invDt <= 0f) return impulse; // 両方静的 等
+            float maxImp = Math.Abs(err) / invMEff * invDt;   // |err| * mEff / dt
+            if (impulse > maxImp) return maxImp;
+            if (impulse < -maxImp) return -maxImp;
+            return impulse;
         }
 
         private static float ClampToLimit(float v, float lo, float hi)

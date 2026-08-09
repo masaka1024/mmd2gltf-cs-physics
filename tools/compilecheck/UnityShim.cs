@@ -77,6 +77,10 @@ namespace UnityEngine
         public static void Log(object m) { }
         public static void LogWarning(object m) { }
         public static void LogError(object m) { }
+        // context 付きオーバーロード (Unity ではログをクリックして対象を選択できる)。
+        public static void Log(object m, object context) { }
+        public static void LogWarning(object m, object context) { }
+        public static void LogError(object m, object context) { }
     }
 
     public class TooltipAttribute : Attribute { public TooltipAttribute(string s) { } }

@@ -15,8 +15,12 @@ namespace BulletPhysics.Unity
     {
         public enum InputSource { Pmx, Glb }
 
-        [Tooltip("入力: Pmx=PMX直読み / Glb=GLBのextras.mmd経由 (どちらも同一の物理駆動)")]
-        public InputSource Source = InputSource.Pmx;
+        // ★既定 = Glb (2026-08-10)。Unity 上の運用は必ず GLB 経由 (インポーターが
+        //   Source=Glb / GlbPath を設定する) であり、Pmx 直読みはヘッドレス検証用の経路。
+        //   既定が Pmx だと、手で AddComponent したときだけ既定が実運用と食い違っていた。
+        //   ※ヘッドレスのハーネス (tools/*) は PmxReader を直接使うため、この既定に依存しない。
+        [Tooltip("入力: Glb=GLBのextras.mmd経由(Unityでの通常運用) / Pmx=PMX直読み(検証用)。どちらも同一の物理駆動")]
+        public InputSource Source = InputSource.Glb;
 
         [Tooltip("読み込む .pmx ファイルの絶対 or Assets 相対パス (Source=Pmx のとき)")]
         public string PmxPath = "";
@@ -91,8 +95,10 @@ namespace BulletPhysics.Unity
         //    dFL が動きに比例して大きい → 体コライダーは表示より1フレーム古い姿勢 = 速い動きで脚が刺さる機構。
         [Tooltip("ONで約120フレーム、実行順序/dt/ボーン遅れをConsoleへログして自動OFF")]
         public bool DiagnoseTiming = false;
-        [Tooltip("遅れ計測に使う速く動くボーン名")]
-        public string DiagnoseBone = "右ひざ";
+        // ★既定はブランク (2026-08-10)。"右ひざ" のようなモデル依存の名前を既定に置くと、
+        //   別モデルでは黙って解決できないまま計測が始まってしまう。使うときに明示指定する。
+        [Tooltip("遅れ計測に使う速く動くボーン名 (例: 右ひざ)。空のまま診断ONにすると警告して中止する")]
+        public string DiagnoseBone = "";
 
         private int _diagLeft = 0;
         private Transform _diagTr;
@@ -112,13 +118,27 @@ namespace BulletPhysics.Unity
                 if (_model != null && _boneTransforms != null)
                     for (int i = 0; i < _model.BoneNames.Count && i < _boneTransforms.Length; i++)
                         if (_model.BoneNames[i] == DiagnoseBone) { _diagTr = _boneTransforms[i]; break; }
-                Debug.Log($"[TimingDiag] 開始 bone={DiagnoseBone} 解決={(_diagTr != null)} fixedDeltaTime={Time.fixedDeltaTime:F4} FTS={FixedTimeStep:F4} SubSteps={SubSteps}");
+                // ボーンが解決できないと、集計とカウントダウンを回す LateUpdate のブロックが
+                // まるごと素通りする = 計測が終わらず自動OFFもされない。始める前に弾く。
+                if (_diagTr == null)
+                {
+                    _diagLeft = 0;
+                    Debug.LogWarning($"[TimingDiag] 中止: ボーン \"{DiagnoseBone}\" を解決できません" +
+                        (string.IsNullOrEmpty(DiagnoseBone) ? " (DiagnoseBone が空です。例: 右ひざ)" : "") +
+                        "。DiagnoseBone に、このモデルに実在する速く動くボーン名を入れてから再実行してください。");
+                }
+                else
+                    Debug.Log($"[TimingDiag] 開始 bone={DiagnoseBone} fixedDeltaTime={Time.fixedDeltaTime:F4} FTS={FixedTimeStep:F4} SubSteps={SubSteps}");
             }
             if (_diagLeft > 0 && _diagTr != null) _diagUpdatePos = _diagTr.position;
         }
 
         [Header("Debug")]
-        public bool DrawGizmos = true;
+        // ★既定OFF (2026-08-10)。自作エンジンが既定の物理になり通常のシーンで常駐するため、
+        //   剛体100個超のギズモを常時描くのはSceneビューのノイズと描画コストにしかならない。
+        //   剛体の位置ズレや取付を目で追いたいときだけONにする。
+        [Tooltip("Sceneビューに剛体ギズモを描く。デバッグ時のみON推奨 (剛体は100個超あり重い)")]
+        public bool DrawGizmos = false;
 
         private PmxPhysicsBuilder _builder;
         private PmxPhysicsModel _model;
@@ -295,10 +315,38 @@ namespace BulletPhysics.Unity
                 var boneWorld = (aligned != null && aligned[link.BoneIndex].HasValue)
                     ? aligned[link.BoneIndex].Value
                     : link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse();
-                tr.position = MmdToUnityPos(boneWorld.Origin);
-                tr.rotation = MmdToUnityRot(boneWorld.Rotation);
+
+                // ★NaN ガード (2026-08-10)。物理が発散して NaN を吐くと、そのまま Transform へ
+                //   書き込まれてスケルトンが壊れ、毎フレーム大量のエラーが出て原因も埋もれる。
+                //   ここで止めて剛体を静止させ、最初の1回だけ名指しで警告する。
+                //   ※これは対症療法。発散そのものはエンジン側で潰すこと
+                //   （既知の原因: 陽的ばねの過剰な力積 → Constraints.ApplySprings で安定化クランプ済み）。
+                if (IsFinite(boneWorld.Origin) && IsFinite(boneWorld.Rotation))
+                {
+                    tr.position = MmdToUnityPos(boneWorld.Origin);
+                    tr.rotation = MmdToUnityRot(boneWorld.Rotation);
+                }
+                else if (!_nanReported)
+                {
+                    _nanReported = true;
+                    string bone = link.BoneIndex < _model.BoneNames.Count ? _model.BoneNames[link.BoneIndex] : $"#{link.BoneIndex}";
+                    Debug.LogError($"[MmdPhysics] 物理が発散して NaN になりました (最初の検出: ボーン '{bone}')。" +
+                        "このボーンへの書き戻しを停止し、以後の NaN は無視します。" +
+                        "剛体のばね定数が大きすぎる/質量が小さすぎるモデルで起きます。" +
+                        $"FixedTimeStep({FixedTimeStep:F5})を小さくするか SubSteps を増やすと改善することがあります。", this);
+                }
             }
         }
+
+        private static bool IsFinite(Vec3 v) =>
+            !(float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z) ||
+              float.IsInfinity(v.x) || float.IsInfinity(v.y) || float.IsInfinity(v.z));
+
+        private static bool IsFinite(Quat q) =>
+            !(float.IsNaN(q.x) || float.IsNaN(q.y) || float.IsNaN(q.z) || float.IsNaN(q.w) ||
+              float.IsInfinity(q.x) || float.IsInfinity(q.y) || float.IsInfinity(q.z) || float.IsInfinity(q.w));
+
+        private bool _nanReported;
 
         private RigidTransform BoneWorld(int boneIndex)
         {
