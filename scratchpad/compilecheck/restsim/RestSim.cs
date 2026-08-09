@@ -244,6 +244,20 @@ static class RestSim
         }
         O.AppendLine($"[after] boxes with center INSIDE a leg capsule (clear<-0.02) = {wrongSide}/{skirt.Count}  worst={worstNeg:F4} ({worstNegName})");
         O.AppendLine($"[after] boxes that FLIPPED outside->inside(=突き抜け疑い) = {flipped}/{skirt.Count}");
+        // ★方向診断(2026-08-09): 髪剛体の変位ベクトル(final-bind)。重力主因なら dy 支配。
+        //   dz(前後)支配なら重力では説明できない=鏡像バグ疑い。
+        {
+            var dxs = new List<float>(); var dys = new List<float>(); var dzs = new List<float>();
+            foreach (var b in hair) { var d = b.WorldTransform.Origin - dynBind[b]; dxs.Add(d.x); dys.Add(d.y); dzs.Add(d.z); }
+            float Med(List<float> v) { v.Sort(); return v.Count > 0 ? v[v.Count / 2] : 0; }
+            float Avg(List<float> v) { float s = 0; foreach (var x in v) s += x; return v.Count > 0 ? s / v.Count : 0; }
+            float amx = Math.Abs(Avg(dxs)), amy = Math.Abs(Avg(dys)), amz = Math.Abs(Avg(dzs));
+            string dom = amy >= amx && amy >= amz ? "dy(重力)" : (amz >= amx ? "dz(前後=鏡像疑い!)" : "dx(左右)");
+            O.AppendLine($"[方向診断 髪変位ベクトル final-bind] 中央(dx,dy,dz)=({Med(dxs):F3},{Med(dys):F3},{Med(dzs):F3}) 平均=({Avg(dxs):F3},{Avg(dys):F3},{Avg(dzs):F3}) 支配軸={dom}");
+            // 変位が大きい上位5剛体の符号付き内訳
+            var top = hair.Select(b => (b.Name, d: b.WorldTransform.Origin - dynBind[b])).OrderByDescending(x => x.d.Length).Take(5);
+            foreach (var (nm, d) in top) O.AppendLine($"   {nm}: ({d.x:F2},{d.y:F2},{d.z:F2}) |{d.Length:F2}|");
+        }
         long war = BulletPhysics.Joint.WarmAngRows, wat = BulletPhysics.Joint.WarmAngToggles;
         if (war > 0) O.AppendLine($"[warm-ang] 角度warm行={war} トグル={wat} トグル率={(double)wat / war:P1}");
         Console.Write(O.ToString());

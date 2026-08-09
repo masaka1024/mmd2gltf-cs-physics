@@ -19,6 +19,7 @@ static class HairFid
 {
     const float DT = 1f / 30f;
     static bool IsHair(string n) => n != null && (n.Contains("髪") || n.Contains("ツインテ") || n.Contains("もみあげ") || n.Contains("前髪") || n.Contains("モミアゲ"));
+    static bool IsSkirt(string n) => n != null && n.Contains("スカート");
     static readonly string[] BodyColliderBones = { "頭", "頭2", "首", "上半身", "上半身2", "下半身", "下半身1", "下半身3", "下半身4", "右足", "左足", "右ひざ", "左ひざ", "右太もも", "左太もも" };
 
     // 相対回転角(rad)。dq=b*conj(a); angle=2*atan2(|xyz|,|w|)。acos不使用。
@@ -76,13 +77,14 @@ static class HairFid
                 if ((BodyColliderBones.Contains(link.Body.Name) || (bone != null && BodyColliderBones.Contains(bone))) && bone != null && csv.HasBone(bone)) bodyLinks.Add((link, bone));
                 if (bone != null && csv.HasBone(bone)) driven.Add((link, bone));
             }
-            else if (IsHair(link.Body.Name) && bone != null && csv.HasBone(bone))
+            else if ((IsHair(link.Body.Name) || IsSkirt(link.Body.Name)) && bone != null && csv.HasBone(bone))
             {
                 var bindBone = new RigidTransform(Quat.Identity, model.BonePositions[link.BoneIndex]);
                 hairLinks.Add((link, bone, bindBone));
             }
         }
-        Console.WriteLine($"[構成] 髪剛体={hairLinks.Count} 体コライダー={bodyLinks.Count} 駆動BoneFollow={driven.Count}");
+        int nHair = hairLinks.Count(x => IsHair(x.link.Body.Name));
+        Console.WriteLine($"[構成] 比較剛体={hairLinks.Count}(髪{nHair}+スカート{hairLinks.Count - nHair}) 体コライダー={bodyLinks.Count} 駆動BoneFollow={driven.Count}");
 
         // --- バインド相対0 確認: 各髪剛体を bind に置き、ボーン姿勢復元 vs PMX bind bone ---
         float bindPosMax = 0, bindAngMax = 0;
@@ -111,6 +113,9 @@ static class HairFid
         foreach (var (l, b, _) in hairLinks) { posDiff[b] = new(); angDiff[b] = new(); oursDev[b] = new(); refDev[b] = new(); }
         // ターン窓判定用: 下半身ヨー角速度
         var yawRate = new float[F];
+        // ★符号付き位置差(自前-本家) per-frame 累積 (髪/スカート別)。鏡像=Z符号が系統的にずれる。
+        var hSx = new float[F]; var hSy = new float[F]; var hSz = new float[F]; var hCn = new int[F];
+        var sSx = new float[F]; var sSy = new float[F]; var sSz = new float[F]; var sCn = new int[F];
         // 貫入: pair -> max, deep>0.5 のフレーム記録(診断込み)
         var penMax = new Dictionary<string, float>();
         var deepFrames = new List<(int f, string pair, float d, float ni, bool aabb, int mpts)>();
@@ -137,6 +142,9 @@ static class HairFid
                 if (!csv.TryGet(f, bone, out var refb)) continue;
                 posDiff[bone].Add((ours.Origin - refb.Origin).Length);
                 angDiff[bone].Add(Deg(RelAngle(ours.Rotation, refb.Rotation)));
+                var dv = ours.Origin - refb.Origin; // 符号付き(自前-本家)
+                if (IsHair(bone)) { hSx[f] += dv.x; hSy[f] += dv.y; hSz[f] += dv.z; hCn[f]++; }
+                else { sSx[f] += dv.x; sSy[f] += dv.y; sSz[f] += dv.z; sCn[f]++; }
                 oursDev[bone].Add(Deg(RelAngle(bindBone.Rotation, ours.Rotation)));
                 refDev[bone].Add(Deg(RelAngle(bindBone.Rotation, refb.Rotation)));
             }
@@ -152,10 +160,11 @@ static class HairFid
                     penMax[pair] = Math.Max(penMax.GetValueOrDefault(pair), pen);
                     if (pen > 0.5f)
                     {
-                        // 診断: 法線インパルス(このペアの接触の合計), AABB重なり, マニフォールド点数
-                        float ni = 0; foreach (var c in dbg) if ((c.a == hl.Body.Name && c.b == bl.Body.Name) || (c.a == bl.Body.Name && c.b == hl.Body.Name)) ni += c.ni;
+                        // 診断: 法線インパルス合計, AABB, ★永続マニフォールド点数(=このペアのDebugContacts件数)
+                        float ni = 0; int mfp = 0;
+                        foreach (var c in dbg) if ((c.a == hl.Body.Name && c.b == bl.Body.Name) || (c.a == bl.Body.Name && c.b == hl.Body.Name)) { ni += c.ni; mfp++; }
                         var aa = hl.Body.ComputeAabb(); var bb = bl.Body.ComputeAabb(); bool aabb = aa.Intersects(ref bb);
-                        deepFrames.Add((f, pair, pen, ni, aabb, buf.Count));
+                        deepFrames.Add((f, pair, pen, ni, aabb, mfp));
                         if (!deepByPair.TryGetValue(pair, out var st)) { st = new(); deepByPair[pair] = st; }
                         st.Add(f);
                     }
@@ -189,6 +198,18 @@ static class HairFid
         int nturn = turn.Count(x => x), nquiet = F - nturn;
         O.AppendLine($"\n===== (2) 髪 本家突合 (自前 warm={world.UseJointWarmStart} fac={Joint.WarmStartFactor}) =====");
         O.AppendLine($"フレーム {F} (ターン窓={nturn}f 静区間={nquiet}f)");
+
+        // ★符号付き位置差(自前-本家) 静区間平均: 鏡像診断。Z(前後)が支配的に非0なら鏡像。
+        double hx = 0, hy = 0, hz = 0; int hn = 0; double kx = 0, ky = 0, kz = 0; int kn = 0;
+        for (int f = 0; f < F; f++)
+        {
+            if (turn[f]) continue;
+            if (hCn[f] > 0) { hx += hSx[f]; hy += hSy[f]; hz += hSz[f]; hn += hCn[f]; }
+            if (sCn[f] > 0) { kx += sSx[f]; ky += sSy[f]; kz += sSz[f]; kn += sCn[f]; }
+        }
+        string Dom(double x, double y, double z) => Math.Abs(z) >= Math.Abs(x) && Math.Abs(z) >= Math.Abs(y) ? "dz(前後=鏡像!)" : (Math.Abs(x) >= Math.Abs(y) ? "dx(左右)" : "dy(上下)");
+        if (hn > 0) O.AppendLine($"[符号付き位置差 自前-本家 髪 静区間平均] ({hx / hn:F3},{hy / hn:F3},{hz / hn:F3}) 支配={Dom(hx / hn, hy / hn, hz / hn)}");
+        if (kn > 0) O.AppendLine($"[符号付き位置差 自前-本家 スカート 静区間平均] ({kx / kn:F3},{ky / kn:F3},{kz / kn:F3}) 支配={Dom(kx / kn, ky / kn, kz / kn)}");
 
         // 全体 位置/角度 差 (全frame×全髪ボーン)
         List<float> allPos = new(), allAng = new(); float signSum = 0; int signN = 0;
@@ -246,7 +267,12 @@ static class HairFid
             for (int k = e.f + 1; st.Contains(k); k++) dur++;
             O.AppendLine($"   f{e.f,4} {e.pair,-20} pen={e.d:F3} AABB={(e.aabb ? "重" : "離")} 点={e.mpts} ni={e.ni:F4} 継続={dur}f {(turn[e.f] ? "[ターン]" : "[静]")}");
         }
-        O.AppendLine("   ★読み: AABB離 or 点0 → 未検出(broadphase/形状ペア/マスク)。 AABB重&点>0&ni≈0 → 検出済だが未解決(接触が構築されてない/インパルス0)。 ni>0で継続 → 押してるが綱引き負け(ジョイントが体へ押し付け)。");
+        O.AppendLine("   (点=永続マニフォールドの接触点数=このペアのDebugContacts件数)");
+        O.AppendLine("   ★読み: AABB離 or 点0 → 未検出。 点1でni大 → 単点支持で回り込み沈み(=4点マニフォールド化の対象)。 ni≈0 → 接触未構築。");
+        // 深貫入時のマニフォールド点数分布 (単点支持が主因かの確認)
+        var mfpDist = new int[6];
+        foreach (var e in deepFrames) mfpDist[Math.Min(5, e.mpts)]++;
+        O.AppendLine($"[深貫入時マニフォールド点数分布] 点0={mfpDist[0]} 点1={mfpDist[1]} 点2={mfpDist[2]} 点3={mfpDist[3]} 点4={mfpDist[4]} 点5+={mfpDist[5]}");
 
         Console.Write(O.ToString());
         return 0;

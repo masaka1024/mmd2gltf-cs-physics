@@ -243,6 +243,31 @@ static class ChainBug
     {
         var task = Environment.GetEnvironmentVariable("TASK") ?? "A";
         if (task == "1") { var s1 = new StringBuilder(); Step1(s1); Console.Write(s1.ToString()); System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "chainbug_step1_out.txt"), s1.ToString()); return 0; }
+        if (task == "MIRROR")
+        {
+            // ユーザ提案の最小再現: キネマ親の「背面(+Z)」に子を吊るし、6DOF角度リミット±60°で重力。
+            // 子が背面(+Z)に留まれば正常、正面(-Z)へ回り込めば鏡像バグ。PMX/Unity不要。
+            var s = new StringBuilder();
+            s.AppendLine("== 鏡像 最小再現: 親(0,0,0)kinematic, 子(0,0,1)=背面(+Z), joint frame(0,0,0), 角度±60°ロック並進, 重力-9.8 ==");
+            foreach (float capH in new[] { 0f }) // 単純点
+            {
+                var world = new PhysicsWorld { Gravity = new Vec3(0, -9.8f, 0), SubSteps = 2, FixedTimeStep = 1f / 60f, SolverIterations = 20 };
+                if (System.Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
+                var parent = new RigidBody(new BoxShape(new Vec3(0.1f, 0.1f, 0.1f))) { Mode = PhysicsMode.BoneFollow, Name = "parent" };
+                parent.WorldTransform = new RigidTransform(Quat.Identity, new Vec3(0, 0, 0)); parent.SetMassProps(0f); world.AddBody(parent);
+                var child = new RigidBody(new BoxShape(new Vec3(0.1f, 0.1f, 0.1f))) { Mode = PhysicsMode.Dynamic, Name = "child" };
+                child.WorldTransform = new RigidTransform(Quat.Identity, new Vec3(0, 0, 1)); child.CollisionMask = 0; child.SetMassProps(1f); world.AddBody(child);
+                float lim = 1.0472f; // ±60°
+                world.AddJoint(Joint.FromPmx(JointType.Generic6Dof, parent, child, new RigidTransform(Quat.Identity, new Vec3(0, 0, 0)),
+                    Vec3.Zero, Vec3.Zero, new Vec3(-lim, -lim, -lim), new Vec3(lim, lim, lim), Vec3.Zero, Vec3.Zero));
+                var init = child.WorldTransform.Origin;
+                for (int st = 0; st < 600; st++) world.StepSimulation(1f / 60f);
+                var fin = child.WorldTransform.Origin; var d = fin - init;
+                s.AppendLine($"  子 初期=(0,0,1)背面 → 最終=({fin.x:F3},{fin.y:F3},{fin.z:F3})  変位=({d.x:F3},{d.y:F3},{d.z:F3})");
+                s.AppendLine($"  ★z>0(背面維持)=正常 / z<0(正面へ回り込み)=鏡像バグ。 最終z={fin.z:F3} → {(fin.z > 0 ? "背面維持(正常)" : "正面へ回り込み(鏡像!)")}");
+            }
+            Console.Write(s.ToString()); return 0;
+        }
         if (task == "3")
         {
             // タスク3: 向き × iters, 実髪形状capsule(m1,seg2,lever1)。warm等は env で切替(既定OFF)。
