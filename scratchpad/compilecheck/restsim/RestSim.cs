@@ -188,9 +188,13 @@ static class RestSim
         { if (!AabbNear(b, k)) continue; if (!PhysicsWorld.ShouldCollide(b, k)) continue; float d = PenDepth(b, k); if (d > bindDK) { bindDK = d; bindDKn = $"{b.Name}×{k.Name}"; } }
         O.AppendLine($"[bind pen] dyn×dyn max={bindDD:F4} ({bindDDn})  dyn×kin max={bindDK:F4} ({bindDKn})");
 
+        // 体コライダー(髪の相手になる kinematic 体) = 髪自身でない kinematic 全部。
+        var bodyKin = kin;
         int N = 180; float runPeak = 0; bool nan = false;
         float maxSpeed = 0; string maxSpeedName = ""; float maxDisp = 0; string maxDispName = "";
         int explodeStep = -1;
+        int deepPenRun = 0; // タスクX: 髪×体 深貫入(>0.5) の (剛体×ステップ) 延べ件数(ShouldCollideゲート有)
+        int deepPenRunRaw = 0; float runRawPeakPen = 0; string runRawPeakPair = ""; // ゲート無し(生geo)
         var tsSteps = new HashSet<int> { 0, 1, 2, 4, 8, 16, 32, 64, 128, 179 };
         for (int f = 0; f < N; f++)
         {
@@ -212,6 +216,13 @@ static class RestSim
                 float dp = (o - dynBind[b]).Length; if (dp > maxDisp) { maxDisp = dp; maxDispName = b.Name; }
             }
             foreach (var s in skirt) foreach (var l in legs) { if (!AabbNear(s, l)) continue; float d = PenDepth(s, l); if (d > runPeak) runPeak = d; }
+            // タスクX: 髪×体 深貫入(>0.5) を延べ計上(ゲート有/無)。生geoピークも追跡。
+            foreach (var b in hair) foreach (var k in bodyKin)
+            {
+                if (!AabbNear(b, k)) continue; float d = PenDepth(b, k);
+                if (d > 0.5f) { deepPenRunRaw++; if (PhysicsWorld.ShouldCollide(b, k)) deepPenRun++; }
+                if (d > runRawPeakPen) { runRawPeakPen = d; runRawPeakPair = $"{b.Name}×{k.Name}"; }
+            }
         }
         // モデル寸法(全剛体bindのbboxの対角)を基準に「爆発」を判断。
         float exploded = dyn.Count(b => (b.WorldTransform.Origin - dynBind[b]).Length > 2.0f);
@@ -254,9 +265,32 @@ static class RestSim
             float amx = Math.Abs(Avg(dxs)), amy = Math.Abs(Avg(dys)), amz = Math.Abs(Avg(dzs));
             string dom = amy >= amx && amy >= amz ? "dy(重力)" : (amz >= amx ? "dz(前後=鏡像疑い!)" : "dx(左右)");
             O.AppendLine($"[方向診断 髪変位ベクトル final-bind] 中央(dx,dy,dz)=({Med(dxs):F3},{Med(dys):F3},{Med(dzs):F3}) 平均=({Avg(dxs):F3},{Avg(dys):F3},{Avg(dzs):F3}) 支配軸={dom}");
-            // 変位が大きい上位5剛体の符号付き内訳
-            var top = hair.Select(b => (b.Name, d: b.WorldTransform.Origin - dynBind[b])).OrderByDescending(x => x.d.Length).Take(5);
-            foreach (var (nm, d) in top) O.AppendLine($"   {nm}: ({d.x:F2},{d.y:F2},{d.z:F2}) |{d.Length:F2}|");
+            // タスクX計測: 髪 maxDrift(=変位の最大長)、髪×体 深貫入(>0.5) の final件数。
+            float hairMaxDrift = 0; foreach (var b in hair) { float dd = (b.WorldTransform.Origin - dynBind[b]).Length; if (dd > hairMaxDrift) hairMaxDrift = dd; }
+            int deepPenFinal = 0; foreach (var b in hair) foreach (var k in bodyKin) { if (!AabbNear(b, k)) continue; if (!PhysicsWorld.ShouldCollide(b, k)) continue; if (PenDepth(b, k) > 0.5f) deepPenFinal++; }
+            // ゲート無し(生の幾何貫入): 衝突グループを無視した実際の埋没。ゲート版との差=「衝突しない設定で貫通」の量。
+            int deepPenRawFinal = 0; float worstRaw = 0; string worstRawPair = ""; int nonCollideDeep = 0;
+            foreach (var b in hair) foreach (var k in bodyKin)
+            {
+                if (!AabbNear(b, k)) continue; float d = PenDepth(b, k);
+                if (d > 0.5f) { deepPenRawFinal++; if (!PhysicsWorld.ShouldCollide(b, k)) nonCollideDeep++; }
+                if (d > worstRaw) { worstRaw = d; worstRawPair = $"{b.Name}×{k.Name}{(PhysicsWorld.ShouldCollide(b, k) ? "[衝突ON]" : "[衝突OFF]")}"; }
+            }
+            O.AppendLine($"[タスクX] iters={world.SolverIterations} 髪maxDrift={hairMaxDrift:F3} dz={Avg(dzs):F3}");
+            O.AppendLine($"   深貫入>0.5 ゲート有: final={deepPenFinal} 延べ={deepPenRun} / 生geo: final={deepPenRawFinal}(内衝突OFF={nonCollideDeep}) 延べ={deepPenRunRaw} run中最深={runRawPeakPen:F2}({runRawPeakPair}) final最深={worstRaw:F2}({worstRawPair})");
+            // 髪×体で「衝突ON」に設定されたペアは存在するか。存在しなければ衝突は前方スイングを止めようがない。
+            int collideOnPairs = 0, collideOnOverlap = 0; float collideOnPeakPen = 0; string collideOnPeakPair = "";
+            foreach (var b in hair) foreach (var k in bodyKin)
+            {
+                if (!PhysicsWorld.ShouldCollide(b, k)) continue; collideOnPairs++;
+                if (!AabbNear(b, k)) continue; float d = PenDepth(b, k);
+                if (d > 0.02f) collideOnOverlap++;
+                if (d > collideOnPeakPen) { collideOnPeakPen = d; collideOnPeakPair = $"{b.Name}×{k.Name}"; }
+            }
+            O.AppendLine($"   髪×体 衝突ONペア数={collideOnPairs} (final時 重なり>0.02={collideOnOverlap} 最深={collideOnPeakPen:F3} {collideOnPeakPair})");
+            // 変位が大きい上位5剛体の符号付き内訳 + bind→final の絶対Z(前後の跨ぎを見る)。
+            var top = hair.Select(b => (b, d: b.WorldTransform.Origin - dynBind[b])).OrderByDescending(x => x.d.Length).Take(5);
+            foreach (var (b, d) in top) O.AppendLine($"   {b.Name}: 変位({d.x:F2},{d.y:F2},{d.z:F2})|{d.Length:F2}|  Z: bind={dynBind[b].z:F2}→final={b.WorldTransform.Origin.z:F2} {(dynBind[b].z > 0 && b.WorldTransform.Origin.z < 0 ? "★背→前 跨ぎ" : "")}");
         }
         long war = BulletPhysics.Joint.WarmAngRows, wat = BulletPhysics.Joint.WarmAngToggles;
         if (war > 0) O.AppendLine($"[warm-ang] 角度warm行={war} トグル={wat} トグル率={(double)wat / war:P1}");
