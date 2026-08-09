@@ -146,6 +146,10 @@ static class HairFid
         var skirtChildren = hairLinks.Where(x => IsSkirt(x.link.Body.Name) && x.link.BoneIndex >= 0).Select(x => x.link.BoneIndex).ToList();
         var relDriftVals = new List<float>();     // 自前(sim)
         var relDriftRef = new List<float>();      // 本家(CSV: ON or OFF, 同subset/同定義)
+        // 伸び(回転不変): | |子-親| - |bind子-親| |。回転では変わらないので、相対保持のうち「鎖の伸び」成分だけを分離する。
+        var stretchVals = new List<float>(); var stretchRef = new List<float>();
+        // 方向変化角: 現(子-親) と bind(子-親) のなす角。振り子なら枠の傾きと同程度、横滑りなら枠より大きい。
+        var dirVals = new List<float>(); var dirRef = new List<float>();
         var dbg = new List<(string a, string b, float dist, float ni)>();
         world.DebugContacts = dbg;
 
@@ -185,11 +189,28 @@ static class HairFid
                     if (pi < 0) continue;
                     var bindRel = model.BonePositions[ci] - model.BonePositions[pi];
                     // 自前(sim): wpos に子・親があれば
+                    float DirDeg(Vec3 r0)
+                    {
+                        float den = r0.Length * bindRel.Length;
+                        if (den < 1e-9f) return 0;
+                        double c0 = Math.Max(-1.0, Math.Min(1.0, r0.Dot(bindRel) / den));
+                        return (float)(Math.Acos(c0) * 180.0 / Math.PI);
+                    }
                     if (wpos.ContainsKey(ci) && wpos.ContainsKey(pi))
-                        relDriftVals.Add(((wpos[ci] - wpos[pi]) - bindRel).Length);
+                    {
+                        var r = wpos[ci] - wpos[pi];
+                        relDriftVals.Add((r - bindRel).Length);
+                        stretchVals.Add(Math.Abs(r.Length - bindRel.Length));
+                        dirVals.Add(DirDeg(r));
+                    }
                     // 本家(CSV): 同subset/同親定義で CSV 位置から
                     if (csv.TryGet(f, model.BoneNames[ci], out var cc) && csv.TryGet(f, model.BoneNames[pi], out var cp))
-                        relDriftRef.Add(((cc.Origin - cp.Origin) - bindRel).Length);
+                    {
+                        var r = cc.Origin - cp.Origin;
+                        relDriftRef.Add((r - bindRel).Length);
+                        stretchRef.Add(Math.Abs(r.Length - bindRel.Length));
+                        dirRef.Add(DirDeg(r));
+                    }
                 }
             }
             // 髪×体 貫入 (自前物理の結果) + 診断
@@ -273,6 +294,20 @@ static class HairFid
             float refm = 0, refp = 0, refx = 0;
             if (relDriftRef.Count > 0) { relDriftRef.Sort(); refm = relDriftRef[relDriftRef.Count / 2]; refp = relDriftRef[(int)(relDriftRef.Count * 0.9)]; refx = relDriftRef[relDriftRef.Count - 1]; }
             O.AppendLine($"[移動ロック相対保持 skirt 同subset/同定義] 自前 中央={rm:F3}/p90={rp:F3}/最大={rx:F3}  本家(CSV) 中央={refm:F3}/p90={refp:F3}/最大={refx:F3}  (小さい=固く保持)");
+            if (stretchVals.Count > 0 && stretchRef.Count > 0)
+            {
+                stretchVals.Sort(); stretchRef.Sort();
+                float sm = stretchVals[stretchVals.Count / 2], sp = stretchVals[(int)(stretchVals.Count * 0.9)], sx = stretchVals[stretchVals.Count - 1];
+                float tm = stretchRef[stretchRef.Count / 2], tp = stretchRef[(int)(stretchRef.Count * 0.9)], tx = stretchRef[stretchRef.Count - 1];
+                O.AppendLine($"[伸び(回転不変) | |子-親|-|bind| |] 自前 中央={sm:F3}/p90={sp:F3}/最大={sx:F3}  本家(CSV) 中央={tm:F3}/p90={tp:F3}/最大={tx:F3}  (回転で変わらない=鎖の伸びのみ)");
+                if (dirVals.Count > 0 && dirRef.Count > 0)
+                {
+                    dirVals.Sort(); dirRef.Sort();
+                    float dm = dirVals[dirVals.Count / 2], dp2 = dirVals[(int)(dirVals.Count * 0.9)];
+                    float em = dirRef[dirRef.Count / 2], ep = dirRef[(int)(dirRef.Count * 0.9)];
+                    O.AppendLine($"[方向変化角 (現r vs bind r)] 自前 中央={dm:F1}°/p90={dp2:F1}°  本家(CSV) 中央={em:F1}°/p90={ep:F1}°  (振り子=枠傾きと同程度 / 横滑り=枠より大)");
+                }
+            }
         }
         // ターン窓 = ヨー>360°/s の frame を含む ±15f 窓 (簡易)。静区間=それ以外。
         bool[] turn = new bool[F];
