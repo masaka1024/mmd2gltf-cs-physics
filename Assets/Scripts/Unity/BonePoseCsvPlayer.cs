@@ -248,11 +248,11 @@ namespace BulletPhysics.Unity
             }
         }
 
-        // ---- 座標変換 (MmdPhysicsBehaviour と同一) ----
-        private Vector3 MmdToUnityPos(Vec3 v) => new(v.x * UnitScale, v.y * UnitScale, -v.z * UnitScale);
-        private static Quaternion MmdToUnityRot(Quat q) => new(-q.x, -q.y, q.z, q.w);
-        // 方向 (スケール無し・Z反転のみ, EPA法線は単位ベクトルなので長さ保存)。
-        private static Vector3 MmdToUnityDir(Vec3 v) => new(v.x, v.y, -v.z);
+        // ---- 座標変換 (MmdPhysicsBehaviour と同一。Z反転なし=単位スケールのみの等長変換) ----
+        private Vector3 MmdToUnityPos(Vec3 v) => new(v.x * UnitScale, v.y * UnitScale, v.z * UnitScale);
+        private static Quaternion MmdToUnityRot(Quat q) => new(q.x, q.y, q.z, q.w);
+        // 方向 (スケール無し。二重ReverseZ相殺後はZ反転不要)。
+        private static Vector3 MmdToUnityDir(Vec3 v) => new(v.x, v.y, v.z);
 
         void OnDrawGizmos()
         {

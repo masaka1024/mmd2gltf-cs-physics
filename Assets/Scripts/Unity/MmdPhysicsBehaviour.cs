@@ -38,12 +38,24 @@ namespace BulletPhysics.Unity
         public int SubSteps = 2;
         public float FixedTimeStep = 1f / 30f;
 
+        [Header("Startup")]
+        // 起動直後、アニメがフレーム0姿勢を確定させた後に物理をボーンへ再整合する遅延(フレーム数)。
+        // バインド姿勢→フレーム0への瞬間移動でスカート等が脚へ貫入(突き抜け)するのを防ぐ。
+        // Animator は Update と LateUpdate の間で姿勢を書くため、LateUpdate 時点ではフレーム0が
+        // 反映されている。そこで FK-rest リセット(ResetBodiesToBonePoseFk 相当)を掛けると、
+        // バインド位置に取り残された動的剛体(スカート/髪)が posed 骨格の周りへ置き直される。
+        // 0=無効(従来どおり Start 時のバインド基準のみ) / 1=フレーム0適用後の最初のLateUpdate /
+        // 2以上=さらに数フレーム保持してからライブ物理へ渡す(取りこぼし保険)。
+        [Tooltip("起動直後にアニメのフレーム0姿勢へ物理を再整合する遅延フレーム数。バインド→フレーム0の瞬間移動による貫入(突き抜け)対策。0で無効。")]
+        public int PoseResetDelayFrames = 2;
+
         [Header("Debug")]
         public bool DrawGizmos = true;
 
         private PmxPhysicsBuilder _builder;
         private PmxPhysicsModel _model;
         private Transform[] _boneTransforms;   // BoneIndex -> Transform
+        private int _startupResetCountdown = 0; // >0 の間、LateUpdate で posed 姿勢へ再整合する
 
         void Start()
         {
@@ -80,6 +92,9 @@ namespace BulletPhysics.Unity
             _builder.World.FixedTimeStep = FixedTimeStep;
             ResolveBones();
             ResetPhysicsToBones();
+            // アニメがフレーム0を適用するのは Start より後(Update→LateUpdate 間)。この時点の
+            // リセットはバインド基準なので、LateUpdate で posed 姿勢へ再整合し直す予約を入れる。
+            _startupResetCountdown = PoseResetDelayFrames > 0 ? PoseResetDelayFrames : 0;
         }
 
         /// <summary>物理開始/リセット時に、全剛体を現在のボーン姿勢へ整合させる
@@ -129,6 +144,17 @@ namespace BulletPhysics.Unity
             PullPhysicsToBones();
         }
 
+        // 起動直後の数フレームだけ、アニメが確定させた「フレーム0姿勢」に対して物理を再整合する。
+        // Animator は Update と LateUpdate の間で姿勢を書くため、ここでは posed 骨格が反映済み。
+        // FK-rest リセットで動的剛体(スカート/髪)を posed 骨格の周りへ置き直し、バインド→フレーム0の
+        // 瞬間移動で生じる脚への深い貫入(突き抜け)平衡を回避する。指定フレーム経過後はライブ物理へ。
+        void LateUpdate()
+        {
+            if (_startupResetCountdown <= 0 || _builder == null) return;
+            ResetPhysicsToBones();
+            _startupResetCountdown--;
+        }
+
         private void PushBonesToKinematic()
         {
             foreach (var link in _builder.BoneLinks)
@@ -165,13 +191,15 @@ namespace BulletPhysics.Unity
             return new RigidTransform(UnityToMmdRot(tr.rotation), UnityToMmdPos(tr.position));
         }
 
-        // --- 座標変換 (MMD 左手系 <-> Unity 左手系, Z 反転 + 単位スケール) ---
-        // PMX/MMD と Unity はどちらも左手系だが Z の向きが逆。位置は UnitScale で換算。
-        // (回転はスケール無関係なので static のまま)
-        public Vector3 MmdToUnityPos(Vec3 v) => new(v.x * UnitScale, v.y * UnitScale, -v.z * UnitScale);
-        public Vec3 UnityToMmdPos(Vector3 v) => new(v.x / UnitScale, v.y / UnitScale, -v.z / UnitScale);
-        public static Quaternion MmdToUnityRot(Quat q) => new(-q.x, -q.y, q.z, q.w);
-        public static Quat UnityToMmdRot(Quaternion q) => new(-q.x, -q.y, q.z, q.w);
+        // --- 座標変換 (MMD ネイティブ <-> Unity, 単位スケールのみ。Z反転なし) ---
+        // メッシュ/スケルトンは mmd2gltf(ReverseZ) → UniGLTF(ReverseZ) の二重ReverseZが相殺し、
+        // Unityボーンは既にPMXネイティブ座標値になっている。物理剛体もGlbPhysicsReaderがraw PMXで構築。
+        // 従って境界は「単位スケールのみ」の真の等長変換にする(以前の3回目Z反転=鏡映バグを除去)。
+        // 実測(DumpZ)でX-Z掌性の符号反転=鏡映を確認済み(PMX+1.583 vs U2M-1.583)。
+        public Vector3 MmdToUnityPos(Vec3 v) => new(v.x * UnitScale, v.y * UnitScale, v.z * UnitScale);
+        public Vec3 UnityToMmdPos(Vector3 v) => new(v.x / UnitScale, v.y / UnitScale, v.z / UnitScale);
+        public static Quaternion MmdToUnityRot(Quat q) => new(q.x, q.y, q.z, q.w);
+        public static Quat UnityToMmdRot(Quaternion q) => new(q.x, q.y, q.z, q.w);
 
         void OnDrawGizmos()
         {
