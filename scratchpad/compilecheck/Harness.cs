@@ -25,7 +25,8 @@ static class Harness
     static readonly bool WarmS = Environment.GetEnvironmentVariable("WARMSTART") == "1";
     static readonly bool WarmA = Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1";
     static readonly bool WarmOff = Environment.GetEnvironmentVariable("WARM_OFF") == "1";
-    static PhysicsWorld Cfg(PhysicsWorld w) { if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var wf)) Joint.WarmStartFactor = wf; w.UseJointSplitImpulse = JSplit; if (WarmOff) { w.UseJointWarmStart = false; w.UseJointWarmStartAngular = false; } return w; }
+    static readonly bool JointsFirst = Environment.GetEnvironmentVariable("JOINTS_FIRST") == "1";
+    static PhysicsWorld Cfg(PhysicsWorld w) { if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var wf)) Joint.WarmStartFactor = wf; w.UseJointSplitImpulse = JSplit; if (WarmOff) { w.UseJointWarmStart = false; w.UseJointWarmStartAngular = false; } if (JointsFirst) w.SolveJointsFirst = true; return w; }
 
     static int Main()
     {

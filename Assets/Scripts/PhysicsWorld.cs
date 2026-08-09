@@ -63,6 +63,12 @@ namespace BulletPhysics
         public bool UseJointWarmStartAngular = true;
         public float SplitImpulsePenetrationThreshold = -0.02f; // Bullet 2.75 m_splitImpulsePenetrationThreshold
 
+        // 求解順序: Bullet 2.75 solveSingleIteration は 1反復内で「ジョイント(NonContact)→接触→摩擦」の順に解き、
+        // 接触がジョイントより後=接触が後勝ち。自前の従来は「接触→ジョイント」でジョイントが後勝ち(接触の押し出しが
+        // 毎反復打ち消される=スカート貫入の主因)。ON で Bullet 同順(ジョイント→接触)に切替。
+        // 既定 false=従来順(ビット不変)。ON=Bullet 準拠。
+        public bool SolveJointsFirst = false;
+
         public readonly List<RigidBody> Bodies = new();
         public readonly List<Joint> Joints = new();
 
@@ -152,8 +158,18 @@ namespace BulletPhysics
 
             for (int it = 0; it < SolverIterations; it++)
             {
-                SolveContacts();
-                foreach (var j in Joints) j.SolveVelocity();
+                if (SolveJointsFirst)
+                {
+                    // Bullet 2.75 同順: ジョイント → 接触 (接触が後勝ち)。
+                    foreach (var j in Joints) j.SolveVelocity();
+                    SolveContacts();
+                }
+                else
+                {
+                    // 従来順: 接触 → ジョイント (ジョイントが後勝ち)。
+                    SolveContacts();
+                    foreach (var j in Joints) j.SolveVelocity();
+                }
             }
 
             // Split Impulse: 実速度の求解後、貫入回復(接触)/位置補正(ジョイント)を擬似速度側で
