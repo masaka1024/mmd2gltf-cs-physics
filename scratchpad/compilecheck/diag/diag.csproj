@@ -16,6 +16,6 @@
     <Compile Include="..\bonecheck\SkirtMeasure.cs" />
     <Compile Include="..\bonecheck\HeadlessDriver.cs" />
     <Compile Include="Diag.cs" />
-    <Compile Include="..\..\..\Assets\Scripts\**\*.cs" />
+    <Compile Include="..\..\..\Assets\MmdPhysics\**\*.cs" />
   </ItemGroup>
 </Project>

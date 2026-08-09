@@ -15,6 +15,6 @@
     <Compile Include="..\bonecheck\BoneCsv.cs" />
     <Compile Include="..\bonecheck\SkirtMeasure.cs" />
     <Compile Include="Time.cs" />
-    <Compile Include="..\..\..\Assets\Scripts\**\*.cs" />
+    <Compile Include="..\..\..\Assets\MmdPhysics\**\*.cs" />
   </ItemGroup>
 </Project>

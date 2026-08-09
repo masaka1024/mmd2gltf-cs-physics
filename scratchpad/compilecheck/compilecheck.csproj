@@ -15,6 +15,6 @@
     <Compile Include="TestData.cs" />
     <Compile Include="Harness.cs" />
     <!-- 検証対象のエンジン本体 (リポジトリ相対) -->
-    <Compile Include="..\..\Assets\Scripts\**\*.cs" />
+    <Compile Include="..\..\Assets\MmdPhysics\**\*.cs" />
   </ItemGroup>
 </Project>

@@ -12,6 +12,6 @@
   <ItemGroup>
     <Compile Include="..\UnityShim.cs" />
     <Compile Include="SignTest.cs" />
-    <Compile Include="..\..\..\Assets\Scripts\**\*.cs" />
+    <Compile Include="..\..\..\Assets\MmdPhysics\**\*.cs" />
   </ItemGroup>
 </Project>

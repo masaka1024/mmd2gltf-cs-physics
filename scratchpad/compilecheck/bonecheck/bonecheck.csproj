@@ -21,6 +21,6 @@
     <Compile Include="SyntheticTurn.cs" />
     <Compile Include="Program.cs" />
     <!-- 検証対象のエンジン本体 (リポジトリ相対、読み取りのみ) -->
-    <Compile Include="..\..\..\Assets\Scripts\**\*.cs" />
+    <Compile Include="..\..\..\Assets\MmdPhysics\**\*.cs" />
   </ItemGroup>
 </Project>
