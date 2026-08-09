@@ -48,6 +48,9 @@ namespace UnityEngine
         public string name;
         public Vector3 position;
         public Quaternion rotation;
+        // 診断(DumpZHistory)がシーン配置の確認に使う。ヘッドレスでは実体が無いので既定値を返すだけ。
+        public Vector3 eulerAngles => new Vector3(0, 0, 0);
+        public Vector3 lossyScale => new Vector3(1, 1, 1);
     }
 
     public class MonoBehaviour : Component { }
