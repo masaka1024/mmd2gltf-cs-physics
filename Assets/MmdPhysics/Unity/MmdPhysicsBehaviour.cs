@@ -74,6 +74,15 @@ namespace BulletPhysics.Unity
         [Tooltip("起動直後にアニメのフレーム0姿勢へ物理を再整合する遅延フレーム数。バインド→フレーム0の瞬間移動による貫入(突き抜け)対策。0で無効。")]
         public int PoseResetDelayFrames = 2;
 
+        // ★PMX mode2 (物理演算+ボーン位置合わせ) の実装 (2026-08-10)。
+        //   mode2 剛体は「位置はボーン階層から、回転は物理から」が本家の仕様。従来これが未実装で
+        //   mode1 と同じ完全自由になっていたため、スカートが本家より柔らかかった
+        //   (Tda式初音ミクV4X はスカート66個中32個が mode2。実測で揺れ幅 0.257→0.188)。
+        //   既定ON。mode2 剛体を持たないモデル(IA等)では何もしないので無影響。
+        //   OFF にすると従来どおり mode2 を mode1 と同じ扱いにする (A/B 比較用)。
+        [Tooltip("PMX mode2(物理演算+ボーン位置合わせ)を再現する。OFFで従来どおりmode1と同一扱い")]
+        public bool EnableBoneMergeMode = true;
+
         [Header("Correction (本家PMXエディタの補正層再現)")]
         // [物理+ボーン位置合わせ] 再現: 書き戻し時、位置を「親ボーン(補正済)位置+親回転×bindオフセット」の
         // 階層再構成に置換し、物理の移動分を捨てる (回転は物理のまま)。補正OFF/ON対照データで式を確定済み。
@@ -250,6 +259,10 @@ namespace BulletPhysics.Unity
 
             // 1. ボーン追従剛体に目標姿勢を渡す (物理前)。
             PushBonesToKinematic();
+
+            // 1b. PMX mode2 (物理演算+ボーン位置合わせ) の位置を引き戻す。
+            //     mode2 剛体が無いモデルでは何もしない (IA など)。
+            if (EnableBoneMergeMode) _builder.ApplyBoneMergePositions(BoneWorldOrNull);
 
             // 2. 物理ステップ。
             _builder.World.StepSimulation(Time.fixedDeltaTime);

@@ -70,6 +70,7 @@ namespace BulletPhysics.Pmx
                     BodyOffsetFromBone = ComputeOffset(model, rb),
                 };
                 BoneLinks.Add(link);
+                if (link.Mode == PhysicsMode.DynamicBoneMerge) _hasBoneMerge = true;
             }
         }
 
@@ -173,6 +174,46 @@ namespace BulletPhysics.Pmx
                 if (bw.HasValue) link.Body.KinematicTarget = bw.Value * link.BodyOffsetFromBone;
             }
         }
+
+        /// <summary>
+        /// PMX mode2 (DynamicBoneMerge = 物理演算+ボーン位置合わせ) を実現する。
+        /// 対象剛体の「位置」だけを、ボーン階層から再構成した姿勢へ引き戻す (回転は物理のまま)。
+        /// 物理ステップの直前に毎回呼ぶこと。
+        ///
+        /// ★2026-08-10 実装。従来 mode2 は列挙子があるだけで mode1 と同一扱いだった
+        ///   (全判定が != BoneFollow)。そのため作者が「位置は腰に固定」と指定した段まで
+        ///   並進自由になり、ジョイントの移動制限(例 Tda式スカートは±0.5)の分だけ各段がずれて
+        ///   鎖の下ほど積み上がる = スカートが本家より柔らかい、という症状になっていた。
+        ///   実測(Tda式・脚振り±50°): 揺れ幅 0.257 → 0.188 (約27%硬くなる)。
+        ///   13モデル中8モデルが mode2 を使用 (Tda式62個/レーシングミク38個/コロン式11個)。IAは0個。
+        ///
+        /// 位置の基準には ComputeAlignedBonePoses を使う。これは「親ボーン(補正済)の位置 +
+        /// 親回転 × bind オフセット」で階層を再構成するので、親が物理で回っていればその回転に
+        /// 追従した正しい位置になる (単純な FK-rest だと親の物理回転を無視してしまう)。
+        /// </summary>
+        /// <returns>位置を引き戻した剛体の数。</returns>
+        public int ApplyBoneMergePositions(System.Func<int, RigidTransform?> getDrivenBoneWorld)
+        {
+            if (!_hasBoneMerge) return 0;
+            var aligned = ComputeAlignedBonePoses(getDrivenBoneWorld);
+            int n = 0;
+            foreach (var link in BoneLinks)
+            {
+                if (link.Mode != PhysicsMode.DynamicBoneMerge || link.BoneIndex < 0) continue;
+                if (link.BoneIndex >= aligned.Length || !aligned[link.BoneIndex].HasValue) continue;
+                var target = aligned[link.BoneIndex].Value * link.BodyOffsetFromBone;
+                var tr = link.Body.WorldTransform;
+                tr.Origin = target.Origin;              // 位置のみボーン由来へ
+                link.Body.WorldTransform = tr;
+                link.Body.LinearVelocity = Vec3.Zero;   // 並進の運動量は持たせない
+                link.Body.UpdateInertiaWorld();
+                n++;
+            }
+            return n;
+        }
+
+        /// <summary>mode2 剛体が1つでもあるか (無ければ ApplyBoneMergePositions は完全に無コスト)。</summary>
+        private bool _hasBoneMerge;
 
         /// <summary>
         /// [物理+ボーン位置合わせ] 再現 (本家PMXエディタの補正層。補正OFF/ON対照データで式を確定, 2026-08-09):
