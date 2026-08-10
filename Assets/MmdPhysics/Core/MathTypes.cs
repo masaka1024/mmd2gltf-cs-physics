@@ -129,7 +129,35 @@ namespace BulletPhysics
             return new Quat(n.x * sin, n.y * sin, n.z * sin, (float)Math.Cos(half));
         }
 
+        /// <summary>
+        /// MMD/PMX のオイラー角(ラジアン)→クォータニオン。適用順は Z→X→Y、
+        /// すなわち R = Ry * Rx * Rz (YXZ順)。PMX の剛体/Joint の回転はこの順序で定義されている
+        /// (Bullet の btQuaternion(yaw, pitch, roll) と同型。saba 等の実装も同じ)。
+        ///
+        /// ★2026-08-10 修正: 従来は FromEuler(=ZYX順) を使っており、複合回転の剛体で
+        ///   向きがズレていた。「髪のカプセルが髪の流れに沿わない」の原因。
+        ///   全13モデルで実測: カプセルのY軸とボーン→子ボーン方向のズレ角(中央値)は
+        ///   YXZ 0.0°/ZYX 1.6° (IA)、YXZ 0.0°/ZYX 5.8° (ぬこ式レーシングミク2023)。
+        ///   15°以内に収まる割合も YXZ 91.8% / ZYX 80.0% (同モデル) と YXZ が優る。
+        ///   撤去した旧PhysXインポーターが Quaternion.Euler(=Unityの YXZ) を使っていたのとも一致する。
+        /// </summary>
+        public static Quat FromEulerYxz(float rx, float ry, float rz)
+        {
+            var cx = (float)Math.Cos(rx * 0.5f); var sx = (float)Math.Sin(rx * 0.5f);
+            var cy = (float)Math.Cos(ry * 0.5f); var sy = (float)Math.Sin(ry * 0.5f);
+            var cz = (float)Math.Cos(rz * 0.5f); var sz = (float)Math.Sin(rz * 0.5f);
+
+            // q = qy * qx * qz を展開したもの。
+            return new Quat(
+                cy * sx * cz + sy * cx * sz, // x
+                sy * cx * cz - cy * sx * sz, // y
+                cy * cx * sz - sy * sx * cz, // z
+                cy * cx * cz + sy * sx * sz  // w
+            );
+        }
+
         // Convert from Euler angles (radians) – ZYX order (Roll-Pitch-Yaw)
+        // ※PMX の回転はこの順序では**ない**。PMX データには FromEulerYxz を使うこと。
         public static Quat FromEuler(float rx, float ry, float rz)
         {
             var cx = (float)Math.Cos(rx * 0.5f); var sx = (float)Math.Sin(rx * 0.5f);

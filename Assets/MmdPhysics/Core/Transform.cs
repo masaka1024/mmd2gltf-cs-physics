@@ -66,9 +66,11 @@ namespace BulletPhysics
             return m;
         }
 
+        /// <summary>PMX の (位置, オイラー角ラジアン) から剛体変換を作る。
+        /// 回転は MMD/PMX の YXZ 順で解釈する (Quat.FromEulerYxz のコメント参照)。</summary>
         public static RigidTransform FromEuler(Vec3 posRad, Vec3 eulerRad)
         {
-            return new RigidTransform(Quat.FromEuler(eulerRad.x, eulerRad.y, eulerRad.z), posRad);
+            return new RigidTransform(Quat.FromEulerYxz(eulerRad.x, eulerRad.y, eulerRad.z), posRad);
         }
 
         public bool Equals(RigidTransform other) =>
