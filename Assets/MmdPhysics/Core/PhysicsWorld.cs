@@ -228,6 +228,138 @@ namespace BulletPhysics
             StoreImpulses();
             if (ProfileEnabled) ProfStore += Tick();
             IntegratePositions(dt);
+            if (EnableSleeping) UpdateSleeping(dt);
+        }
+
+        // ═══════════════════════════════════════════
+        //  スリープ (Bullet の deactivation 相当) — 2026-08-10 実装
+        //
+        //  症状: ほとんど静止しているのに揺れ物が細かく震え続ける。本家(Bullet)は静止した
+        //  剛体を非活性化して計算から外すので完全に止まる (ユーザー実機で本家IAの序盤=静止
+        //  ポーズ中は髪の揺れが止まることを確認済み)。当エンジンは RigidBody に IsActive /
+        //  SleepTimer の宣言だけがあり、どこからも使われていなかった。
+        //
+        //  Bullet と同じく「アイランド単位」で判定する。連結した剛体群の全員が眠りたがって
+        //  いるときだけ、まとめて眠らせる。1体だけ眠らせると鎖の途中が固まって不自然になる。
+        //  アイランドは「動的剛体どうしを繋ぐ Joint と接触」で連結する (Bullet 同様、
+        //  static/kinematic はアイランドを繋がない = 体を介して髪とスカートが一体化しない)。
+        //
+        //  ★起こす条件が最重要。ここを誤ると「髪が固まって二度と動かない」というジッタより
+        //    はるかに重い不具合になる。動いている kinematic (ボーン追従) 剛体に Joint or 接触で
+        //    触れているアイランドは、眠りたがっていても眠らせない。ダンス中は体のボーンが
+        //    動き続けるので、髪もスカートも常に起きたままになる。
+        // ═══════════════════════════════════════════
+        //  ★既定 OFF (2026-08-10)。実装はしたが現状ほとんど発動しない: 当エンジンの静止時の
+        //    残留運動が Bullet のしきい値を超えているため (IA で |w|平均 1.5 > しきい値 1.0)。
+        //    101体中 2体しか眠らず、効果が無い一方で「起こし損ねると固まる」リスクだけが残る。
+        //    残留運動そのものを下げる方が先。下げられたら既定ONを検討する。
+        public bool EnableSleeping = false;
+        public float LinearSleepThreshold = 0.8f;    // Bullet 既定
+        public float AngularSleepThreshold = 1.0f;   // Bullet 既定
+        public float DeactivationTime = 2.0f;        // Bullet 既定 (秒)
+        /// <summary>kinematic 剛体を「動いている」とみなす速度のしきい値。
+        /// 完全に 0 でないと止まらない、を避けるための微小値。</summary>
+        public float KinematicMotionEpsilon = 1e-4f;
+        /// <summary>診断: 現在眠っている動的剛体の数。</summary>
+        public int SleepingBodyCount { get; private set; }
+
+        private int[] _uf;              // union-find の親 (剛体 index)
+        private bool[] _wantsSleep;     // その剛体が眠りたがっているか
+        private bool[] _islandBlocked;  // その根のアイランドは眠らせない
+        private bool[] _islandWants;    // その根のアイランドは全員が眠りたがっている
+
+        private int UfFind(int x) { while (_uf[x] != x) { _uf[x] = _uf[_uf[x]]; x = _uf[x]; } return x; }
+        private void UfUnion(int a, int b) { a = UfFind(a); b = UfFind(b); if (a != b) _uf[a] = b; }
+
+        private void UpdateSleeping(float dt)
+        {
+            int n = Bodies.Count;
+            if (_uf == null || _uf.Length < n)
+            { _uf = new int[n]; _wantsSleep = new bool[n]; _islandBlocked = new bool[n]; _islandWants = new bool[n]; }
+
+            float lt2 = LinearSleepThreshold * LinearSleepThreshold;
+            float at2 = AngularSleepThreshold * AngularSleepThreshold;
+
+            // 1) 各動的剛体のタイマー更新。しきい値を超えていたら即リセット+起床。
+            for (int i = 0; i < n; i++)
+            {
+                var b = Bodies[i];
+                _uf[i] = i; _islandBlocked[i] = false; _islandWants[i] = true;
+                _wantsSleep[i] = false;
+                if (b.IsStaticOrKinematic) continue;
+                if (b.LinearVelocity.LengthSquared < lt2 && b.AngularVelocity.LengthSquared < at2)
+                    b.SleepTimer += dt;
+                else { b.SleepTimer = 0f; b.IsActive = true; }
+                _wantsSleep[i] = b.SleepTimer > DeactivationTime;
+            }
+
+            // 2) アイランド構築。動的どうしのみ連結する。
+            foreach (var j in Joints)
+            {
+                if (j.BodyA == null || j.BodyB == null) continue;
+                if (j.BodyA.IsStaticOrKinematic || j.BodyB.IsStaticOrKinematic) continue;
+                UfUnion(j.BodyA.Index, j.BodyB.Index);
+            }
+            for (int c = 0; c < _contacts.Count; c++)
+            {
+                var a = _contacts[c].A; var b2 = _contacts[c].B;
+                if (a == null || b2 == null) continue;
+                if (a.IsStaticOrKinematic || b2.IsStaticOrKinematic) continue;
+                UfUnion(a.Index, b2.Index);
+            }
+
+            // 3) 「動いている kinematic に触れているか」でアイランドを起床固定する。
+            bool KinMoving(RigidBody k) =>
+                k.LinearVelocity.LengthSquared > KinematicMotionEpsilon * KinematicMotionEpsilon ||
+                k.AngularVelocity.LengthSquared > KinematicMotionEpsilon * KinematicMotionEpsilon;
+
+            foreach (var j in Joints)
+            {
+                if (j.BodyA == null || j.BodyB == null) continue;
+                if (j.BodyA.IsStaticOrKinematic && !j.BodyB.IsStaticOrKinematic)
+                { if (KinMoving(j.BodyA)) _islandBlocked[UfFind(j.BodyB.Index)] = true; }
+                else if (j.BodyB.IsStaticOrKinematic && !j.BodyA.IsStaticOrKinematic)
+                { if (KinMoving(j.BodyB)) _islandBlocked[UfFind(j.BodyA.Index)] = true; }
+            }
+            for (int c = 0; c < _contacts.Count; c++)
+            {
+                var a = _contacts[c].A; var b2 = _contacts[c].B;
+                if (a == null || b2 == null) continue;
+                if (a.IsStaticOrKinematic && !b2.IsStaticOrKinematic)
+                { if (KinMoving(a)) _islandBlocked[UfFind(b2.Index)] = true; }
+                else if (b2.IsStaticOrKinematic && !a.IsStaticOrKinematic)
+                { if (KinMoving(b2)) _islandBlocked[UfFind(a.Index)] = true; }
+            }
+
+            // 4) アイランド全員が眠りたがっているかを集約。
+            for (int i = 0; i < n; i++)
+            {
+                if (Bodies[i].IsStaticOrKinematic) continue;
+                if (!_wantsSleep[i]) _islandWants[UfFind(i)] = false;
+            }
+
+            // 5) 適用。眠るアイランドは速度を落として非活性化、それ以外は起こす。
+            int sleeping = 0;
+            for (int i = 0; i < n; i++)
+            {
+                var b = Bodies[i];
+                if (b.IsStaticOrKinematic) continue;
+                int r = UfFind(i);
+                bool sleep = _islandWants[r] && !_islandBlocked[r];
+                if (sleep)
+                {
+                    b.IsActive = false;
+                    b.LinearVelocity = Vec3.Zero;
+                    b.AngularVelocity = Vec3.Zero;
+                    sleeping++;
+                }
+                else if (!b.IsActive)
+                {
+                    b.IsActive = true;
+                    b.SleepTimer = 0f;   // 起きたらタイマーをやり直す
+                }
+            }
+            SleepingBodyCount = sleeping;
         }
 
         // --- 速度積分: 重力/力/減衰 ---
@@ -249,6 +381,10 @@ namespace BulletPhysics
                     }
                     continue;
                 }
+
+                // 眠っている剛体は積分しない。重力を入れると毎ステップしきい値を超えて即起床し、
+                // スリープが永久に成立しなくなる (Bullet も非活性化した剛体は積分対象外)。
+                if (EnableSleeping && !b.IsActive) { b.ClearForces(); continue; }
 
                 b.LinearVelocity += (Gravity + b.TotalForce * b.InverseMass) * dt;
                 b.AngularVelocity += (b.InverseInertiaWorld * b.TotalTorque) * dt;
@@ -283,6 +419,8 @@ namespace BulletPhysics
                     }
                     continue;
                 }
+
+                if (EnableSleeping && !b.IsActive) continue;   // 眠っている剛体は動かさない
 
                 var t = b.WorldTransform;
 

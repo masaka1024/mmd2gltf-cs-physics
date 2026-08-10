@@ -80,6 +80,14 @@ namespace BulletPhysics.Unity
         [Tooltip("接触の位置補正を擬似速度へ分離する。既定OFF=本家Bullet2.75準拠")]
         public bool ContactSplitImpulse = false;
 
+        // Bullet のスリープ(非活性化)。静止した剛体を計算から外す。本家は有効
+        // (ユーザー実機で本家IAの序盤=静止ポーズ中に髪の揺れが止まることを確認)。
+        // ★既定OFF: 実装済みだが現状ほとんど発動しない。当エンジンの静止時の残留運動が
+        //   Bullet のしきい値を超えているため (IA |w|平均1.5 > しきい値1.0、101体中2体しか眠らない)。
+        //   残留を下げるのが先。しきい値を緩めれば眠るが、動くべき揺れ物が固まる危険がある。
+        [Tooltip("静止した剛体を非活性化して計算から外す(Bullet相当)。現状ほとんど発動しないため既定OFF")]
+        public bool EnableSleeping = false;
+
         [Header("Startup")]
         // 起動直後、アニメがフレーム0姿勢を確定させた後に物理をボーンへ再整合する遅延(フレーム数)。
         // バインド姿勢→フレーム0への瞬間移動でスカート等が脚へ貫入(突き抜け)するのを防ぐ。
@@ -206,6 +214,7 @@ namespace BulletPhysics.Unity
             _builder.World.FixedTimeStep = FixedTimeStep;
             _builder.World.UseSplitImpulse = ContactSplitImpulse;
             _builder.World.UseJointSplitImpulse = JointSplitImpulse;
+            _builder.World.EnableSleeping = EnableSleeping;
             ResolveBones();
             ResetPhysicsToBones();
             // アニメがフレーム0を適用するのは Start より後(Update→LateUpdate 間)。この時点の
