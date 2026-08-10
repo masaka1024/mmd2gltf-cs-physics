@@ -260,9 +260,6 @@ namespace BulletPhysics.Unity
             // 1. ボーン追従剛体に目標姿勢を渡す (物理前)。
             PushBonesToKinematic();
 
-            // 1b. PMX mode2 (物理演算+ボーン位置合わせ) の位置を引き戻す。
-            //     mode2 剛体が無いモデルでは何もしない (IA など)。
-            if (EnableBoneMergeMode) _builder.ApplyBoneMergePositions(BoneWorldOrNull);
 
             // 2. 物理ステップ。
             _builder.World.StepSimulation(Time.fixedDeltaTime);
@@ -332,7 +329,18 @@ namespace BulletPhysics.Unity
         private void PullPhysicsToBones()
         {
             // 補正層再現: 位置=親チェーン再構成 / 回転=物理 (共通ヘルパ)。
-            RigidTransform?[] aligned = AlignBonePositions ? _builder.ComputeAlignedBonePoses(BoneWorldOrNull, AlignRotClampAlpha) : null;
+            //
+            // ★PMX mode2 (DynamicBoneMerge = 物理演算+ボーン位置合わせ) の実装 (2026-08-10)。
+            //   mode2 は「ボーンへの出力で、位置だけを親チェーン由来にし、回転は物理のまま」という
+            //   *書き戻し側* の仕様であって、シミュレーションを拘束するものではない。
+            //   ComputeAlignedBonePoses が元からその計算 (本家PMXエディタの補正層再現) をしており、
+            //   従来は AlignBonePositions という全剛体一律のトグルにだけ繋がれていた。
+            //   ここで mode2 の剛体に限り常時適用する。
+            //   ※最初の実装で「剛体そのものを毎ステップ位置固定し並進速度をゼロにする」方式を試したが、
+            //     旋回時に遠心力を担う並進速度まで消えて髪が軸へ collapse した (Tda式で振幅1.16→2.19、
+            //     最小半径2.73→1.70)。シミュレーションには触れないのが正しい。
+            bool needAligned = AlignBonePositions || (EnableBoneMergeMode && _builder.HasBoneMergeBodies);
+            RigidTransform?[] aligned = needAligned ? _builder.ComputeAlignedBonePoses(BoneWorldOrNull, AlignRotClampAlpha) : null;
             foreach (var link in _builder.BoneLinks)
             {
                 if (link.Mode == PhysicsMode.BoneFollow) continue;
@@ -341,8 +349,13 @@ namespace BulletPhysics.Unity
                 var tr = _boneTransforms[link.BoneIndex];
                 if (tr == null) continue;
 
+                // 補正を使うのは「全体トグルON」または「この剛体が mode2」のとき。
+                bool useAligned = aligned != null && aligned[link.BoneIndex].HasValue &&
+                                  (AlignBonePositions ||
+                                   (EnableBoneMergeMode && link.Mode == PhysicsMode.DynamicBoneMerge));
+
                 // body = bone * offset  ->  bone = body * offset^-1
-                var boneWorld = (aligned != null && aligned[link.BoneIndex].HasValue)
+                var boneWorld = useAligned
                     ? aligned[link.BoneIndex].Value
                     : link.Body.WorldTransform * link.BodyOffsetFromBone.Inverse();
 
