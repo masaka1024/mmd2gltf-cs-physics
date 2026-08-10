@@ -63,6 +63,23 @@ namespace BulletPhysics.Unity
         [Tooltip("ONで Time.fixedDeltaTime を FixedTimeStep に合わせる (毎FixedUpdate=1ステップ=等間隔)。Unity全体の物理刻みを変える点に注意")]
         public bool AlignUnityFixedTimestep = true;
 
+        [Header("Jitter (静止時の細かい振動)")]
+        // ★静止しているのに揺れ物が細かく震える件の対策 (2026-08-10 調査)。
+        //   原因: 拘束の位置誤差(Baumgarte)を「実速度」として打ち消しているため、毎ステップ
+        //   運動エネルギーが供給され続け、静止状態に落ち着かない。
+        //   split impulse は位置補正を擬似速度側へ分離し、実速度を汚さない標準的な対策。
+        //   実測(IA・静止10秒後・動的剛体の残留運動の平均):
+        //     既定           |v|0.793 |w|1.367
+        //     ジョイントのみ |v|0.690 |w|1.188
+        //     接触のみ       |v|0.714 |w|1.314
+        //     両方ON         |v|0.576 |w|0.943   ← 約3割減
+        //   ※ソルバ反復を10→40にしても改善しない(むしろ微増)=収束不足ではない。
+        //   既定OFF=従来の挙動のまま(本家Bullet2.75の接触も非split)。見た目をA/Bして決めること。
+        [Tooltip("ジョイントの位置補正を擬似速度へ分離する。静止時のジッタが減る。既定OFF=従来挙動")]
+        public bool JointSplitImpulse = false;
+        [Tooltip("接触の位置補正を擬似速度へ分離する。既定OFF=本家Bullet2.75準拠")]
+        public bool ContactSplitImpulse = false;
+
         [Header("Startup")]
         // 起動直後、アニメがフレーム0姿勢を確定させた後に物理をボーンへ再整合する遅延(フレーム数)。
         // バインド姿勢→フレーム0への瞬間移動でスカート等が脚へ貫入(突き抜け)するのを防ぐ。
@@ -187,6 +204,8 @@ namespace BulletPhysics.Unity
             _builder.World.SolverIterations = SolverIterations;
             _builder.World.SubSteps = SubSteps;
             _builder.World.FixedTimeStep = FixedTimeStep;
+            _builder.World.UseSplitImpulse = ContactSplitImpulse;
+            _builder.World.UseJointSplitImpulse = JointSplitImpulse;
             ResolveBones();
             ResetPhysicsToBones();
             // アニメがフレーム0を適用するのは Start より後(Update→LateUpdate 間)。この時点の
