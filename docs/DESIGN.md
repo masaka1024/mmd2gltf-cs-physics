@@ -19,7 +19,12 @@ PMX 2.1仕様に準拠したMMD物理演算エンジン。外部ネイティブ�
 - SoftBody (質点-バネ Rope/TriMesh, B-Link, Anchor, Pin) — 完了(簡易)
 - PMX Reader (2.0/2.1 全セクションskip対応 + 剛体/Joint/SoftBody抽出) — 完了
 - PmxPhysicsBuilder (PMX→World変換 + ボーン紐付け) — 完了
-- Unity ブリッジ MmdPhysicsBehaviour (座標変換/単位スケール/ボーン同期) — 完了
+- Unity ブリッジ MmdPhysicsBehaviour (単位スケール変換/ボーン同期) — 完了
+- GLB(extras.mmd) 入力 GlbPhysicsReader + MiniJson — 完了 (PMX直読みとビット一致を確認)
+- PMX mode2 (物理演算+ボーン位置合わせ) — 完了 (2026-08-10。書き戻し側で位置を親チェーン再構成)
+- ばねの安定化クランプ — 完了 (2026-08-10。陽的ばねの k·dt²/m>1 発散を防ぐ)
+- スリープ(Bullet相当の非活性化, アイランド単位) — 実装済みだが**既定OFF**
+  (残留運動がしきい値を超えほとんど発動しないため。README「静止時のジッタ」節)
 
 ## Bullet 2.75 の接触ソルバ既定値 (2026-08-08 調査)
 MMD/PMXエディタが依拠する Bullet **2.75** の `btContactSolverInfo` 既定値
@@ -157,9 +162,14 @@ warmup 0/10/60 いずれでも初期貫入~0・平時中央~10.41 (開始状態�
 - 衝突グループ: PMX の16bitは「衝突する相手グループ」のマスク(bit=1で衝突)。
   Bullet の (groupA & maskB) && (groupB & maskA) で判定
 
-## 時間刻み (リファレンス: 実効 1/60 = FixedTimeStep 1/30・SubSteps 2)
-既定は `FixedTimeStep = 1/30`, `SubSteps = 2`（実効刻み 1/60）。`FixedTimeStep` は
-30fps のボーン入力に合わせて 1/30 のまま、`SubSteps` で物理を細かく刻む。
+## 時間刻み (リファレンス: 実効 1/60)
+**`MmdPhysicsBehaviour` の既定は `FixedTimeStep = 1/60`, `SubSteps = 1`**(実効刻み 1/60)。
+`PhysicsWorld` 単体の既定は `1/30 × 2` で実効刻みは同じ。
+
+1/60×1 は 1/30×2 と実効刻みが同一で忠実度も数値まで一致する
+(bonecheck 傾き中央11.20 / p90 23.52 / 12窓比1.0611 が同値)が、**Unity の Time.fixedDeltaTime と
+一致するため毎FixedUpdateでちょうど1ステップ進み、更新間隔が等間隔になる**(コマ落ちが消える)。
+`AlignUnityFixedTimestep`(既定ON)が起動時に Time.fixedDeltaTime を自動整列する。
 
 ### 旧「30Hz・1サブ」は未検証の仮定であり、誤りだった
 以前の既定 `SubSteps=1`（実効1/30）は「MMD本家は 30fps で 1描画フレーム=1物理ステップ」
@@ -197,8 +207,21 @@ warmup 0/10/60 いずれでも初期貫入~0・平時中央~10.41 (開始状態�
 それでも入力は 1/30 境界でしか更新されないため、忠実な細分は SubSteps 経路を使う。
 
 ## 座標系
-エンジンはPMXネイティブ座標で計算。Unity境界(MmdPhysicsBehaviour)でZ反転変換。
-重力はMMDスケールで約 -98 (= -9.8 * 10) を推奨。
+エンジンはPMXネイティブ座標で計算。Unity境界(MmdPhysicsBehaviour)の変換は
+**単位スケールのみで、軸反転は無い**(真の等長変換)。重力はMMDスケールで約 -98 (= -9.8 * 10)。
+
+    MmdToUnityPos(v) = (v.x, v.y, v.z) * UnitScale
+    MmdToUnityRot(q) = (q.x, q.y, q.z, q.w)      // 恒等
+
+mmd2gltf(PMX→glTF) と UniGLTF(glTF→Unity) の ReverseZ が二重に掛かって相殺するため、
+Unity側のボーンは既にPMXネイティブ座標値になっている。かつてここに3回目のZ反転があり
+鏡映(det=-1)になっていた(髪が正面へ反転して体を貫通する症状)。2026-08-09 に除去 (9e90801)。
+
+### オイラー角の順序 (2026-08-10 修正)
+PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)**。Bullet の `btQuaternion(yaw,pitch,roll)` と同型。
+`Quat.FromEulerYxz` を使うこと。`Quat.FromEuler` は ZYX 順なので **PMXデータには使わない**。
+従来 ZYX で解釈しており、複合回転の強い剛体で向きがズレていた
+(髪カプセル402本の中央値 2.3°→0.0°)。詳細は investigations/2026-08-10-multi-model-defects.md。
 
 ## 試して破棄した方針 (再挑戦しないための記録)
 
