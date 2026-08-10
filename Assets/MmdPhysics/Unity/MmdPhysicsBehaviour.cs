@@ -255,8 +255,13 @@ namespace BulletPhysics.Unity
             _builder.World.StepSimulation(Time.fixedDeltaTime);
             if (_diagLeft > 0) { _diagFixedCount++; _diagDt = Time.fixedDeltaTime; _diagSteps += _builder.World.LastStepsRun; }
 
-            // 3. 物理剛体 -> ボーンへ反映 (物理後)。
-            PullPhysicsToBones();
+            // 3. ボーンへの書き戻しは LateUpdate で行う。
+            //    ★2026-08-10: ここで書き戻すと Animator に上書きされる。
+            //      Unityのフレームは FixedUpdate → Update → [Animator適用] → LateUpdate の順なので、
+            //      FixedUpdate で書いた物理姿勢は、そのボーンにカーブがあると Animator に必ず潰される。
+            //      症状: クリップがスカート/髪のカーブ(レストポーズの定数キーでも可)を持つモデルで、
+            //      再生1フレーム目から揺れ物がレストポーズのまま固定される(コロン式で発現)。
+            //      IA は本体のみベイクで揺れ物カーブが無いため表面化していなかった。
         }
 
         // 起動直後の数フレームだけ、アニメが確定させた「フレーム0姿勢」に対して物理を再整合する。
@@ -287,9 +292,21 @@ namespace BulletPhysics.Unity
                 }
             }
 
-            if (_startupResetCountdown <= 0 || _builder == null) return;
-            ResetPhysicsToBones();
-            _startupResetCountdown--;
+            if (_builder == null) return;
+
+            // 起動直後: アニメがフレーム0を適用した後の posed 骨格へ物理を再整合する。
+            if (_startupResetCountdown > 0)
+            {
+                ResetPhysicsToBones();
+                _startupResetCountdown--;
+            }
+
+            // ★物理 -> ボーンの書き戻しはここ (Animator の適用より後) で行う。
+            //   FixedUpdate で書くと、揺れ物ボーンにカーブを持つクリップでは Animator に
+            //   毎フレーム上書きされ、物理が一切見えなくなる (FixedUpdate 側のコメント参照)。
+            //   LateUpdate なら Animator の後なので、揺れ物は必ず物理が勝つ。
+            //   体のボーン(BoneFollow)には書き戻さないので、ダンスの動きはそのまま残る。
+            PullPhysicsToBones();
         }
 
         private void PushBonesToKinematic()
