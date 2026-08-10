@@ -1,5 +1,5 @@
 // 診断のみ(実装・パラメータ変更なし): ソルバ収束特性の切り分け。
-//   タスク1: 反復数掃引(1..20)で 12窓比の中央値 と 平時中央値 を本家と比較。
+//   タスク1: 反復数掃引(1..20)で 12窓比の中央値 と 平時中央値 をMMDと比較。
 //   タスク2: island 分割(joint連結成分)の解析 と Joint解く順序の掃引。
 // 順序切替は builder.World.Joints (public List) を外部から並べ替えるだけで、本体は無改変。
 // (「各反復で往復」だけは SubStep 内の一時パッチが要るため別途。ここでは静的4順序を測る。)
@@ -16,7 +16,7 @@ static class SolverDiag
 {
     static readonly string PmxPath = TestData.PmxPath();
     const float DT = 1f / 30f;
-    const float RefCalmMed = 11.39f; // 本家 平時傾き中央値 (Python参照値)
+    const float RefCalmMed = 11.39f; // MMD 平時傾き中央値 (Python参照値)
     static StringBuilder O = new StringBuilder(); static void L(string s = "") { O.Append(s); O.Append('\n'); }
 
     static BoneCsv csv; static PmxPhysicsModel model; static int F;
@@ -99,7 +99,7 @@ static class SolverDiag
                 }
 
         L("==================== ソルバ収束特性の切り分け ====================");
-        L($"本家 平時中央={RefCalmMed}  (12窓の本家傾きmaxはCSVから算出)");
+        L($"MMD 平時中央={RefCalmMed}  (12窓のMMD傾きmaxはCSVから算出)");
 
         // ---- タスク1: 反復数掃引 ----
         L("\n---------- タスク1: 反復数掃引 (order=現状) ----------");

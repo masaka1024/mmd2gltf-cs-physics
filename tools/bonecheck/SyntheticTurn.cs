@@ -3,7 +3,7 @@
 // CSV が無い環境でもパイプラインを回すための「環境確認用」モード。
 // 下半身を 180°/0.3秒 で回し、1.5秒休止、方向を交互に4回。他はバインド姿勢のまま。
 // 同じ計測(スカート傾き)を適用する。
-// **これは環境確認専用であり、本家との比較には一切使わない** (合成入力なので正解値が無い)。
+// **これは環境確認専用であり、MMDとの比較には一切使わない** (合成入力なので正解値が無い)。
 // ===========================================================================
 using System;
 using System.Linq;
@@ -71,7 +71,7 @@ namespace BoneCheck
             }
 
             var s0 = SkirtMeasure.Stats(all);
-            Console.WriteLine("== 合成ターン (環境確認用・本家比較不可) ==");
+            Console.WriteLine("== 合成ターン (環境確認用・MMD比較不可) ==");
             Console.WriteLine($"  フレーム数={F} 下半身180°/0.3s×交互4回  NaN/Inf={nan}  maxSpeed={maxSpeed:F1}");
             Console.WriteLine($"  傾き 全体 med={s0.med:F1} p90={s0.p90:F1} max={s0.max:F1}");
             for (int r = 0; r < 3; r++)

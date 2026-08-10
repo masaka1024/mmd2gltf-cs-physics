@@ -25,7 +25,7 @@ static class PhysReset
 
     class Res { public float calmMed, calmP90, calmMax, ratioMed; public double penMean, penMax; public float[][] pairDepth; }
 
-    // mode: 0=リセット無, 1=CSVリセット(本家物理姿勢・過拘束の対照), 2=FK-restリセット(本体汎用ヘルパ)
+    // mode: 0=リセット無, 1=CSVリセット(MMD物理姿勢・過拘束の対照), 2=FK-restリセット(本体汎用ヘルパ)
     static Res Run(int mode, int warmup, bool dummies = false)
     {
         var builder = PmxPhysicsBuilder.Build(model); var world = builder.World;
@@ -93,7 +93,7 @@ static class PhysReset
         for (int f = 0; f < F; f++) for (int w = 0; w < wins.Count; w++) if (f >= wins[w].StartFrame && f <= Math.Min(F - 1, wins[w].EndFrame + 30)) { float m = 0; foreach (var sj in skirt) if (csv.TryGet(f, sj.ParentBone, out var pb) && csv.TryGet(f, sj.ChildBone, out var cb)) { float t = SkirtMeasure.TiltDeg(pb.Rotation, cb.Rotation); if (t > m) m = t; } if (m > refWinMax[w]) refWinMax[w] = m; }
 
         L("========== 物理リセット(全剛体をボーン姿勢へ整合) の効果 (Sub2, 反復10) ==========");
-        L("列: [0]リセット無 | [1]CSVリセット(本家物理姿勢) | [2]FK-restリセット(スカート=親駆動)");
+        L("列: [0]リセット無 | [1]CSVリセット(MMD物理姿勢) | [2]FK-restリセット(スカート=親駆動)");
         var m0 = Run(0, 60); var m1 = Run(1, 60); var m2 = Run(2, 60);
 
         L("\n[区間別 平均 貫入] スカート×左太もも ([0]無 | [1]CSV | [2]FK-rest)");
@@ -106,7 +106,7 @@ static class PhysReset
         for (int t = 0; t < Pairs.Length; t++)
             L($"  {Pairs[t]}: 平均 {m0.pairDepth[t].Average():F4}|{m1.pairDepth[t].Average():F4}|{m2.pairDepth[t].Average():F4}  最大 {m0.pairDepth[t].Max():F3}|{m1.pairDepth[t].Max():F3}|{m2.pairDepth[t].Max():F3}  >0.5 {m0.pairDepth[t].Count(x => x > 0.5f)}|{m1.pairDepth[t].Count(x => x > 0.5f)}|{m2.pairDepth[t].Count(x => x > 0.5f)}F");
 
-        L("\n[傾き統計] ([0]無 | [1]CSV | [2]FK-rest, 本家 平時中央=11.39, 12窓比目標1.0)");
+        L("\n[傾き統計] ([0]無 | [1]CSV | [2]FK-rest, MMD 平時中央=11.39, 12窓比目標1.0)");
         L($"  平時 中央 {m0.calmMed:F3}|{m1.calmMed:F3}|{m2.calmMed:F3}  p90 {m0.calmP90:F2}|{m1.calmP90:F2}|{m2.calmP90:F2}  max {m0.calmMax:F2}|{m1.calmMax:F2}|{m2.calmMax:F2}");
         L($"  12窓比 中央 {m0.ratioMed:F3}|{m1.ratioMed:F3}|{m2.ratioMed:F3}");
 

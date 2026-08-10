@@ -1,6 +1,6 @@
 // 診断(調整なし): スカートJointの並進拘束の飽和(MaxCorrectionVel)とジョイントの伸びを測る。
 // 並進はロック(lo=hi=0)。補正速度 = |stretch·axis|*Beta*invDt。MaxCorrectionVel=10 に張り付くか。
-// 伸び = |anchorB - anchorA| (本来0)。本家は CSVボーン*offset で剛体を復元して並記。
+// 伸び = |anchorB - anchorA| (本来0)。MMDは CSVボーン*offset で剛体を復元して並記。
 // 本体は不変(すべて public 状態から計算)。
 using System;
 using System.IO;
@@ -90,7 +90,7 @@ static class Stretch
                     if (win) { axisWin++; if (hit) { clampWin++; perJointClamp[c]++; } rawWin.Add(raw); }
                     else { axisCalm++; if (hit) { clampCalm++; perJointClamp[c]++; } rawCalm.Add(raw); }
                 }
-                // 本家 伸び (CSVボーン*offset で剛体復元)
+                // MMD 伸び (CSVボーン*offset で剛体復元)
                 float refStretch = float.NaN;
                 if (csv.TryGet(f, sj.ParentBone, out var pb) && csv.TryGet(f, sj.ChildBone, out var cb))
                 {
@@ -119,8 +119,8 @@ static class Stretch
         L("  (張り付き条件: |stretch·axis|*6 >= 10, つまり伸び成分 >= 1.67 unit)");
 
         L("\n========== 2) ジョイントの伸び |anchorB-anchorA| (本来0) ==========");
-        L($"  窓内: 自前 max={Mx(strWin):F2} p90={Pc(strWin, 90):F2} 中央={Pc(strWin, 50):F2} | 本家 max={Mx(refStrWin):F2} p90={Pc(refStrWin, 90):F2} 中央={Pc(refStrWin, 50):F2}");
-        L($"  平時: 自前 max={Mx(strCalm):F2} p90={Pc(strCalm, 90):F2} 中央={Pc(strCalm, 50):F2} | 本家 max={Mx(refStrCalm):F2} p90={Pc(refStrCalm, 90):F2} 中央={Pc(refStrCalm, 50):F2}");
+        L($"  窓内: 自前 max={Mx(strWin):F2} p90={Pc(strWin, 90):F2} 中央={Pc(strWin, 50):F2} | MMD max={Mx(refStrWin):F2} p90={Pc(refStrWin, 90):F2} 中央={Pc(refStrWin, 50):F2}");
+        L($"  平時: 自前 max={Mx(strCalm):F2} p90={Pc(strCalm, 90):F2} 中央={Pc(strCalm, 50):F2} | MMD max={Mx(refStrCalm):F2} p90={Pc(refStrCalm, 90):F2} 中央={Pc(refStrCalm, 50):F2}");
 
         L("\n========== 3) 相関: クランプ多いJoint vs 傾き過大Joint ==========");
         var order = Enumerable.Range(0, nj).OrderByDescending(c => perJointClamp[c]).Take(6);

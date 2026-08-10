@@ -1,6 +1,6 @@
 // 測定(調整なし): Split Impulse (接触の貫入回復を実速度から分離) の効果検証。
 //   比較: UseSplitImpulse = false(従来 Baumgarte-in-velocity) vs true(新方式)。
-//   指標: 平時傾き(全体/リング別), 12窓の自前/本家傾きmaxと比, 貫入量, 反復数掃引での窓ピーク,
+//   指標: 平時傾き(全体/リング別), 12窓の自前/MMD傾きmaxと比, 貫入量, 反復数掃引での窓ピーク,
 //        遠方ダミー剛体でのノイズフロア, 性能。
 //   仮説: エネルギー注入が原因なら、Split後は「反復数依存が弱まる」はず(決め手)。
 // 本体は不変(すべて public API から)。物理パラメータは変更しない(Split の on/off と反復数掃引のみ)。
@@ -22,7 +22,7 @@ static class Split
 
     static BoneCsv csv; static PmxPhysicsModel model; static int F;
     static List<SkirtMeasure.TurnWindow> wins; static bool[] inWin; static List<SkirtJoint> skirt;
-    static float[] refWinMax; // 本家の窓別 傾きmax
+    static float[] refWinMax; // MMDの窓別 傾きmax
 
     class Res
     {
@@ -112,7 +112,7 @@ static class Split
         inWin = new bool[F];
         foreach (var w in wins) for (int f = w.StartFrame; f <= Math.Min(F - 1, w.EndFrame + 30); f++) inWin[f] = true;
 
-        // 本家の窓別 傾きmax (CSVボーン姿勢から直接)
+        // MMDの窓別 傾きmax (CSVボーン姿勢から直接)
         refWinMax = new float[wins.Count];
         for (int f = 0; f < F; f++)
             for (int w = 0; w < wins.Count; w++)
@@ -133,7 +133,7 @@ static class Split
         L($"  従来(off): 中央={off.calmMed:F3} p90={off.calmP90:F3} max={off.calmMax:F3} | ring0={off.ringMed[0]:F2} ring1={off.ringMed[1]:F2} ring2={off.ringMed[2]:F2}");
         L($"  Split(on): 中央={on.calmMed:F3} p90={on.calmP90:F3} max={on.calmMax:F3} | ring0={on.ringMed[0]:F2} ring1={on.ringMed[1]:F2} ring2={on.ringMed[2]:F2}");
 
-        L("\n[12窓 傾きmax] 自前(off) | 自前(on) | 本家 | 比(off/本家) | 比(on/本家)");
+        L("\n[12窓 傾きmax] 自前(off) | 自前(on) | MMD | 比(off/MMD) | 比(on/MMD)");
         var ratOff = new List<float>(); var ratOn = new List<float>();
         for (int w = 0; w < wins.Count; w++)
         {

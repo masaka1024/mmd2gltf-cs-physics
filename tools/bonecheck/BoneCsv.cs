@@ -1,6 +1,6 @@
 // ===========================================================================
 // ボーン姿勢CSVローダ (Unity 非依存・計測専用。本体は変更しない)。
-// 本家ベイク済みVMDから書き出した「ワールド絶対姿勢」CSVを読む。
+// MMDでベイクしたVMDから書き出した「ワールド絶対姿勢」CSVを読む。
 //   列: frame,boneName,posX,posY,posZ,quatX,quatY,quatZ,quatW (ヘッダ行あり, UTF-8)
 //   座標系・単位は PMX ネイティブ (エンジン内部と同一。変換なし)。
 //
@@ -42,7 +42,7 @@ namespace BoneCheck
 
         // ★取り違え検出 (2026-08-09): 提供された CSV が想定の IA_bone_world_pose.csv か検証する。
         //   バイト数/行数/列名/ボーン構成(43=追従7+スカート36) を確認し、1つでも外れたら
-        //   合成ターンへフォールバックせず明示的に失敗させる (誤ったCSVで本家比較すると無意味なため)。
+        //   合成ターンへフォールバックせず明示的に失敗させる (誤ったCSVでMMD比較すると無意味なため)。
         public const long ExpectedBytes = 27556907;   // 仕様値 (補正ON版, 完全一致)
         public const long ExpectedBytesOff = 27397107; // 補正OFF版 (純Bullet正解, 構造同一・値のみ差)
         public const int ExpectedDataRows = 301043;    // 43ボーン × 7001フレーム

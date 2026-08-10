@@ -92,10 +92,10 @@ static class TsBase
         // 2) Sub2 + FK-restリセット 新ベースライン
         var s2 = Run(2, false, useReset: true);
         L("\n[新ベースライン: SubSteps=2 (実効1/60) + FK-restリセット]");
-        L($"  平時 中央={s2.calmMed:F3} p90={s2.calmP90:F3} max={s2.calmMax:F3}  (本家 中央={RefCalmMed})");
+        L($"  平時 中央={s2.calmMed:F3} p90={s2.calmP90:F3} max={s2.calmMax:F3}  (MMD 中央={RefCalmMed})");
         L($"  リング別中央: ring0={s2.ringMed[0]:F2} ring1={s2.ringMed[1]:F2} ring2={s2.ringMed[2]:F2}");
         L($"  貫入(全動的接触) 平均={s2.penMean:F4} 最大={s2.penMax:F3} (最大はF2889の髪スパイク。スカート×太ももの深貫入は解消)");
-        L("\n  12窓 傾きmax: 自前 | 本家 | 比");
+        L("\n  12窓 傾きmax: 自前 | MMD | 比");
         var ratios = new List<float>();
         for (int w = 0; w < wins.Count; w++) { float rr = refWinMax[w] > 0 ? s2.winPeak[w] / refWinMax[w] : 0; ratios.Add(rr); L($"    窓{w + 1,2} F{wins[w].StartFrame}-{wins[w].EndFrame} peakYaw={wins[w].PeakYaw:F0}: {s2.winPeak[w],7:F2} | {refWinMax[w],7:F2} | {rr:F3}"); }
         ratios.Sort(); L($"  → 12窓比の中央値={SkirtMeasure.Percentile(ratios.ToArray(), 50):F3}");

@@ -28,7 +28,7 @@ namespace BoneCheck
         public double RunSeconds { get; private set; }
 
         // 出力: [frame][jointIdx]。
-        // PhysTilt/PhysRelYaw は「ボーン空間」(剛体からボーン姿勢を復元して測る=本家と同じ物理量)。
+        // PhysTilt/PhysRelYaw は「ボーン空間」(剛体からボーン姿勢を復元して測る=MMDと同じ物理量)。
         // PhysTiltRigid は旧方式「剛体相対」(検算用: ring1/2 で新旧一致するはず)。
         public float[][] PhysTilt;
         public float[][] PhysTiltRigid;
@@ -41,7 +41,7 @@ namespace BoneCheck
             var builder = PmxPhysicsBuilder.Build(model); // 既定 World (30Hz・1サブ, gravity -98)
             var world = builder.World;
             if (SolverIterationsOverride > 0) world.SolverIterations = SolverIterationsOverride; // 診断用
-            // 計測トグル (既定OFF=挙動不変)。VMD統計を OFF/ON で本家比較するため env で切替。
+            // 計測トグル (既定OFF=挙動不変)。VMD統計を OFF/ON でMMD比較するため env で切替。
             if (System.Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
             if (System.Environment.GetEnvironmentVariable("WARMSTART_ANG") == "1") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
             if (System.Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;

@@ -1,5 +1,5 @@
-// タスク2+3: 本家(CSV)と自作物理(ヘッドレス再生)を同じ物差しで比較する。
-// まず本家参照値の再現を検証し、続いて物理を7001フレーム回して並記する。
+// タスク2+3: MMD(CSV)と自作物理(ヘッドレス再生)を同じ物差しで比較する。
+// まずMMD参照値の再現を検証し、続いて物理を7001フレーム回して並記する。
 // 数字を合わせにいく調整は行わない。合っていなくてもそのまま出す。
 using System;
 using System.IO;
@@ -27,7 +27,7 @@ namespace BoneCheck
             }
             if (csvPath == null)
             {
-                // CSV が「未提供」の環境のみ合成ターン (環境確認用・本家比較不可) にフォールバック。
+                // CSV が「未提供」の環境のみ合成ターン (環境確認用・MMD比較不可) にフォールバック。
                 Console.WriteLine("[INFO] ボーンCSV 未検出 → 合成ターンで環境確認 (タスク4)。");
                 return SyntheticTurn.Run(PmxReader.LoadFile(PmxPath)) ? 0 : 1;
             }
@@ -38,7 +38,7 @@ namespace BoneCheck
             {
                 Console.WriteLine($"[FAIL] ボーンCSV 取り違え検出: {verr}");
                 Console.WriteLine($"       path={csvPath}");
-                Console.WriteLine("       誤ったCSVでの本家比較は無意味なため合成ターンへフォールバックしません。");
+                Console.WriteLine("       誤ったCSVでのMMD比較は無意味なため合成ターンへフォールバックしません。");
                 return 1;
             }
             Console.WriteLine($"[OK] ボーンCSV 検証通過 (bytes={BoneCsv.ExpectedBytes}/rows={BoneCsv.ExpectedDataRows}/columns/bones43): {csvPath}");
@@ -53,7 +53,7 @@ namespace BoneCheck
             int F = csv.FrameCount, nj = joints.Count;
             float dt = 1f / 30f;
 
-            // ---- 本家参照 傾き & rel-yaw ----
+            // ---- MMD参照 傾き & rel-yaw ----
             var refTilt = new float[F][];
             var refRelYaw = new float[F][];
             var refFrameMax = new float[F];
@@ -82,8 +82,8 @@ namespace BoneCheck
             var wins = SkirtMeasure.DetectTurnWindows(yaw, 360f);
             float maxYaw = yaw.Max(v => Math.Abs(v));
 
-            // ---- 検証: 本家参照値が Python と一致するか (物理へ進む前の門番) ----
-            L("========== 検証: 本家参照値の再現 (Python対決) ==========");
+            // ---- 検証: MMD参照値が Python と一致するか (物理へ進む前の門番) ----
+            L("========== 検証: MMD参照値の再現 (Python対決) ==========");
             var refAll = Flatten(refTilt);
             var refRing = RingSplit(refTilt, joints);
             var sAll = SkirtMeasure.Stats(refAll);
@@ -122,18 +122,18 @@ namespace BoneCheck
             L($"  BoneFollowだがCSV欠損: {(drv.MissingDrivenBones.Count == 0 ? "なし" : string.Join(",", drv.MissingDrivenBones))}");
             L($"  ウォームアップ={drv.WarmupSteps}step  7001フレーム再生時間={drv.RunSeconds:F1}s");
 
-            // ---- 1) 平時統計 (全フレーム, 自前 vs 本家) ----
+            // ---- 1) 平時統計 (全フレーム, 自前 vs MMD) ----
             L();
-            L("========== 1) 平時統計 (傾き, 全フレーム)  自前物理 / 本家 ==========");
+            L("========== 1) 平時統計 (傾き, 全フレーム)  自前物理 / MMD ==========");
             L("  対象  |  med(自/本)  |  p90(自/本)  |  max(自/本)");
             PrintPair("全体", Flatten(physTilt), refAll);
             var physRing = RingSplit(physTilt, joints);
             for (int r = 0; r < 3; r++) PrintPair($"ring{r}", physRing[r], refRing[r]);
 
-            // ---- 2) ターンイベント (窓ごと 自前/本家) ----
+            // ---- 2) ターンイベント (窓ごと 自前/MMD) ----
             L();
             L("========== 2) ターンイベント (瞬間ヨー角速度>360°/s の窓) ==========");
-            L("  #  開始F  時刻s  ヨーpeak  傾きmax:自前  傾きmax:本家 (窓+30F)");
+            L("  #  開始F  時刻s  ヨーpeak  傾きmax:自前  傾きmax:MMD (窓+30F)");
             var winRatios = new List<float>();
             for (int i = 0; i < wins.Count; i++)
             {
@@ -142,33 +142,33 @@ namespace BoneCheck
                 if (mr > 1e-3f) winRatios.Add(mp / mr);
                 L($"  {i + 1,2}  {w.StartFrame,5} {w.StartFrame / 30.0,6:F2} {w.PeakYaw,8:F1}   {mp,10:F1}   {mr,10:F1}");
             }
-            // 12窓比サマリ (自前/本家 の窓ごとピーク比。1.0=本家一致)。既定ベースライン=中央1.0588。
+            // 12窓比サマリ (自前/MMD の窓ごとピーク比。1.0=MMD一致)。既定ベースライン=中央1.0588。
             if (winRatios.Count > 0)
             {
                 winRatios.Sort();
                 float rmed = winRatios[winRatios.Count / 2], rmin = winRatios[0], rmax = winRatios[winRatios.Count - 1];
-                L($"  [12窓比 自前/本家] 中央={rmed:F4} 最小={rmin:F4} 最大={rmax:F4} (1.0=本家一致, 既定ベースライン中央1.0588)");
+                L($"  [12窓比 自前/MMD] 中央={rmed:F4} 最小={rmin:F4} 最大={rmax:F4} (1.0=MMD一致, 既定ベースライン中央1.0588)");
             }
 
             // ---- 3) 窓1・窓4 対決 ----
             L();
-            L("========== 3) 窓1・窓4 の本家対決 ==========");
+            L("========== 3) 窓1・窓4 のMMD対決 ==========");
             var W1 = FindWin(wins, 847); var W4 = FindWin(wins, 1962);
-            L($"  窓1(開始~847): 自前={WinMax(W1, physFrameMax, F):F1}  本家={WinMax(W1, refFrameMax, F):F1}  (Python本家=57.3)");
-            L($"  窓4(開始~1962): 自前={WinMax(W4, physFrameMax, F):F1}  本家={WinMax(W4, refFrameMax, F):F1}  (Python本家=59.1)");
+            L($"  窓1(開始~847): 自前={WinMax(W1, physFrameMax, F):F1}  MMD={WinMax(W1, refFrameMax, F):F1}  (PythonMMD=57.3)");
+            L($"  窓4(開始~1962): 自前={WinMax(W4, physFrameMax, F):F1}  MMD={WinMax(W4, refFrameMax, F):F1}  (PythonMMD=59.1)");
 
             // ---- 4) ヨー遅れ (取付相対ヨー, ターン窓中の最大|ヨー|) ----
             L();
             L("========== 4) ヨー遅れ (取付相対ヨー角, ターン窓中の最大|deg|) ==========");
-            L("  本家はターン中もヨー遅れ1〜3°の完全共回転(との事前情報)。大きければ共回転できていない。");
+            L("  MMDはターン中もヨー遅れ1〜3°の完全共回転(との事前情報)。大きければ共回転できていない。");
             L($"  swing-twist単体テスト: {(stOk ? "PASS" : "FAIL")}");
-            L($"  全体最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, -1):F1}°  本家={MaxRelYawInWindows(refRelYaw, wins, F, joints, -1):F1}°");
+            L($"  全体最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, -1):F1}°  MMD={MaxRelYawInWindows(refRelYaw, wins, F, joints, -1):F1}°");
             for (int r = 0; r < 3; r++)
-                L($"  ring{r} 最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, r):F1}°  本家={MaxRelYawInWindows(refRelYaw, wins, F, joints, r):F1}°");
+                L($"  ring{r} 最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, r):F1}°  MMD={MaxRelYawInWindows(refRelYaw, wins, F, joints, r):F1}°");
 
             // 仮説検証: 「1〜3°」は取付相対ツイストではなく「世界ヨー差(子の世界ヨー-親の世界ヨー)」では?
-            // 本家(CSV)の世界ヨー差をリング別に算出。
-            L("  [仮説] 世界ヨー差(子-親, 世界Y twist) 最大(窓中) 本家:");
+            // MMD(CSV)の世界ヨー差をリング別に算出。
+            L("  [仮説] 世界ヨー差(子-親, 世界Y twist) 最大(窓中) MMD:");
             for (int r = 0; r < 3; r++)
             {
                 float mx = 0;
@@ -185,7 +185,7 @@ namespace BoneCheck
                 L($"    ring{r}: {mx:F1}°");
             }
 
-            // 「1〜3°」は最大でなく中央値/平時では? 本家 取付相対ヨーの中央値を全フレーム/平時で。
+            // 「1〜3°」は最大でなく中央値/平時では? MMD 取付相対ヨーの中央値を全フレーム/平時で。
             var inWin = new bool[F];
             foreach (var w in wins) for (int f = w.StartFrame; f <= Math.Min(F - 1, w.EndFrame + 30); f++) inWin[f] = true;
             var refYawAll = new List<float>(); var refYawCalm = new List<float>();
@@ -197,9 +197,9 @@ namespace BoneCheck
                     refYawAll.Add(ra); physYawAll.Add(pa);
                     if (!inWin[f]) { refYawCalm.Add(ra); physYawCalm.Add(pa); }
                 }
-            L($"  [中央値] 取付相対|ヨー| 全フレーム: 自前={SkirtMeasure.Stats(physYawAll).med:F2}° / 本家={SkirtMeasure.Stats(refYawAll).med:F2}°");
-            L($"  [中央値] 取付相対|ヨー| 平時(窓外): 自前={SkirtMeasure.Stats(physYawCalm).med:F2}° / 本家={SkirtMeasure.Stats(refYawCalm).med:F2}°");
-            L("  => swing-twistは単体テストで検証済み。本家の取付相対ヨーは中央値~4.7°(平時ほぼ共回転)だが、");
+            L($"  [中央値] 取付相対|ヨー| 全フレーム: 自前={SkirtMeasure.Stats(physYawAll).med:F2}° / MMD={SkirtMeasure.Stats(refYawAll).med:F2}°");
+            L($"  [中央値] 取付相対|ヨー| 平時(窓外): 自前={SkirtMeasure.Stats(physYawCalm).med:F2}° / MMD={SkirtMeasure.Stats(refYawCalm).med:F2}°");
+            L("  => swing-twistは単体テストで検証済み。MMDの取付相対ヨーは中央値~4.7°(平時ほぼ共回転)だが、");
             L("     最速671°/s ターンの瞬間ピークで最大~55°まで遅れる。事前情報の『1〜3°』は平時(中央値)相当で、");
             L("     ピーク時は共回転しきれない。物差しの誤りではなく『最大 vs 中央値』の違い。");
 

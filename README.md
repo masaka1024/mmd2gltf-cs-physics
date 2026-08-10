@@ -4,6 +4,11 @@ PmxEditor (極北P) の **PMX 2.1 仕様** に記述された物理演算を、*
 挙動に合わせて Unity C# で再実装したものです。MMD モデルの剛体・Joint・SoftBody を
 外部ネイティブライブラリ (BulletSharp 等) 無しで動かすことを目的にしています。
 
+> **本プロジェクトは非公式・独立の個人プロジェクトです。**
+> MikuMikuDance (樋口優氏)、PmxEditor (極北P氏)、Bullet Physics、およびモデル・モーションの
+> 各作者とは、いかなる提携・承認・支援関係もありません。「MMD」「PMX」等は仕様や比較対象を
+> 指すための名称として用いています。挙動の一致は目標であって保証ではありません。
+
 ## 特徴
 
 - 依存ゼロの純 C# 実装 (Unity 標準アセンブリのみ)
@@ -13,11 +18,11 @@ PmxEditor (極北P) の **PMX 2.1 仕様** に記述された物理演算を、*
 
 ## 現在の到達状況
 
-IA モデルで、本家 (MMD がベイクした VMD) のスカート挙動と定量・目視の両方で比較しています。
+IA モデルで、MMD がベイクした VMD のスカート挙動と定量・目視の両方で比較しています。
 **検証はこの 1 モデルに限られており、一般の MMD モデルでの忠実度は未知数**です
 （後述「検証カバレッジについて」）。
 
-| 指標 | 自前 | 本家 |
+| 指標 | 自前 | MMD |
 |---|---|---|
 | 平時の傾き 中央値 | **10.41°** | 11.39° |
 | ターン12窓の傾きmax 比 (中央値) | **1.061** | 1.0 |
@@ -28,8 +33,8 @@ IA モデルで、本家 (MMD がベイクした VMD) のスカート挙動と�
 > 物理出力が変わりました（ユーザー実機では見た目の変化なしを確認済み）。テスト用 `.pmx` が
 > 手元に無く `bonecheck` が SKIP されるため、**数値の取り直しは未了**です。
 
-**動きの大きさ・タイミングという点では、目視で本家に近い**ところまで来ています。
-ただし「本家と同等」ではありません。**静止時の微振動は本家より明確に大きく**（下記「静止時のジッタ」）、
+**動きの大きさ・タイミングという点では、目視で MMD に近い**ところまで来ています。
+ただし「MMD と同等」ではありません。**静止時の微振動は MMD より明確に大きく**（下記「静止時のジッタ」）、
 上表の数値も IA 1 モデルだけの、しかも直近の修正より前の実測です。
 
 設計判断と「試して失敗した記録」は [docs/DESIGN.md](docs/DESIGN.md) を参照してください。
@@ -50,7 +55,7 @@ IA などの MMD モデルは**再配布しないため、このリポジトリ�
 
 - **推奨**: リポジトリ直下に `testdata/` を作り、以下を置く（`testdata/` は `.gitignore` 済み）:
   - `testdata/IA.pmx` — モデル本体
-  - `testdata/IA_bone_world_pose.csv` — 本家ベイクのボーン世界姿勢CSV (30fps)
+  - `testdata/IA_bone_world_pose.csv` — MMDベイクのボーン世界姿勢CSV (30fps)
   - `testdata/ia.csv` — PMXエディタの構造エクスポート (剛体/Joint/ボーン照合用, pmxverify)
   - `testdata/IA.glb` — glTF バイナリ (`extras.mmd` 付き。GLB経由入力の検証用, glbverify)
 - または環境変数で指定: `MMD_TEST_PMX` / `MMD_TEST_BONECSV` / `MMD_TEST_PMXCSV` / `MMD_TEST_GLB`。
@@ -101,7 +106,7 @@ PMX 直読み経路と全項目・300ステップ物理がビット一致する�
 | `Unity/MmdPhysicsBehaviour.cs` | — | Unity MonoBehaviour ブリッジ |
 | `Unity/MmdPhysicsBackendSwitch.cs` | — | PhysX (Unity 組込) との排他切替 |
 | `DevTools/BonePoseCsvSource.cs` | — | ボーン姿勢CSVローダ (Unity非依存) |
-| `DevTools/BonePoseCsvPlayer.cs` | — | 本家CSV再生+本家スカートのゴースト重畳 (目視確認用) |
+| `DevTools/BonePoseCsvPlayer.cs` | — | MMDベイクCSV再生+MMDのスカートのゴースト重畳 (目視確認用) |
 
 ## Joint 対応 (PMX 仕様の対応表どおり)
 
@@ -186,8 +191,8 @@ LateUpdate  : 起動直後の FK-rest リセット → 物理 → ボーンへ�
 **既定は `FixedTimeStep = 1/60`, `SubSteps = 1`（実効刻み 1/60）** です
 (`MmdPhysicsBehaviour` の既定値。`PhysicsWorld` 単体の既定は 1/30 × 2 で実効刻みは同じ)。
 
-当初は「MMD 本家は 30fps で 1 描画フレーム = 1 物理ステップ」という想定でしたが、**これは誤りと判明**
-しました。刻みを細かくするほど本家のスカート挙動に一致し（12窓比の中央値 1/30:1.133 → 1/60:1.030
+当初は「MMDは 30fps で 1 描画フレーム = 1 物理ステップ」という想定でしたが、**これは誤りと判明**
+しました。刻みを細かくするほどMMDのスカート挙動に一致し（12窓比の中央値 1/30:1.133 → 1/60:1.030
 → 1/120:0.978）、外部の MMD 互換実装も細刻み（Saba=1/120, libmmd=1/60）だったためです。
 
 `1/60 × 1` は `1/30 × 2` と実効刻みが同一で忠実度も数値まで一致しますが、
@@ -219,7 +224,7 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 
 ## 静止時のジッタ (未解決)
 
-ほとんど静止した状態でも動的剛体に残留運動が残り、本家より細かく震えます
+ほとんど静止した状態でも動的剛体に残留運動が残り、MMDより細かく震えます
 (IA: `|v|` 平均 0.79 / `|w|` 平均 1.37)。拘束の位置誤差 (Baumgarte) を**実速度**として
 打ち消しているため、毎ステップ運動エネルギーが供給され続けるのが原因です。
 **ソルバ反復を 10→40 にしても改善しません**（収束不足ではない）。
@@ -281,10 +286,10 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 
 剛体が原点に固まる / モデルとズレる場合は §2 (名前解決) と `UnitScale` を見直します。
 
-### 4. `BonePoseCsvPlayer` で本家CSVを再生し、本家スカートと重ねて見る
+### 4. `BonePoseCsvPlayer` でMMDベイクCSVを再生し、MMDのスカートと重ねて見る
 
-ヘッドレス検証(`HeadlessDriver`)と**同一入力・同一ロジック**で本家ベイク済み
-ボーン姿勢CSVを再生し、自前物理の剛体(緑)に**本家スカート剛体をマゼンタのゴースト**で
+ヘッドレス検証(`HeadlessDriver`)と**同一入力・同一ロジック**でMMDでベイクした
+ボーン姿勢CSVを再生し、自前物理の剛体(緑)に**MMDのスカート剛体をマゼンタのゴースト**で
 重ねて表示するコンポーネントです (`Assets/MmdPhysics/DevTools/BonePoseCsvPlayer.cs`)。
 `ModelRoot` は不要 (Unityボーンには書き戻さず、Gizmo で描くだけの目視専用)。
 
@@ -294,7 +299,7 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 | `BoneCsvPath` | `IA_bone_world_pose.csv` のパス (空/未存在ならゴースト無しで物理のみ) |
 | `Gravity`/`FixedTimeStep`/`SubSteps`/`SolverIterations`/`WarmupSteps` | `98`/`1/30`/`1`/`10`/`60` (ヘッドレスと同一) |
 | `UnitScale` | モデル配置に合わせる (単独で見るだけなら `1.0` でも可) |
-| `DrawReferenceGhost` / `SkirtOnlyGhost` | `true` / `true` (本家スカートのみゴースト) |
+| `DrawReferenceGhost` / `SkirtOnlyGhost` | `true` / `true` (MMDのスカートのみゴースト) |
 
 操作は Inspector でコンポーネント名を**右クリック → ContextMenu** (Input/GUI 不使用):
 
@@ -302,7 +307,7 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 - **Step Forward (+1) / Step Back (-1)** … コマ送り
 - **Jump to Frame / Window Start / Window End** … `WindowStart=2440`, `WindowEnd=2470`
 
-**コマ送り**: `Jump to Window Start` → `Step Forward` を連打。自前(緑)と本家(マゼンタ)の
+**コマ送り**: `Jump to Window Start` → `Step Forward` を連打。自前(緑)とMMD(マゼンタ)の
 スカートの開きを1フレームずつ比較できます。物理は逆再生できないため、後退/ジャンプは
 内部でフレーム0から再シミュレーションします (7000フレームでも一瞬)。
 
@@ -332,9 +337,9 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 
 ### 目視で確認するポイント
 - **起動直後にスカートが暴れない／脚に沈まない**か（FK-rest リセットが効いていれば静かに始まる）。
-- ターン時の開き具合が本家相当か。
+- ターン時の開き具合がMMD相当か。
 - 揺れ物が**カクつかない**か（`AlignUnityFixedTimestep` が ON なら等間隔更新になる）。
-- 静止ポーズで**細かく震えないか**（現状は本家より震える。「静止時のジッタ」節）。
+- 静止ポーズで**細かく震えないか**（現状はMMDより震える。「静止時のジッタ」節）。
 
 ### うまく動かないときの確認項目
 - **スカート/髪が原点へ吸われる・メッシュが変形しない** → ボーン名解決の失敗。`ModelRoot` 配下の
@@ -351,7 +356,7 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 
 - SoftBody のクラスタ / AeroModel は簡易対応 (PMX 仕様でも「精度・速度に問題あり・非対応も選択肢」と明記)。
 - ConeTwist / Slider / Hinge のモーターは未対応 (仕様上も「暫定対応」)。
-- 静止時のジッタが本家より大きい（上記「静止時のジッタ」節。未解決）。
+- 静止時のジッタがMMDより大きい（上記「静止時のジッタ」節。未解決）。
 - 数値は Bullet 2.75 と厳密一致ではなく挙動互換を目標とします。
 
 ## 検証 (ハーネスの回し方)
@@ -374,8 +379,8 @@ dotnet run -c Release
 | `compilecheck` | C# 9 コンパイル検証 + 合成シナリオ | 不要 |
 | `chainbug` | 合成チェーンの最小再現（刻み/質量分布の掃引） | 不要 |
 | `restsim` | 静止（重力のみ）でのスカート貫入 | **要** |
-| `bonecheck` | 本家ベイクCSVとの傾き比較（忠実度の本丸） | **要** |
-| `hairfid` | 髪の本家フレーム突合 | **要** |
+| `bonecheck` | MMDベイクCSVとの傾き比較（忠実度の本丸） | **要** |
+| `hairfid` | 髪のMMDフレーム突合 | **要** |
 | `perf` | 位相別プロファイル | 不要 |
 
 > ⚠ 現在 `testdata/IA.pmx` が無いため `restsim` / `bonecheck` / `hairfid` は常に `[SKIP]` します。

@@ -1,9 +1,9 @@
 // タスクC(調査のみ・修正なし): スカート×太もも の持続的な食い込みを切り分ける。
-//   1) 本家でも食い込むか (CSVボーンから剛体を復元し、自前と同じ narrowphase で貫入算出)
+//   1) MMDでも食い込むか (CSVボーンから剛体を復元し、自前と同じ narrowphase で貫入算出)
 //   2) バインドポーズで既に食い込んでいるか (物理0ステップ)
 //   3) 常習ペアのリング/列別一覧
 //   4) 接触が解けない理由 (ShouldCollide / 接触検出 / 法線インパルス / NormalBias / 実効質量)
-// 貫入は GjkEpa.Detect(a,b) の最小 Distance から算出 (自前も本家も同一計算)。本体無改変。
+// 貫入は GjkEpa.Detect(a,b) の最小 Distance から算出 (自前もMMDも同一計算)。本体無改変。
 using System;
 using System.IO;
 using System.Text;
@@ -66,14 +66,14 @@ static class SkirtThigh
         foreach (var h in bindHits.OrderByDescending(x => x.d).Take(20)) L($"   {h.s} × {h.l} : 深さ={h.d:F4}");
         L($"   バインドで貫入(>0.05)するペア数={bindHits.Count}  (スカート_1_5×左太もも 含む: {bindHits.Any(h => h.s == "スカート_1_5" && h.l == "左太もも")})");
 
-        // ---- 1)&3) 本家 vs 自前 の貫入 (全フレーム) ----
-        // 本家: CSVボーン*offset に剛体を置いて Detect。自前: 物理を回して Detect。脚は両方CSV駆動で同一。
+        // ---- 1)&3) MMD vs 自前 の貫入 (全フレーム) ----
+        // MMD: CSVボーン*offset に剛体を置いて Detect。自前: 物理を回して Detect。脚は両方CSV駆動で同一。
         var pairSelfMean = new Dictionary<string, double>(); var pairSelfMax = new Dictionary<string, float>();
         var pairRefMean = new Dictionary<string, double>(); var pairRefMax = new Dictionary<string, float>();
         var pairN = new Dictionary<string, int>();
         void Acc(Dictionary<string, double> mean, Dictionary<string, float> max, string k, float v) { mean[k] = mean.GetValueOrDefault(k) + v; if (v > max.GetValueOrDefault(k)) max[k] = v; }
 
-        // 本家パス: 全剛体をCSV姿勢に置く
+        // MMDパス: 全剛体をCSV姿勢に置く
         var saved = builder.Bodies.Select(b => b.WorldTransform).ToArray();
         for (int f = 0; f < F; f++)
         {
@@ -85,7 +85,7 @@ static class SkirtThigh
         for (int i = 0; i < builder.Bodies.Count; i++) builder.Bodies[i].WorldTransform = saved[i];
 
         // 自前パス: 物理(実効1/60=Sub2)で駆動
-        builder = PmxPhysicsBuilder.Build(model); // 作り直し(本家パスでTransformを弄ったため)
+        builder = PmxPhysicsBuilder.Build(model); // 作り直し(MMDパスでTransformを弄ったため)
         skirtRb.Clear(); legRb.Clear(); link.Clear();
         for (int i = 0; i < builder.Bodies.Count; i++)
         {
@@ -129,17 +129,17 @@ static class SkirtThigh
         foreach (var kv in pairSelfMean.OrderByDescending(k => k.Value / Math.Max(1, pairN.GetValueOrDefault(k.Key))).Take(16))
         { int n = pairN.GetValueOrDefault(kv.Key); L($"   {kv.Key,-22} 平均={kv.Value / Math.Max(1, n):F4} 最大={pairSelfMax[kv.Key]:F4} 出現={n}F"); }
 
-        // ---- 1) 本家 vs 自前 の並記 (主要ペア) ----
-        L("\n[1] 本家 vs 自前 の貫入 (同一計算, 平均/最大 深さ)  ★食い込みが本家由来か自前固有かの判定");
+        // ---- 1) MMD vs 自前 の並記 (主要ペア) ----
+        L("\n[1] MMD vs 自前 の貫入 (同一計算, 平均/最大 深さ)  ★食い込みがMMD由来か自前固有かの判定");
         var keys = pairSelfMean.Keys.Union(pairRefMean.Keys).OrderByDescending(k => Math.Max(pairSelfMax.GetValueOrDefault(k), pairRefMax.GetValueOrDefault(k))).Take(14);
-        L("   ペア                     | 自前 平均/最大   | 本家 平均/最大");
+        L("   ペア                     | 自前 平均/最大   | MMD 平均/最大");
         foreach (var k in keys)
         {
             int nS = pairN.GetValueOrDefault(k);
             double sm = pairSelfMean.GetValueOrDefault(k) / Math.Max(1, nS);
             L($"   {k,-22} | {sm,6:F4}/{pairSelfMax.GetValueOrDefault(k),6:F4} | {(pairRefMean.ContainsKey(k) ? (pairRefMean[k] / F).ToString("F4") : "  -   ")}/{pairRefMax.GetValueOrDefault(k),6:F4}");
         }
-        L("   (本家平均は全Fで割った値。剛体位置は本家CSVボーン*offsetで復元し自前と同一のGjkEpaで測定)");
+        L("   (MMD平均は全Fで割った値。剛体位置はMMDベイクCSVボーン*offsetで復元し自前と同一のGjkEpaで測定)");
 
         // ---- 4) 接触が解けない理由 ----
         L("\n[4] スカート_1_5×左太もも の接触状態 (F4..12)");

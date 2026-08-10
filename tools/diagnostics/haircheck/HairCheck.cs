@@ -1,6 +1,6 @@
 // 診断(調整なし): カプセル慣性の Bullet 準拠化がカプセル剛体(髪)に効き、
 // 箱剛体(スカート)に効かないことを確認する。
-//   - CSV収録ボーンを列挙し、髪ボーンが本家参照に存在するか確認(=自前/本家比較の可否)。
+//   - CSV収録ボーンを列挙し、髪ボーンがMMD参照に存在するか確認(=自前/MMD比較の可否)。
 //   - 髪の縦Joint(子=カプセル/dynamic, 名前に"横"を含まない)を抽出し選定を報告。
 //   - スカート(箱)と髪(カプセル)の傾き統計(平時/ターン窓)を「同じ物差し」で測る。
 //   本体は不変。変更前/後の2回走らせ、髪が変化・スカートが不変であることを比較する。
@@ -31,10 +31,10 @@ static class HairCheck
         var model = PmxReader.LoadFile(PmxPath);
         int F = csv.FrameCount;
 
-        // ---- CSV収録ボーン (本家参照が持つボーン) ----
+        // ---- CSV収録ボーン (MMD参照が持つボーン) ----
         var csvBones = csv.BoneNames.OrderBy(x => x).ToList();
         int hairBonesInCsv = csvBones.Count(b => b.Contains("髪"));
-        L("========== CSV(本家参照)の収録ボーン ==========");
+        L("========== CSV(MMD参照)の収録ボーン ==========");
         L($"  総数={csvBones.Count}  うち\"髪\"を含む={hairBonesInCsv}");
         L("  一覧: " + string.Join(", ", csvBones));
 
@@ -72,7 +72,7 @@ static class HairCheck
         foreach (var h in hair.Take(16)) L($"    {h.Name}  [{h.ParentBone}→{h.ChildBone}]");
         bool hairChildInCsv = hair.Any(h => csv.HasBone(h.ChildBone));
         L($"  → 髪の子ボーンがCSVに存在するか: {(hairChildInCsv ? "あり" : "なし")} " +
-          $"({(hairChildInCsv ? "本家参照と比較可能" : "本家参照が無いため自前(SELF)値のみ。変更前/後の比較で効果を見る")})");
+          $"({(hairChildInCsv ? "MMD参照と比較可能" : "MMD参照が無いため自前(SELF)値のみ。変更前/後の比較で効果を見る")})");
 
         // ---- 物理を走らせて 傾き統計 (スカート/髪 両方) ----
         var skirt = SkirtMeasure.ExtractVerticalJoints(model);

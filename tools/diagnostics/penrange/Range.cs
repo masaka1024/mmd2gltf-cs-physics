@@ -1,7 +1,7 @@
 // タスク1(調査のみ): スカート×左太もも の貫入を「全7001フレーム・同一分母」で測り直す。
-// タスクCの平均は自前=貫入フレームのみ/本家=全フレーム と分母が不整合だった。ここでは
-// 自前・本家とも全フレーム(貫入なし=0)で統計し、区間別・分布・時系列CSVを出す。
-// 自前=物理の実剛体をDetect、本家=CSVボーン*offsetで剛体復元してDetect(同一narrowphase)。
+// タスクCの平均は自前=貫入フレームのみ/MMD=全フレーム と分母が不整合だった。ここでは
+// 自前・MMDとも全フレーム(貫入なし=0)で統計し、区間別・分布・時系列CSVを出す。
+// 自前=物理の実剛体をDetect、MMD=CSVボーン*offsetで剛体復元してDetect(同一narrowphase)。
 using System;
 using System.IO;
 using System.Text;
@@ -49,7 +49,7 @@ static class PenRange
         Apply(0); for (int s = 0; s < 60; s++) world.StepSimulation(FRAME);
         for (int f = 0; f < F; f++) { Apply(f); world.StepSimulation(FRAME); for (int t = 0; t < Targets.Length; t++) self[t][f] = Depth(tg[t], leg); }
 
-        // ---- 本家パス (CSVボーン*offsetで剛体復元) ----
+        // ---- MMDパス (CSVボーン*offsetで剛体復元) ----
         var b2 = PmxPhysicsBuilder.Build(model);
         RigidBody Body2(string n) => b2.Bodies.First(x => x.Name == n);
         var leg2 = Body2(Leg); var tg2 = Targets.Select(Body2).ToArray();
@@ -75,13 +75,13 @@ static class PenRange
         {
             L($"\n---------- {Targets[t]} × {Leg} ----------");
             Report("自前", self[t]);
-            Report("本家", refD[t]);
-            L("  区間別 平均 (自前 | 本家):");
+            Report("MMD", refD[t]);
+            L("  区間別 平均 (自前 | MMD):");
             foreach (var s in segs) L($"    {s.name,-12}: {SegMean(self[t], s.lo, s.hi):F4} | {SegMean(refD[t], s.lo, s.hi):F4}");
             int selfDeep = self[t].Count(x => x > 0.5f), selfShallow = self[t].Count(x => x < 0.1f);
             int refDeep = refD[t].Count(x => x > 0.5f), refShallow = refD[t].Count(x => x < 0.1f);
-            L($"  貫入>0.5: 自前={selfDeep}F ({100.0 * selfDeep / F:F1}%) | 本家={refDeep}F ({100.0 * refDeep / F:F1}%)");
-            L($"  貫入<0.1: 自前={selfShallow}F ({100.0 * selfShallow / F:F1}%) | 本家={refShallow}F ({100.0 * refShallow / F:F1}%)");
+            L($"  貫入>0.5: 自前={selfDeep}F ({100.0 * selfDeep / F:F1}%) | MMD={refDeep}F ({100.0 * refDeep / F:F1}%)");
+            L($"  貫入<0.1: 自前={selfShallow}F ({100.0 * selfShallow / F:F1}%) | MMD={refShallow}F ({100.0 * refShallow / F:F1}%)");
             // 自前の深い(>0.5)フレームが窓内か
             var deepFrames = Enumerable.Range(0, F).Where(f => self[t][f] > 0.5f).ToList();
             int inW = deepFrames.Count(f => inWin[f]);

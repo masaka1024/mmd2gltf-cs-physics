@@ -30,7 +30,7 @@ static class Diag
         int F = csv.FrameCount, nj = joints.Count;
         float dt = 1f / 30f;
 
-        // 参照(本家) 傾き/ヨー
+        // 参照(MMD) 傾き/ヨー
         var refTilt = new float[F][]; var refYaw = new float[F][]; var refFmax = new float[F];
         for (int f = 0; f < F; f++)
         {
@@ -55,7 +55,7 @@ static class Diag
         var physTilt = drv.PhysTilt; var physYaw = drv.PhysRelYaw; var physFmax = drv.PhysFrameMaxTilt;
 
         // ---- タスク1: 代表窓の時系列CSV + 4指標 ----
-        float steadyMed = SkirtMeasure.Stats(Flatten(refTilt, nj)).med; // 本家中央値を平時基準に
+        float steadyMed = SkirtMeasure.Stats(Flatten(refTilt, nj)).med; // MMD中央値を平時基準に
         var log = new StringBuilder();
         int[] targets = { 1, 4, 6 };
         foreach (int wi in targets)
@@ -111,17 +111,17 @@ static class Diag
         // ヨー角速度ピーク位置
         int yawPk = s; for (int f = s; f <= e; f++) if (Math.Abs(yawRate[f]) > Math.Abs(yawRate[yawPk])) yawPk = f;
         int pkS = PeakFrame(physFmax, s, e), pkR = PeakFrame(refFmax, s, e);
-        int phase = CrossCorrLag(physFmax, refFmax, s, e, 30); // +なら自前が本家より遅い
+        int phase = CrossCorrLag(physFmax, refFmax, s, e, 30); // +なら自前がMMDより遅い
         int riseS = pkS - yawPk, riseR = pkR - yawPk;
         int decS = DecayFrames(physFmax, pkS, e, steadyMed), decR = DecayFrames(refFmax, pkR, e, steadyMed);
         int ovS = Overshoots(physFmax, pkS, e, steadyMed), ovR = Overshoots(refFmax, pkR, e, steadyMed);
 
         log.AppendLine($"========== 窓{wi} (開始F{w.StartFrame}, ヨーpeak={w.PeakYaw:F0}°/s) ==========");
-        log.AppendLine($"  傾きpeak: 自前={physFmax[pkS]:F1}°@F{pkS}  本家={refFmax[pkR]:F1}°@F{pkR}");
+        log.AppendLine($"  傾きpeak: 自前={physFmax[pkS]:F1}°@F{pkS}  MMD={refFmax[pkR]:F1}°@F{pkR}");
         log.AppendLine($"  1.位相(相互相関の最大位置, +で自前が遅い): {phase:+0;-0;0} フレーム");
-        log.AppendLine($"  2.立ち上がり(ヨーpeak→傾きpeak): 自前={riseS} / 本家={riseR} フレーム");
-        log.AppendLine($"  3.減衰(傾きpeak→平時中央値{steadyMed:F1}°復帰): 自前={(decS < 0 ? "未復帰" : decS.ToString())} / 本家={(decR < 0 ? "未復帰" : decR.ToString())} フレーム");
-        log.AppendLine($"  4.オーバーシュート回数(peak後の再極大): 自前={ovS} / 本家={ovR}");
+        log.AppendLine($"  2.立ち上がり(ヨーpeak→傾きpeak): 自前={riseS} / MMD={riseR} フレーム");
+        log.AppendLine($"  3.減衰(傾きpeak→平時中央値{steadyMed:F1}°復帰): 自前={(decS < 0 ? "未復帰" : decS.ToString())} / MMD={(decR < 0 ? "未復帰" : decR.ToString())} フレーム");
+        log.AppendLine($"  4.オーバーシュート回数(peak後の再極大): 自前={ovS} / MMD={ovR}");
     }
 
     // ---- helpers ----

@@ -1,7 +1,7 @@
 // ===========================================================================
-// (2) 髪のフレーム単位 本家突合 (スカートと同じ土俵)。
-//   本家VMD由来の hair CSV(108ボーン)で BoneFollow(体)を駆動し、髪(dynamic)を自前物理で動かす。
-//   髪ボーン姿勢(ボーン空間 = body.WorldTransform * BodyOffsetFromBone.Inverse())を本家と突合。
+// (2) 髪のフレーム単位 MMD突合 (スカートと同じ土俵)。
+//   MMDVMD由来の hair CSV(108ボーン)で BoneFollow(体)を駆動し、髪(dynamic)を自前物理で動かす。
+//   髪ボーン姿勢(ボーン空間 = body.WorldTransform * BodyOffsetFromBone.Inverse())をMMDと突合。
 //   位置(ワールド)と角度差(閾値3e-3rad, acos不使用)を 房別/段別/静区間・ターン窓で集計。
 //   髪×体の貫入も同時計測(元症状の第一候補)。
 // warm-start(0.85)は既定ON。A/Bは env WARM_OFF=1。
@@ -165,11 +165,11 @@ static class HairFid
                 Console.WriteLine($"[cfg] SKIRT_JTYPE={jt}: {tName[tf]}ジョイント{cnt}本を完全自由化");
             }
         }
-        // ジョイントのアンカー誤差 |worldA-worldB| 収集 (自前sim / 本家CSV幾何)
+        // ジョイントのアンカー誤差 |worldA-worldB| 収集 (自前sim / MMDベイクCSV幾何)
         var jErrOurs = new List<float>[3] { new(), new(), new() };
         var jErrRef = new List<float>[3] { new(), new(), new() };
         // 角度リミット実効挙動: 種別×サンプル(joint×DOF×frame)で「リミット外に居る率」と「超過量」。
-        // 同じ物差し(XYZ euler)で 自前sim と 本家CSV幾何 を比較=リミットが実効的にどれだけ破られているか。
+        // 同じ物差し(XYZ euler)で 自前sim と MMDベイクCSV幾何 を比較=リミットが実効的にどれだけ破られているか。
         var angTotal = new long[3]; var angOut = new long[3];
         var angOverOurs = new List<float>[3] { new(), new(), new() };
         var angTotalR = new long[3]; var angOutR = new long[3];
@@ -238,11 +238,11 @@ static class HairFid
         var posDiff = new Dictionary<string, List<float>>();  // 髪ボーン -> 位置差列
         var angDiff = new Dictionary<string, List<float>>();  // -> 角度差列(deg)
         var oursDev = new Dictionary<string, List<float>>();   // 自前 bind からの角度偏差(deg)
-        var refDev = new Dictionary<string, List<float>>();    // 本家 bind からの角度偏差(deg)
+        var refDev = new Dictionary<string, List<float>>();    // MMD bind からの角度偏差(deg)
         foreach (var (l, b, _) in hairLinks) { posDiff[b] = new(); angDiff[b] = new(); oursDev[b] = new(); refDev[b] = new(); }
         // ターン窓判定用: 下半身ヨー角速度
         var yawRate = new float[F];
-        // ★符号付き位置差(自前-本家) per-frame 累積 (髪/スカート別)。鏡像=Z符号が系統的にずれる。
+        // ★符号付き位置差(自前-MMD) per-frame 累積 (髪/スカート別)。鏡像=Z符号が系統的にずれる。
         var hSx = new float[F]; var hSy = new float[F]; var hSz = new float[F]; var hCn = new int[F];
         var sSx = new float[F]; var sSy = new float[F]; var sSz = new float[F]; var sCn = new int[F];
         // 貫入: pair -> max, deep>0.5 のフレーム記録(診断込み)
@@ -253,7 +253,7 @@ static class HairFid
         // 移動ロック相対保持: skirt子ボーンの(子-親)相対位置の bind相対からのズレ (ON0.371/OFF0.706 に対する自前値)
         var skirtChildren = hairLinks.Where(x => IsSkirt(x.link.Body.Name) && x.link.BoneIndex >= 0).Select(x => x.link.BoneIndex).ToList();
         var relDriftVals = new List<float>();     // 自前(sim)
-        var relDriftRef = new List<float>();      // 本家(CSV: ON or OFF, 同subset/同定義)
+        var relDriftRef = new List<float>();      // MMD(CSV: ON or OFF, 同subset/同定義)
         // 伸び(回転不変): | |子-親| - |bind子-親| |。回転では変わらないので、相対保持のうち「鎖の伸び」成分だけを分離する。
         var stretchVals = new List<float>(); var stretchRef = new List<float>();
         // 方向変化角: 現(子-親) と bind(子-親) のなす角。振り子なら枠の傾きと同程度、横滑りなら枠より大きい。
@@ -301,7 +301,7 @@ static class HairFid
                 if (!csv.TryGet(f, bone, out var refb)) continue;
                 posDiff[bone].Add((ours.Origin - refb.Origin).Length);
                 angDiff[bone].Add(Deg(RelAngle(ours.Rotation, refb.Rotation)));
-                var dv = ours.Origin - refb.Origin; // 符号付き(自前-本家)
+                var dv = ours.Origin - refb.Origin; // 符号付き(自前-MMD)
                 if (IsHair(bone)) { hSx[f] += dv.x; hSy[f] += dv.y; hSz[f] += dv.z; hCn[f]++; }
                 else { sSx[f] += dv.x; sSy[f] += dv.y; sSz[f] += dv.z; sCn[f]++; }
                 oursDev[bone].Add(Deg(RelAngle(bindBone.Rotation, ours.Rotation)));
@@ -332,7 +332,7 @@ static class HairFid
                         stretchVals.Add(Math.Abs(r.Length - bindRel.Length));
                         dirVals.Add(DirDeg(r));
                     }
-                    // 本家(CSV): 同subset/同親定義で CSV 位置から
+                    // MMD(CSV): 同subset/同親定義で CSV 位置から
                     if (csv.TryGet(f, model.BoneNames[ci], out var cc) && csv.TryGet(f, model.BoneNames[pi], out var cp))
                     {
                         var r = cc.Origin - cp.Origin;
@@ -370,14 +370,14 @@ static class HairFid
                 { hairLinks[k].link.Body.WorldTransform = savedPose[k]; hairLinks[k].link.Body.UpdateInertiaWorld(); }
         }
 
-        // ===== 本家の貫入 (幾何): 髪も体も本家CSV姿勢に置いて Detect。仕様かバグかの切り分け =====
+        // ===== MMDの貫入 (幾何): 髪も体もMMDベイクCSV姿勢に置いて Detect。仕様かバグかの切り分け =====
         var refPenMax = new Dictionary<string, float>(); int refDeep = 0; float refDeepMax = 0;
         for (int f = 0; f < F; f++)
         {
             foreach (var (bl, bbn) in bodyLinks) if (csv.TryGet(f, bbn, out var bw)) { bl.Body.WorldTransform = bw * bl.BodyOffsetFromBone; bl.Body.UpdateInertiaWorld(); }
             foreach (var (hl, hbn, _) in hairLinks) if (csv.TryGet(f, hbn, out var bw)) { hl.Body.WorldTransform = bw * hl.BodyOffsetFromBone; hl.Body.UpdateInertiaWorld(); }
-            foreach (var (j2, t2) in jClass) jErrRef[t2].Add(JErr(j2)); // ジョイント種別別アンカー誤差(本家CSV幾何)
-            CollectAng(true); // 角度リミット実効挙動(本家幾何)
+            foreach (var (j2, t2) in jClass) jErrRef[t2].Add(JErr(j2)); // ジョイント種別別アンカー誤差(MMDベイクCSV幾何)
+            CollectAng(true); // 角度リミット実効挙動(MMD幾何)
             foreach (var (hl, hb, _) in hairLinks)
                 foreach (var (bl, bbn) in bodyLinks)
                 {
@@ -410,12 +410,12 @@ static class HairFid
         // ===== 集計 =====
         var O = new StringBuilder();
         // ジョイント種別別 アンカー誤差 (格子のどこで滑っているか)
-        O.AppendLine("[ジョイント種別別 アンカー誤差 |worldA-worldB| (自前sim / 本家CSV幾何)]");
+        O.AppendLine("[ジョイント種別別 アンカー誤差 |worldA-worldB| (自前sim / MMDベイクCSV幾何)]");
         for (int t = 0; t < 3; t++)
         {
             var (om, op, ox) = Stat(jErrOurs[t]);
             var (rm2, rp2, rx2) = Stat(jErrRef[t]);
-            O.AppendLine($"   {tName[t],-3}: 自前 中央={om:F4}/p90={op:F4}/最大={ox:F4}   本家 中央={rm2:F4}/p90={rp2:F4}/最大={rx2:F4}");
+            O.AppendLine($"   {tName[t],-3}: 自前 中央={om:F4}/p90={op:F4}/最大={ox:F4}   MMD 中央={rm2:F4}/p90={rp2:F4}/最大={rx2:F4}");
         }
         O.AppendLine("[角度リミット実効挙動 (リミット外率% / 超過量deg 中央/p90)]");
         for (int t = 0; t < 3; t++)
@@ -424,7 +424,7 @@ static class HairFid
             var (rM, rP, _) = Stat(angOverRef[t]);
             double oPct = angTotal[t] > 0 ? 100.0 * angOut[t] / angTotal[t] : 0;
             double rPct = angTotalR[t] > 0 ? 100.0 * angOutR[t] / angTotalR[t] : 0;
-            O.AppendLine($"   {tName[t],-3}: 自前 外率={oPct:F1}% 超過={oM:F2}/{oP:F2}°   本家 外率={rPct:F1}% 超過={rM:F2}/{rP:F2}°");
+            O.AppendLine($"   {tName[t],-3}: 自前 外率={oPct:F1}% 超過={oM:F2}/{oP:F2}°   MMD 外率={rPct:F1}% 超過={rM:F2}/{rP:F2}°");
         }
         if (stepDeltas.Count > 0)
         {
@@ -445,19 +445,19 @@ static class HairFid
             float rm = relDriftVals[relDriftVals.Count / 2], rp = relDriftVals[(int)(relDriftVals.Count * 0.9)], rx = relDriftVals[relDriftVals.Count - 1];
             float refm = 0, refp = 0, refx = 0;
             if (relDriftRef.Count > 0) { relDriftRef.Sort(); refm = relDriftRef[relDriftRef.Count / 2]; refp = relDriftRef[(int)(relDriftRef.Count * 0.9)]; refx = relDriftRef[relDriftRef.Count - 1]; }
-            O.AppendLine($"[移動ロック相対保持 skirt 同subset/同定義] 自前 中央={rm:F3}/p90={rp:F3}/最大={rx:F3}  本家(CSV) 中央={refm:F3}/p90={refp:F3}/最大={refx:F3}  (小さい=固く保持)");
+            O.AppendLine($"[移動ロック相対保持 skirt 同subset/同定義] 自前 中央={rm:F3}/p90={rp:F3}/最大={rx:F3}  MMD(CSV) 中央={refm:F3}/p90={refp:F3}/最大={refx:F3}  (小さい=固く保持)");
             if (stretchVals.Count > 0 && stretchRef.Count > 0)
             {
                 stretchVals.Sort(); stretchRef.Sort();
                 float sm = stretchVals[stretchVals.Count / 2], sp = stretchVals[(int)(stretchVals.Count * 0.9)], sx = stretchVals[stretchVals.Count - 1];
                 float tm = stretchRef[stretchRef.Count / 2], tp = stretchRef[(int)(stretchRef.Count * 0.9)], tx = stretchRef[stretchRef.Count - 1];
-                O.AppendLine($"[伸び(回転不変) | |子-親|-|bind| |] 自前 中央={sm:F3}/p90={sp:F3}/最大={sx:F3}  本家(CSV) 中央={tm:F3}/p90={tp:F3}/最大={tx:F3}  (回転で変わらない=鎖の伸びのみ)");
+                O.AppendLine($"[伸び(回転不変) | |子-親|-|bind| |] 自前 中央={sm:F3}/p90={sp:F3}/最大={sx:F3}  MMD(CSV) 中央={tm:F3}/p90={tp:F3}/最大={tx:F3}  (回転で変わらない=鎖の伸びのみ)");
                 if (dirVals.Count > 0 && dirRef.Count > 0)
                 {
                     dirVals.Sort(); dirRef.Sort();
                     float dm = dirVals[dirVals.Count / 2], dp2 = dirVals[(int)(dirVals.Count * 0.9)];
                     float em = dirRef[dirRef.Count / 2], ep = dirRef[(int)(dirRef.Count * 0.9)];
-                    O.AppendLine($"[方向変化角 (現r vs bind r)] 自前 中央={dm:F1}°/p90={dp2:F1}°  本家(CSV) 中央={em:F1}°/p90={ep:F1}°  (振り子=枠傾きと同程度 / 横滑り=枠より大)");
+                    O.AppendLine($"[方向変化角 (現r vs bind r)] 自前 中央={dm:F1}°/p90={dp2:F1}°  MMD(CSV) 中央={em:F1}°/p90={ep:F1}°  (振り子=枠傾きと同程度 / 横滑り=枠より大)");
                 }
             }
         }
@@ -465,10 +465,10 @@ static class HairFid
         bool[] turn = new bool[F];
         for (int f = 0; f < F; f++) if (Math.Abs(yawRate[f]) > 360f) for (int k = Math.Max(0, f - 15); k < Math.Min(F, f + 15); k++) turn[k] = true;
         int nturn = turn.Count(x => x), nquiet = F - nturn;
-        O.AppendLine($"\n===== (2) 髪 本家突合 (自前 warm={world.UseJointWarmStart} fac={Joint.WarmStartFactor}) =====");
+        O.AppendLine($"\n===== (2) 髪 MMD突合 (自前 warm={world.UseJointWarmStart} fac={Joint.WarmStartFactor}) =====");
         O.AppendLine($"フレーム {F} (ターン窓={nturn}f 静区間={nquiet}f)");
 
-        // ★符号付き位置差(自前-本家) 静区間平均: 鏡像診断。Z(前後)が支配的に非0なら鏡像。
+        // ★符号付き位置差(自前-MMD) 静区間平均: 鏡像診断。Z(前後)が支配的に非0なら鏡像。
         double hx = 0, hy = 0, hz = 0; int hn = 0; double kx = 0, ky = 0, kz = 0; int kn = 0;
         for (int f = 0; f < F; f++)
         {
@@ -477,8 +477,8 @@ static class HairFid
             if (sCn[f] > 0) { kx += sSx[f]; ky += sSy[f]; kz += sSz[f]; kn += sCn[f]; }
         }
         string Dom(double x, double y, double z) => Math.Abs(z) >= Math.Abs(x) && Math.Abs(z) >= Math.Abs(y) ? "dz(前後=鏡像!)" : (Math.Abs(x) >= Math.Abs(y) ? "dx(左右)" : "dy(上下)");
-        if (hn > 0) O.AppendLine($"[符号付き位置差 自前-本家 髪 静区間平均] ({hx / hn:F3},{hy / hn:F3},{hz / hn:F3}) 支配={Dom(hx / hn, hy / hn, hz / hn)}");
-        if (kn > 0) O.AppendLine($"[符号付き位置差 自前-本家 スカート 静区間平均] ({kx / kn:F3},{ky / kn:F3},{kz / kn:F3}) 支配={Dom(kx / kn, ky / kn, kz / kn)}");
+        if (hn > 0) O.AppendLine($"[符号付き位置差 自前-MMD 髪 静区間平均] ({hx / hn:F3},{hy / hn:F3},{hz / hn:F3}) 支配={Dom(hx / hn, hy / hn, hz / hn)}");
+        if (kn > 0) O.AppendLine($"[符号付き位置差 自前-MMD スカート 静区間平均] ({kx / kn:F3},{ky / kn:F3},{kz / kn:F3}) 支配={Dom(kx / kn, ky / kn, kz / kn)}");
 
         // 全体 位置/角度 差 (全frame×全髪ボーン)
         List<float> allPos = new(), allAng = new(); float signSum = 0; int signN = 0;
@@ -489,7 +489,7 @@ static class HairFid
         }
         var (pm, pp, px) = Stat(allPos); var (am, ap, ax) = Stat(allAng);
         O.AppendLine($"[全体] 位置差(u) 中央={pm:F3}/p90={pp:F3}/最大={px:F3}   角度差(°) 中央={am:F2}/p90={ap:F2}/最大={ax:F2}");
-        O.AppendLine($"[符号] 平均(自前bind偏差 - 本家bind偏差)={signSum / Math.Max(1, signN):F2}° (正=自前が動きすぎ / 負=動かなさすぎ)");
+        O.AppendLine($"[符号] 平均(自前bind偏差 - MMDbind偏差)={signSum / Math.Max(1, signN):F2}° (正=自前が動きすぎ / 負=動かなさすぎ)");
 
         // 静区間/ターン窓 別 (角度差)
         List<float> qAng = new(), tAng = new(), qPos = new(), tPos = new();
@@ -519,13 +519,13 @@ static class HairFid
         // 髪×体 貫入
         O.AppendLine("\n[髪×体 貫入] ペア別 最大貫入 上位10:");
         foreach (var kv in penMax.OrderByDescending(k => k.Value).Take(10)) O.AppendLine($"   {kv.Key}: {kv.Value:F3}");
-        // 分母明示 (過去の 158 vs 7001 誤り防止): 自前も本家も 全Fフレーム × 同一ペア集合 × pen>0.5。
+        // 分母明示 (過去の 158 vs 7001 誤り防止): 自前もMMDも 全Fフレーム × 同一ペア集合 × pen>0.5。
         int selfDF = deepFrames.Select(x => x.f).Distinct().Count();
         int selfDP = deepFrames.Select(x => x.pair).Distinct().Count();
         int deepTurn = deepFrames.Count(x => turn[x.f]);
-        O.AppendLine($"[分母] 全{F}f × 髪{hairLinks.Count}×体{bodyLinks.Count}ペア を同一条件で計数(自前=物理結果/本家=幾何配置, 定義pen>0.5, GjkEpa.Detect)");
+        O.AppendLine($"[分母] 全{F}f × 髪{hairLinks.Count}×体{bodyLinks.Count}ペア を同一条件で計数(自前=物理結果/MMD=幾何配置, 定義pen>0.5, GjkEpa.Detect)");
         O.AppendLine($"[自前 深貫入>0.5] イベント={deepFrames.Count} (ユニークフレーム={selfDF}, ユニークペア={selfDP}) 区間: ターン窓={deepTurn} 静={deepFrames.Count - deepTurn} 最大={(deepFrames.Count > 0 ? deepFrames.Max(x => x.d) : 0):F3}");
-        O.AppendLine($"[本家 深貫入>0.5(幾何)] イベント={refDeep} 最大={refDeepMax:F3}  ★同分母。自前>>本家=自前固有の衝突抜け");
+        O.AppendLine($"[MMD 深貫入>0.5(幾何)] イベント={refDeep} 最大={refDeepMax:F3}  ★同分母。自前>>MMD=自前固有の衝突抜け");
 
         // ★上位20 深貫入 診断: 検出されてないか / 検出済みで押し戻せてないか の分岐
         O.AppendLine("\n[上位20 深貫入 診断] (AABB=broadphase重なり, 点=マニフォールド接触点数, ni=法線力積, 継続=連続deepフレーム数)");
