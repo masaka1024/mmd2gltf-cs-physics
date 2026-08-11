@@ -11,10 +11,10 @@ using System.IO;
 
 internal static class TestData
 {
-    public const string DefaultPmx = "IA.pmx";
-    public const string DefaultBoneCsv = "IA_bone_world_pose.csv";
+    public const string DefaultPmx = "modelA.pmx";
+    public const string DefaultBoneCsv = "modelA_bone_world_pose.csv";
     public const string DefaultStructureCsv = "ia.csv";
-    public const string DefaultGlb = "IA.glb";
+    public const string DefaultGlb = "modelA.glb";
 
     public static string PmxPath() => Resolve("MMD_TEST_PMX", DefaultPmx);
     public static string BoneCsvPath() => Resolve("MMD_TEST_BONECSV", DefaultBoneCsv);

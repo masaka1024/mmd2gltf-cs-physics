@@ -165,7 +165,7 @@ static class Split
         L($"  窓ピーク/平時中央の最大差={dMax:F4} => {(dMax < 1e-3f ? "一致(ノイズフロア≈0)" : "揺れあり")}");
 
         var toff = Timing(false, 300); var ton = Timing(true, 300);
-        L("\n[性能] IA.pmx 300ステップ StepSimulation");
+        L("\n[性能] modelA.pmx 300ステップ StepSimulation");
         L($"  従来(off): avg={toff.avg:F3}ms p95={toff.p95:F3}ms max={toff.max:F3}ms");
         L($"  Split(on): avg={ton.avg:F3}ms p95={ton.p95:F3}ms max={ton.max:F3}ms");
 

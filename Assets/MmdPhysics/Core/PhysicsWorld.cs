@@ -55,7 +55,7 @@ namespace BulletPhysics
         // 接触用の UseSplitImpulse とは独立 (接触既定 false=Bullet2.75 準拠は不変)。既定 false=挙動不変。
         public bool UseJointSplitImpulse = false;
         // ステップ2(a-1): ジョイントの直線ロック行のみ warm-start (蓄積インパルスをサブステップ間で引継ぎ)。
-        // ★2026-08-09 既定ON化: factor 0.85 で VMD統計(中央/p90)がMMDへ接近・完全ロックIA改善・
+        // ★2026-08-09 既定ON化: factor 0.85 で VMD統計(中央/p90)がMMDへ接近・完全ロックモデルA改善・
         //   12窓比が帯内・単鎖トルク3×改善・不変条件全PASSを満たしたため既定ON。A/B用にフラグは残す。
         public bool UseJointWarmStart = true;
         // ステップ2(a-2): 角度行も warm-start (同一性キー=軸+側 lo/hi、同一性が変わればキャッシュ破棄)。
@@ -235,7 +235,7 @@ namespace BulletPhysics
         //  スリープ (Bullet の deactivation 相当) — 2026-08-10 実装
         //
         //  症状: ほとんど静止しているのに揺れ物が細かく震え続ける。MMD(Bullet)は静止した
-        //  剛体を非活性化して計算から外すので完全に止まる (ユーザー実機でMMDのIAの序盤=静止
+        //  剛体を非活性化して計算から外すので完全に止まる (ユーザー実機でMMDのモデルAの序盤=静止
         //  ポーズ中は髪の揺れが止まることを確認済み)。当エンジンは RigidBody に IsActive /
         //  SleepTimer の宣言だけがあり、どこからも使われていなかった。
         //
@@ -250,7 +250,7 @@ namespace BulletPhysics
         //    動き続けるので、髪もスカートも常に起きたままになる。
         // ═══════════════════════════════════════════
         //  ★既定 OFF (2026-08-10)。実装はしたが現状ほとんど発動しない: 当エンジンの静止時の
-        //    残留運動が Bullet のしきい値を超えているため (IA で |w|平均 1.5 > しきい値 1.0)。
+        //    残留運動が Bullet のしきい値を超えているため (モデルA で |w|平均 1.5 > しきい値 1.0)。
         //    101体中 2体しか眠らず、効果が無い一方で「起こし損ねると固まる」リスクだけが残る。
         //    残留運動そのものを下げる方が先。下げられたら既定ONを検討する。
         public bool EnableSleeping = false;
@@ -472,7 +472,7 @@ namespace BulletPhysics
         // --- ブロードフェーズの候補ペア (最適化, 2026-08-09) ---
         // static/kinematic 同士の除外と ShouldCollide(Group/Mask) は「不変な情報」なので毎サブステップ
         // 総当たりで再判定する必要がない。初回に候補ペアを作り置きし、以後はそれだけを走査する。
-        // (IA: 総当たり6786 → 候補のみへ削減。ペア順序は i昇順→k昇順 で従来と同一=結果ビット不変)
+        // (モデルA: 総当たり6786 → 候補のみへ削減。ペア順序は i昇順→k昇順 で従来と同一=結果ビット不変)
         // 剛体の追加や Group/CollisionMask/Mode を実行時に変更した場合は InvalidateCollisionPairs() を呼ぶこと
         // (AddBody は自動で無効化する。ハーネスは構築直後に変更するため初回構築前に確定する)。
         private int[] _pairA, _pairB; private int _pairCount = -1; private int _pairBuiltForCount = -1;

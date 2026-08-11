@@ -2,16 +2,28 @@
 # 補正ON版 vs 補正OFF版 の対照実験(タスク1) + OFF版CSV作成(タスク2)。
 # compose.py の関数を再利用。既存CSVは非上書き(別名出力)。
 import sys, math, os, time, io
-sys.path.insert(0, r"C:/mytask2/unity-bullet-physics/scratchpad/vmd_pose_dump")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
 import numpy as np
 import compose as C
 
-PMX     = r"C:/mytask2/unity-bullet-physics/Assets/testdata/IA.pmx"
-VMD_ON  = r"C:/mytask2/unity-bullet-physics/Assets/testdata/IA_Conqueror_full_key_version_fix.vmd"
-VMD_OFF = r"C:/Users/masa_/Downloads/IA_Conqueror_Motion/IA_Conqueror_Motion/IA_Conqueror_full_key_version_fix_off.vmd"
-REF     = r"C:/mytask2/_external_testdata/IA_bone_world_pose.csv"       # ON版 43ボーン(既存)
-OUT43   = r"C:/mytask2/_external_testdata/IA_bone_world_pose_OFF_43_check.csv"
-OUTHAIR = r"C:/mytask2/_external_testdata/IA_bone_world_pose_hair_OFF.csv"  # OFF版 108(43+髪65)
+# データはリポジトリに含めない (再配布回避)。場所は環境変数で指定する。
+#   MMD_TESTDATA : モデル/モーションの置き場 (既定: このリポジトリの Assets/testdata)
+#   MMD_REFCSV   : ベイク済みCSVの置き場     (既定: MMD_TESTDATA と同じ)
+#   MMD_MODEL    : モデルのファイル名 (拡張子なし。既定: modelA)
+#   MMD_MOTION   : モーションのファイル名 (拡張子なし。既定: motionA)
+DATA   = os.environ.get("MMD_TESTDATA",
+                        os.path.join(_HERE, "..", "..", "Assets", "testdata"))
+REFDIR = os.environ.get("MMD_REFCSV", DATA)
+MODEL  = os.environ.get("MMD_MODEL", "modelA")
+MOTION = os.environ.get("MMD_MOTION", "motionA")
+
+PMX     = os.path.join(DATA, MODEL + ".pmx")
+VMD_ON  = os.path.join(DATA, MOTION + "_fix.vmd")
+VMD_OFF = os.path.join(DATA, MOTION + "_off.vmd")
+REF     = os.path.join(REFDIR, MODEL + "_bone_world_pose.csv")       # ON版 43ボーン(既存)
+OUT43   = os.path.join(REFDIR, MODEL + "_bone_world_pose_off_43_check.csv")
+OUTHAIR = os.path.join(REFDIR, MODEL + "_bone_world_pose_hair_off.csv")  # OFF版 108(43+髪65)
 NF = 7001
 g = '%.7g'
 

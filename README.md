@@ -18,7 +18,7 @@ PmxEditor (極北P) の **PMX 2.1 仕様** に記述された物理演算を、*
 
 ## 現在の到達状況
 
-IA モデルで、MMD がベイクした VMD のスカート挙動と定量・目視の両方で比較しています。
+モデルA モデルで、MMD がベイクした VMD のスカート挙動と定量・目視の両方で比較しています。
 **検証はこの 1 モデルに限られており、一般の MMD モデルでの忠実度は未知数**です
 （後述「検証カバレッジについて」）。
 
@@ -27,21 +27,21 @@ IA モデルで、MMD がベイクした VMD のスカート挙動と定量・�
 | 平時の傾き 中央値 | **10.41°** | 11.39° |
 | ターン12窓の傾きmax 比 (中央値) | **1.061** | 1.0 |
 | 貫入 (定常, スカート×脚) | **~0.0002** | 0.002〜0.004 |
-| 性能 (IA 300ステップ) | **0.65 ms/step** | — |
+| 性能 (モデルA 300ステップ) | **0.65 ms/step** | — |
 
-> ⚠ 上表は **2026-08-10 のオイラー順序修正 (ZYX→YXZ) より前**の実測値です。同修正で IA も
+> ⚠ 上表は **2026-08-10 のオイラー順序修正 (ZYX→YXZ) より前**の実測値です。同修正で モデルA も
 > 物理出力が変わりました（ユーザー実機では見た目の変化なしを確認済み）。テスト用 `.pmx` が
 > 手元に無く `bonecheck` が SKIP されるため、**数値の取り直しは未了**です。
 
 **動きの大きさ・タイミングという点では、目視で MMD に近い**ところまで来ています。
 ただし「MMD と同等」ではありません。**静止時の微振動は MMD より明確に大きく**（下記「静止時のジッタ」）、
-上表の数値も IA 1 モデルだけの、しかも直近の修正より前の実測です。
+上表の数値も モデルA 1 モデルだけの、しかも直近の修正より前の実測です。
 
 設計判断と「試して失敗した記録」は [docs/DESIGN.md](docs/DESIGN.md) を参照してください。
 
 ### 検証カバレッジについて (重要)
 
-長らく **IA 1 モデルだけ**で忠実度を検証してきた結果、IA が「たまたま使っていない機能」の
+長らく **モデルA 1 モデルだけ**で忠実度を検証してきた結果、モデルA が「たまたま使っていない機能」の
 欠陥を 2026-08-10 に 4 件まとめて踏みました（ばね定数 0 / mode2 が 0 個 / 複合回転が小さい /
 揺れ物カーブが無い）。詳細は
 [docs/investigations/2026-08-10-multi-model-defects.md](docs/investigations/2026-08-10-multi-model-defects.md)。
@@ -50,14 +50,14 @@ IA モデルで、MMD がベイクした VMD のスカート挙動と定量・�
 
 ## 必要な外部データ (各自で用意)
 
-IA などの MMD モデルは**再配布しないため、このリポジトリには含まれません**。各自で用意し、
+モデルA などの MMD モデルは**再配布しないため、このリポジトリには含まれません**。各自で用意し、
 以下のいずれかで指定してください（検証ハーネス・診断ツール・`BonePoseCsvPlayer` 共通）。
 
 - **推奨**: リポジトリ直下に `testdata/` を作り、以下を置く（`testdata/` は `.gitignore` 済み）:
-  - `testdata/IA.pmx` — モデル本体
-  - `testdata/IA_bone_world_pose.csv` — MMDベイクのボーン世界姿勢CSV (30fps)
+  - `testdata/modelA.pmx` — モデル本体
+  - `testdata/modelA_bone_world_pose.csv` — MMDベイクのボーン世界姿勢CSV (30fps)
   - `testdata/ia.csv` — PMXエディタの構造エクスポート (剛体/Joint/ボーン照合用, pmxverify)
-  - `testdata/IA.glb` — glTF バイナリ (`extras.mmd` 付き。GLB経由入力の検証用, glbverify)
+  - `testdata/modelA.glb` — glTF バイナリ (`extras.mmd` 付き。GLB経由入力の検証用, glbverify)
 - または環境変数で指定: `MMD_TEST_PMX` / `MMD_TEST_BONECSV` / `MMD_TEST_PMXCSV` / `MMD_TEST_GLB`。
 - どちらも無ければ、モデル依存の検証は自動で **SKIP** されます（他は動きます）。
 
@@ -67,7 +67,7 @@ GLB 経由の物理入力（`Assets/MmdPhysics/Pmx/GlbPhysicsReader.cs`）は、
 [mmd2gltf-gui](https://github.com/masaka1024/) の変換器（標準ライブラリのみ・依存なし）で PMX から生成できます:
 
 ```bash
-python -m mmd2gltf path/to/IA.pmx -o testdata/IA.glb
+python -m mmd2gltf path/to/modelA.pmx -o testdata/modelA.glb
 ```
 
 `extras.mmd` は既定で出力され、剛体/Joint を PMX raw のまま、ボーンを glTF ノードとして持ちます。
@@ -225,7 +225,7 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 ## 静止時のジッタ (未解決)
 
 ほとんど静止した状態でも動的剛体に残留運動が残り、MMDより細かく震えます
-(IA: `|v|` 平均 0.79 / `|w|` 平均 1.37)。拘束の位置誤差 (Baumgarte) を**実速度**として
+(モデルA: `|v|` 平均 0.79 / `|w|` 平均 1.37)。拘束の位置誤差 (Baumgarte) を**実速度**として
 打ち消しているため、毎ステップ運動エネルギーが供給され続けるのが原因です。
 **ソルバ反復を 10→40 にしても改善しません**（収束不足ではない）。
 
@@ -233,12 +233,12 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 
 | 設定 | 内容 | 実測 |
 |---|---|---|
-| `JointSplitImpulse` / `ContactSplitImpulse` | 位置補正を擬似速度へ分離 | IA は約 3 割減。**Tda式は 10 倍悪化** |
+| `JointSplitImpulse` / `ContactSplitImpulse` | 位置補正を擬似速度へ分離 | モデルA は約 3 割減。**モデルBは 10 倍悪化** |
 | `EnableSleeping` | Bullet 相当の非活性化 (linear<0.8 かつ angular<1.0 が 2 秒) | 残留がしきい値を超えるため**ほとんど発動しない**(101 体中 2 体) |
 
 スリープはアイランド単位（動的剛体どうしを Joint と接触で連結し、全員が眠りたがるときだけ
 まとめて眠らせる）で実装しています。**動いている kinematic に触れているアイランドは眠らせない**
-ため、ダンス中に揺れ物が固まることはありません（IA の髪で ON/OFF の揺れ幅が完全一致することを確認済み）。
+ため、ダンス中に揺れ物が固まることはありません（モデルA の髪で ON/OFF の揺れ幅が完全一致することを確認済み）。
 
 ## Unity で目視確認する (セットアップ手順)
 
@@ -295,8 +295,8 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 
 | 項目 | 推奨値 |
 |---|---|
-| `PmxPath` | IA.pmx のパス (既定は空文字=何もしない) |
-| `BoneCsvPath` | `IA_bone_world_pose.csv` のパス (空/未存在ならゴースト無しで物理のみ) |
+| `PmxPath` | modelA.pmx のパス (既定は空文字=何もしない) |
+| `BoneCsvPath` | `modelA_bone_world_pose.csv` のパス (空/未存在ならゴースト無しで物理のみ) |
 | `Gravity`/`FixedTimeStep`/`SubSteps`/`SolverIterations`/`WarmupSteps` | `98`/`1/30`/`1`/`10`/`60` (ヘッドレスと同一) |
 | `UnitScale` | モデル配置に合わせる (単独で見るだけなら `1.0` でも可) |
 | `DrawReferenceGhost` / `SkirtOnlyGhost` | `true` / `true` (MMDのスカートのみゴースト) |
@@ -370,7 +370,7 @@ dotnet run -c Release
 
 - 全 `.csproj` は `<LangVersion>9.0</LangVersion>`（Unity=C# 9 と同一）でビルドされ、C# 10 以降の
   機能が混入すると**ハーネスの時点でビルドが落ちます**。
-- IA モデル/CSV は各自用意（「必要な外部データ」参照）。**未指定なら IA 依存の項目は SKIP** され、
+- モデルA モデル/CSV は各自用意（「必要な外部データ」参照）。**未指定なら モデルA 依存の項目は SKIP** され、
   Unity 非依存の項目だけが走ります（落ちません）。
 - `tools/<name>/` 以下は各種の**診断ツール**。`cd <name> && dotnet run -c Release` で個別に実行できます。
 
@@ -383,5 +383,5 @@ dotnet run -c Release
 | `hairfid` | 髪のMMDフレーム突合 | **要** |
 | `perf` | 位相別プロファイル | 不要 |
 
-> ⚠ 現在 `testdata/IA.pmx` が無いため `restsim` / `bonecheck` / `hairfid` は常に `[SKIP]` します。
+> ⚠ 現在 `testdata/modelA.pmx` が無いため `restsim` / `bonecheck` / `hairfid` は常に `[SKIP]` します。
 > **忠実度の数値回帰が回せない状態**です。復旧が望まれます。

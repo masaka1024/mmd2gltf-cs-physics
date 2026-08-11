@@ -1,13 +1,13 @@
 // ===========================================================================
 // Unity 非依存の検証ハーネス (UnityEngine 最小シムでビルドして実行)。
 //   - 合成4シナリオ: 自由落下 / 接地 / Joint保持 / バネ振動
-//   - IA.pmx スモークテスト (実PMXの回帰検出)
+//   - modelA.pmx スモークテスト (実PMXの回帰検出)
 //   - 静止押し出しの回帰テスト ((a)->(b)是正の退行番人)
-// いずれか失敗で終了コード非0。IA.pmx が無い環境では該当項目をスキップし pass 扱い。
+// いずれか失敗で終了コード非0。modelA.pmx が無い環境では該当項目をスキップし pass 扱い。
 //
 // 実行例:
 //   dotnet run -c Release
-//   IA.pmx のパスは環境変数 MMD_TEST_PMX で指定 (未指定なら既定パスを試し、無ければスキップ)。
+//   modelA.pmx のパスは環境変数 MMD_TEST_PMX で指定 (未指定なら既定パスを試し、無ければスキップ)。
 // ===========================================================================
 using System;
 using System.IO;
@@ -158,7 +158,7 @@ static class Harness
         Check("駆動式統一 (KinematicTarget=bw*offset 共通ヘルパ)", nFollow > 0 && maxErr < 1e-6f, $"BoneFollow={nFollow} maxErr={maxErr:E2}");
     }
 
-    // ---- IA.pmx スモークテスト ----
+    // ---- modelA.pmx スモークテスト ----
     // 閾値は現在の実測に余裕を持たせた値:
     //   maxSpeed: 実測 ~19 (爆発時は数百〜NaN) → 100 (約5×)
     //   stepMax : 実測 ~3-10ms (ハング時は数千〜57000ms) → 50ms (JIT分を除いた定常。約5-15×)
@@ -166,7 +166,7 @@ static class Harness
     static void SmokeTestIaPmx()
     {
         string pmx = FindPmx();
-        if (pmx == null) { Skip("IA.pmx スモークテスト (PMX 未検出)"); return; }
+        if (pmx == null) { Skip("modelA.pmx スモークテスト (PMX 未検出)"); return; }
 
         GjkEpa.EpaIterCapHits = 0; GjkEpa.EpaFaceCapHits = 0;
         var model = PmxReader.LoadFile(pmx);
@@ -197,17 +197,17 @@ static class Harness
         }
         long epaHits = GjkEpa.EpaIterCapHits + GjkEpa.EpaFaceCapHits;
         bool ok = !badNum && maxSpeed <= 100f && epaHits == 0 && stepMaxSteady <= 50.0;
-        Check("IA.pmx スモーク (NaN/爆発/EPA暴走/遅延なし)", ok,
+        Check("modelA.pmx スモーク (NaN/爆発/EPA暴走/遅延なし)", ok,
             $"NaN/Inf={badNum} maxSpeed={maxSpeed:F1}(<=100) EPAhit={epaHits}(=0) stepMax={stepMaxSteady:F2}ms(<=50)");
         // 静止ドリフトの2段判定 (2026-08-09, MMD突合で 7.95=仕様と確定後に格上げ)。
         // MMDの髪は静区間でも最大12.89動く(FK-rest基準)。正当な自由スイングは通し、真の爆散だけ赤にする。
         //   FAIL: maxDrift>=15.0 (MMD静区間最大12.89+余裕)。真の爆散(旧20+〜NaN)を捕捉。
         //   WARN: maxDrift>=10.0 で値を明示 (8→12 のじわ悪化の兆しを拾う帯。合否には非影響)。
         // 現状 warm(0.85)=~7.95 は両方クリア (warm無効=WARM_OFF で~8.17, これもクリア)。
-        Check("IA.pmx 静止ドリフト (爆散番人, <15)", maxDrift < 15.0f,
+        Check("modelA.pmx 静止ドリフト (爆散番人, <15)", maxDrift < 15.0f,
             $"maxDrift={maxDrift:F2} (最大: {driftName}) / FAIL>=15 WARN>=10 / MMD静区間最大12.89=仕様");
         if (maxDrift >= 10.0f && maxDrift < 15.0f)
-            Note("IA.pmx 静止ドリフト WARN", $"maxDrift={maxDrift:F2} >=10 じわ悪化の兆し (合否には非影響)");
+            Note("modelA.pmx 静止ドリフト WARN", $"maxDrift={maxDrift:F2} >=10 じわ悪化の兆し (合否には非影響)");
     }
 
     // ---- 静止押し出しの回帰テスト ----

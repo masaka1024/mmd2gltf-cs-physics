@@ -1,6 +1,6 @@
 # 髪の静止爆散 調査ノート (タスクA〜D)
 
-IA.pmx の髪(動的剛体53個)が静止(アニメOFF)でも bind から最大8動く問題の原因調査。
+modelA.pmx の髪(動的剛体53個)が静止(アニメOFF)でも bind から最大8動く問題の原因調査。
 本体コードは無改変。計測ハーネスのみ追加。
 
 ## タスクA: PMXを外した最小再現 (chainbug, TASK=A)
@@ -33,7 +33,7 @@ maxDrift:
 | 0.20 | 0.590/2.58 | 0.147/1.24 | 0.037/0.59 | 0.009/0.13 |
 | 0.00 | 35.24/3.54 | 17.65/1.77 | 8.83/0.88 | 4.42/0.44 |
 
-RestSim IA (maxSpeed/maxDrift):
+RestSim モデルA (maxSpeed/maxDrift):
 
 | beta | subs1 | subs2 | subs4 | subs8 |
 |---|---|---|---|---|
@@ -43,8 +43,8 @@ RestSim IA (maxSpeed/maxDrift):
 **結論(事前想定を2つ覆す):**
 1. Baumgarte注入源説は否定。Beta=0でdriftは激増(位置保持そのもの)。
 2. サブステップ悪化も合成チェーンでは否定(Beta0.2でsubs増→drift単調改善)。
-残る別現象: IA RestSim でのみ maxSpeed が subs8 で急増(18→34, Beta非依存)。
-合成に無くコアのチェーン未収束とは別のIA固有スパイク(角度リミットEuler分解/
+残る別現象: モデルA RestSim でのみ maxSpeed が subs8 で急増(18→34, Beta非依存)。
+合成に無くコアのチェーン未収束とは別のモデルA固有スパイク(角度リミットEuler分解/
 キネマティック補間/接触のいずれかが細刻みで悪化)。要追跡。
 
 ## タスクC: 求解順序の影響 (chainbug TASK=C, restsim ORDER) ※既定は不変
@@ -56,10 +56,10 @@ RestSim IA (maxSpeed/maxDrift):
 | leaf2root | 0.0582 | 0.2081 | 0.4359 | 0.7596 |
 | shuffle | 0.0497 | 0.1814 | 0.3911 | 0.6807 |
 
-RestSim IA maxDrift: current 8.166 / root2leaf 7.960 / leaf2root 8.369
+RestSim モデルA maxDrift: current 8.166 / root2leaf 7.960 / leaf2root 8.369
 
 **結論:** root→leaf 最良・leaf→root 最悪で伝播方向依存は実在だが改善は小
-(合成N10で約18%、IAで約5%)。「大きく改善」には非該当。順序は副次要因、
+(合成N10で約18%、モデルAで約5%)。「大きく改善」には非該当。順序は副次要因、
 reorderは根本解にならない。
 
 ## タスクD: Bullet 2.75 実ソース (調査のみ, 実装しない)
@@ -88,6 +88,6 @@ btGeneric6DofConstraint.cpp を確認。
 ## 総括 (原因の確定)
 主因 = **ジョイント行のウォームスタート欠如による長チェーンのPGS未収束**(タスクAで
 PMX非依存に最小再現、タスクDでBullet忠実性として必須と確認)。
-副次 = 求解順序(root→leaf が僅かに良, タスクC)、IA固有の高subsスパイク(タスクB)。
+副次 = 求解順序(root→leaf が僅かに良, タスクC)、モデルA固有の高subsスパイク(タスクB)。
 提案する修正方針(要合意): (a) ジョイント行の warm-start 実装 + (b) それを安定化する
 ため Baumgarte バイアスを split-impulse(擬似速度)へ分離。既定を変える変更のため未着手。

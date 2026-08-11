@@ -51,9 +51,9 @@ static class HairFid
     static int Main()
     {
         string pmx = TestData.PmxPath();
-        string csvp = Environment.GetEnvironmentVariable("MMD_TEST_HAIRCSV") ?? @"C:/mytask2/_external_testdata/IA_bone_world_pose_hair.csv";
+        string csvp = TestData.Resolve("MMD_TEST_HAIRCSV", "modelA_bone_world_pose_hair.csv");
         if (pmx == null || !File.Exists(pmx)) { Console.WriteLine("[SKIP] no pmx"); return 0; }
-        if (!File.Exists(csvp)) { Console.WriteLine($"[SKIP] no hair csv: {csvp}"); return 0; }
+        if (csvp == null || !File.Exists(csvp)) { Console.WriteLine("[SKIP] no hair csv (MMD_TEST_HAIRCSV か testdata/ に置く)"); return 0; }
         long bytes = new FileInfo(csvp).Length;
         if (bytes != 65805999L && bytes != 65617640L) { Console.WriteLine($"[FAIL] hair CSV バイト数不一致 {bytes} (期待65805999=ON or 65617640=OFF)。取り違え防止のため中止。"); return 1; }
 
@@ -118,8 +118,8 @@ static class HairFid
         // ===== 補正層の相関分析モード (CORR=1): OFF(=MMD_TEST_HAIRCSV)→ON 差分の説明変数相関 =====
         if (Environment.GetEnvironmentVariable("CORR") == "1")
         {
-            string onCsvPath = Environment.GetEnvironmentVariable("CORR_ON_CSV") ?? @"C:/mytask2/_external_testdata/IA_bone_world_pose_hair.csv";
-            if (new FileInfo(onCsvPath).Length != 65805999L) { Console.WriteLine($"[FAIL] ON CSV バイト数不一致: {onCsvPath}"); return 1; }
+            string onCsvPath = TestData.Resolve("CORR_ON_CSV", "modelA_bone_world_pose_hair.csv");
+            if (onCsvPath == null || new FileInfo(onCsvPath).Length != 65805999L) { Console.WriteLine($"[FAIL] ON CSV バイト数不一致: {onCsvPath}"); return 1; }
             if (bytes != 65617640L) { Console.WriteLine("[FAIL] CORR モードは MMD_TEST_HAIRCSV に OFF版(65617640B) を指定すること。"); return 1; }
             var onCsv = BoneCsv.Load(onCsvPath);
             Console.WriteLine($"[CORR] OFF(補正前)={Path.GetFileName(csvp)}  ON(補正後)={Path.GetFileName(onCsvPath)}");

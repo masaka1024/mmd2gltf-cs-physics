@@ -68,7 +68,7 @@ namespace BulletPhysics.Unity
         //   原因: 拘束の位置誤差(Baumgarte)を「実速度」として打ち消しているため、毎ステップ
         //   運動エネルギーが供給され続け、静止状態に落ち着かない。
         //   split impulse は位置補正を擬似速度側へ分離し、実速度を汚さない標準的な対策。
-        //   実測(IA・静止10秒後・動的剛体の残留運動の平均):
+        //   実測(モデルA・静止10秒後・動的剛体の残留運動の平均):
         //     既定           |v|0.793 |w|1.367
         //     ジョイントのみ |v|0.690 |w|1.188
         //     接触のみ       |v|0.714 |w|1.314
@@ -81,9 +81,9 @@ namespace BulletPhysics.Unity
         public bool ContactSplitImpulse = false;
 
         // Bullet のスリープ(非活性化)。静止した剛体を計算から外す。MMDは有効
-        // (ユーザー実機でMMDのIAの序盤=静止ポーズ中に髪の揺れが止まることを確認)。
+        // (ユーザー実機でMMDのモデルAの序盤=静止ポーズ中に髪の揺れが止まることを確認)。
         // ★既定OFF: 実装済みだが現状ほとんど発動しない。当エンジンの静止時の残留運動が
-        //   Bullet のしきい値を超えているため (IA |w|平均1.5 > しきい値1.0、101体中2体しか眠らない)。
+        //   Bullet のしきい値を超えているため (モデルA |w|平均1.5 > しきい値1.0、101体中2体しか眠らない)。
         //   残留を下げるのが先。しきい値を緩めれば眠るが、動くべき揺れ物が固まる危険がある。
         [Tooltip("静止した剛体を非活性化して計算から外す(Bullet相当)。現状ほとんど発動しないため既定OFF")]
         public bool EnableSleeping = false;
@@ -102,8 +102,8 @@ namespace BulletPhysics.Unity
         // ★PMX mode2 (物理演算+ボーン位置合わせ) の実装 (2026-08-10)。
         //   mode2 剛体は「位置はボーン階層から、回転は物理から」がMMDの仕様。従来これが未実装で
         //   mode1 と同じ完全自由になっていたため、スカートがMMDより柔らかかった
-        //   (Tda式初音ミクV4X はスカート66個中32個が mode2。実測で揺れ幅 0.257→0.188)。
-        //   既定ON。mode2 剛体を持たないモデル(IA等)では何もしないので無影響。
+        //   (モデルB はスカート66個中32個が mode2。実測で揺れ幅 0.257→0.188)。
+        //   既定ON。mode2 剛体を持たないモデル(モデルA等)では何もしないので無影響。
         //   OFF にすると従来どおり mode2 を mode1 と同じ扱いにする (A/B 比較用)。
         [Tooltip("PMX mode2(物理演算+ボーン位置合わせ)を再現する。OFFで従来どおりmode1と同一扱い")]
         public bool EnableBoneMergeMode = true;
@@ -298,8 +298,8 @@ namespace BulletPhysics.Unity
             //      Unityのフレームは FixedUpdate → Update → [Animator適用] → LateUpdate の順なので、
             //      FixedUpdate で書いた物理姿勢は、そのボーンにカーブがあると Animator に必ず潰される。
             //      症状: クリップがスカート/髪のカーブ(レストポーズの定数キーでも可)を持つモデルで、
-            //      再生1フレーム目から揺れ物がレストポーズのまま固定される(コロン式で発現)。
-            //      IA は本体のみベイクで揺れ物カーブが無いため表面化していなかった。
+            //      再生1フレーム目から揺れ物がレストポーズのまま固定される(モデルEで発現)。
+            //      モデルA は本体のみベイクで揺れ物カーブが無いため表面化していなかった。
         }
 
         // 起動直後の数フレームだけ、アニメが確定させた「フレーム0姿勢」に対して物理を再整合する。
@@ -365,7 +365,7 @@ namespace BulletPhysics.Unity
             //   従来は AlignBonePositions という全剛体一律のトグルにだけ繋がれていた。
             //   ここで mode2 の剛体に限り常時適用する。
             //   ※最初の実装で「剛体そのものを毎ステップ位置固定し並進速度をゼロにする」方式を試したが、
-            //     旋回時に遠心力を担う並進速度まで消えて髪が軸へ collapse した (Tda式で振幅1.16→2.19、
+            //     旋回時に遠心力を担う並進速度まで消えて髪が軸へ collapse した (モデルBで振幅1.16→2.19、
             //     最小半径2.73→1.70)。シミュレーションには触れないのが正しい。
             bool needAligned = AlignBonePositions || (EnableBoneMergeMode && _builder.HasBoneMergeBodies);
             RigidTransform?[] aligned = needAligned ? _builder.ComputeAlignedBonePoses(BoneWorldOrNull, AlignRotClampAlpha) : null;

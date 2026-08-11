@@ -40,7 +40,7 @@ namespace BoneCheck
             return csv;
         }
 
-        // ★取り違え検出 (2026-08-09): 提供された CSV が想定の IA_bone_world_pose.csv か検証する。
+        // ★取り違え検出 (2026-08-09): 提供された CSV が想定の modelA_bone_world_pose.csv か検証する。
         //   バイト数/行数/列名/ボーン構成(43=追従7+スカート36) を確認し、1つでも外れたら
         //   合成ターンへフォールバックせず明示的に失敗させる (誤ったCSVでMMD比較すると無意味なため)。
         public const long ExpectedBytes = 27556907;   // 仕様値 (補正ON版, 完全一致)

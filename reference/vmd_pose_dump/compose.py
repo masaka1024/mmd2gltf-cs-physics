@@ -72,7 +72,7 @@ def parse_pmx(path):
             for _ in range(lc):
                 o+=bidx; lim=d[o]; o+=1; o+= 24 if lim else 0
         bones.append(dict(name=name,pos=pos,parent=parent,layer=layer,append=append,flags=fl))
-    # --- 続けて 剛体まで歩き、剛体→ボーン対応を返す(パーサ一本化) ---
+    # --- 続けて 剛体まで短いモーション、剛体→ボーン対応を返す(パーサ一本化) ---
     mc2=struct.unpack('<I',d[o:o+4])[0]; o+=4
     per={0:mo+4,1:vidx+12,2:bidx+28,3:vidx+16,4:vidx+16,5:vidx+16,6:vidx+16,7:vidx+16,8:midx+57,9:mo+4,10:ridx+25}
     for _ in range(mc2):
@@ -190,10 +190,19 @@ def compose_all(bones, order, keys, NF):
     return Wp,Wq
 
 if __name__=='__main__':
-    PMX=r"C:/mytask2/unity-bullet-physics/Assets/testdata/IA.pmx"
-    VMD=r"C:/mytask2/unity-bullet-physics/Assets/testdata/IA_Conqueror_full_key_version_fix.vmd"
-    REF=r"C:/mytask2/_external_testdata/IA_bone_world_pose.csv"
-    OUT=r"C:/mytask2/_external_testdata/IA_bone_world_pose_43_check.csv"
+    # データはリポジトリに含めない (再配布回避)。場所は環境変数で指定する。
+    #   MMD_TESTDATA / MMD_REFCSV / MMD_MODEL / MMD_MOTION
+    import os as _os
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    _data = _os.environ.get("MMD_TESTDATA",
+                            _os.path.join(_here, "..", "..", "Assets", "testdata"))
+    _ref = _os.environ.get("MMD_REFCSV", _data)
+    _model = _os.environ.get("MMD_MODEL", "modelA")
+    _motion = _os.environ.get("MMD_MOTION", "motionA")
+    PMX=_os.path.join(_data, _model + ".pmx")
+    VMD=_os.path.join(_data, _motion + "_fix.vmd")
+    REF=_os.path.join(_ref, _model + "_bone_world_pose.csv")
+    OUT=_os.path.join(_ref, _model + "_bone_world_pose_43_check.csv")
     bones,rbmap=parse_pmx(PMX); order,depth=build_order(bones)
     nidx={b['name']:i for i,b in enumerate(bones)}
     keys=parse_vmd(VMD); NF=7001
@@ -247,7 +256,7 @@ if __name__=='__main__':
     print(f"[値差] max位置={maxpos:.3e} max回転成分={maxq:.3e}")
 
     # === 髪拡張版CSV (別名・既存非上書き): 43ボーン + 髪65本 = 108ボーン/フレーム ===
-    HAIROUT=r"C:/mytask2/_external_testdata/IA_bone_world_pose_hair.csv"
+    HAIROUT=_os.path.join(_ref, _model + "_bone_world_pose_hair.csv")
     hair_idx=[i for i,b in enumerate(bones) if any(k in b['name'] for k in ('髪','ツインテ','もみあげ','前髪','モミアゲ'))]
     hair_names=[bones[i]['name'] for i in hair_idx]
     order108=list(zip(order43,idx43))+list(zip(hair_names,hair_idx))

@@ -12,9 +12,10 @@ testdata/
 *.vmd
 *.vpd
 *.fbx
-# 本家ベイク/構造エクスポートCSV (testdata/ 運用に移行すれば名指しは不要になる)
-IA_bone_world_pose.csv
-ia.csv
+# ベイク/構造エクスポートCSV (モデル名に依らないパターンで弾く。
+# testdata/ 配下は上の行で既に除外済みなので、これは念のための二重の網)
+*bone_world_pose*.csv
+*_structure.csv
 # 診断ツールが吐く計測CSV (通常 bin/ 配下なので bin/ で既に除外されるが、拡張子でも二重に弾く)
 *_perframe.csv
 *_timeseries.csv

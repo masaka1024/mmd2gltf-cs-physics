@@ -1,15 +1,22 @@
 # -*- coding: utf-8 -*-
 # 180°回転差の切り分け(規約 vs 破綻)。compose.py を再利用。
 # 1) 時間依存(frame 0/10/100/1000/7000) 2) クォータニオン符号(abs)+行列経由の突き合わせ 3) 回転軸の揃い + OFFスカート傾き中央値
-import sys, math, time, io
-sys.path.insert(0, r"C:/mytask2/unity-bullet-physics/scratchpad/vmd_pose_dump")
+import sys, math, os, time, io
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')  # cp932文字化け回避
 import numpy as np
 import compose as C
 
-PMX     = r"C:/mytask2/unity-bullet-physics/Assets/testdata/IA.pmx"
-VMD_ON  = r"C:/mytask2/unity-bullet-physics/Assets/testdata/IA_Conqueror_full_key_version_fix.vmd"
-VMD_OFF = r"C:/Users/masa_/Downloads/IA_Conqueror_Motion/IA_Conqueror_Motion/IA_Conqueror_full_key_version_fix_off.vmd"
+# データの場所は環境変数で指定する (off_compare.py の冒頭コメント参照)。
+DATA   = os.environ.get("MMD_TESTDATA",
+                        os.path.join(_HERE, "..", "..", "Assets", "testdata"))
+MODEL  = os.environ.get("MMD_MODEL", "modelA")
+MOTION = os.environ.get("MMD_MOTION", "motionA")
+
+PMX     = os.path.join(DATA, MODEL + ".pmx")
+VMD_ON  = os.path.join(DATA, MOTION + "_fix.vmd")
+VMD_OFF = os.path.join(DATA, MOTION + "_off.vmd")
 NF = 7001
 
 def cat(nm):

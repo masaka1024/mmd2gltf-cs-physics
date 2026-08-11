@@ -34,7 +34,7 @@ static class GlbVerify
     {
         string pmxPath = TestData.PmxPath();
         string glbPath = TestData.GlbPath();
-        if (pmxPath == null || glbPath == null) { Console.WriteLine($"[SKIP] pmx={(pmxPath != null)} glb={(glbPath != null)} (testdata/IA.pmx と IA.glb か環境変数を指定)"); return 0; }
+        if (pmxPath == null || glbPath == null) { Console.WriteLine($"[SKIP] pmx={(pmxPath != null)} glb={(glbPath != null)} (testdata/modelA.pmx と modelA.glb か環境変数を指定)"); return 0; }
 
         var pm = PmxReader.LoadFile(pmxPath);
         var gm = GlbPhysicsReader.LoadFile(glbPath);

@@ -108,7 +108,7 @@ static class TsBase
 
         // 4) 性能
         var t1 = Timing(1, 300); var t2 = Timing(2, 300);
-        L($"\n[性能] IA.pmx 300ステップ: Sub1 avg={t1.avg:F2}/p95={t1.p95:F2}/max={t1.max:F2}ms | Sub2 avg={t2.avg:F2}/p95={t2.p95:F2}/max={t2.max:F2}ms");
+        L($"\n[性能] modelA.pmx 300ステップ: Sub1 avg={t1.avg:F2}/p95={t1.p95:F2}/max={t1.max:F2}ms | Sub2 avg={t2.avg:F2}/p95={t2.p95:F2}/max={t2.max:F2}ms");
 
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "tsbaseline_out.txt"), O.ToString(), new UTF8Encoding(false));
         Console.Write(O.ToString());

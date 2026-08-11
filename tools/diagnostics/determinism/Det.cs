@@ -2,8 +2,8 @@
 //   検証1: スカート・髪と衝突しない「遠方ダミー動的剛体群」の有無で、スカート統計
 //           (平時/12窓ピーク)が一致するか。修正前は揺れ、修正後は一致するはず。
 //   検証2: 同一バイナリ2回で完全一致 (従来どおり)。
-//   性能:   IA.pmx 300ステップの avg/p95/max。修正前後で比較 (ソート追加の劣化を測る)。
-// 本体は不変 (すべて public API から)。ダミーは AABB が遠方でIA剛体と交差しないため非衝突。
+//   性能:   modelA.pmx 300ステップの avg/p95/max。修正前後で比較 (ソート追加の劣化を測る)。
+// 本体は不変 (すべて public API から)。ダミーは AABB が遠方でモデルA剛体と交差しないため非衝突。
 using System;
 using System.IO;
 using System.Text;
@@ -61,7 +61,7 @@ static class Det
 
     // スカート/髪と衝突しない遠方ダミー: x=100000 に動的球6+キネマティック床1。互いに弾んで
     // マニフォールドを毎ステップ生成/消滅させ、Dictionaryの挿入/削除履歴を撹乱する。
-    // AABBが遠方なのでIA剛体とは決して交差しない (=スカート/髪へ物理的影響なし)。
+    // AABBが遠方なのでモデルA剛体とは決して交差しない (=スカート/髪へ物理的影響なし)。
     static void AddFarDummies(PhysicsWorld world)
     {
         const float X = 100000f;
@@ -139,7 +139,7 @@ static class Det
 
         // 性能
         var t = Timing(model, 300);
-        L($"\n[性能] IA.pmx 300ステップ StepSimulation: avg={t.avg:F3}ms p95={t.p95:F3}ms max={t.max:F3}ms");
+        L($"\n[性能] modelA.pmx 300ステップ StepSimulation: avg={t.avg:F3}ms p95={t.p95:F3}ms max={t.max:F3}ms");
 
         File.WriteAllText(Path.Combine(AppContext.BaseDirectory, $"det_{tag}.txt"), O.ToString(), new UTF8Encoding(false));
         Console.Write(O.ToString());
