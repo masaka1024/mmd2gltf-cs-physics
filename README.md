@@ -216,6 +216,14 @@ Unity 側のボーンは既に PMX ネイティブ座標値になっています
 
 `UnitScale` は GLB 読込時に `extras.mmd` の値（既定 0.08）で自動上書きされます。
 
+> ★**この相殺は取り込みに UniGLTF を使うことが前提**です。Unity 標準の glTF インポーター（glTFast）は
+> Z ではなく **X を反転**するため相殺せず、スケルトンだけが PMX に対して Y 軸 180° 回った状態になります。
+> 剛体は `extras.mmd` の raw PMX 座標のまま構築されるので基準が食い違い、髪やスカートが体の正面へ出ます。
+> **Unity も UniGLTF もこの食い違いにエラーを出しません。**
+> `MmdPhysicsBehaviour.CheckImportConvention`（既定 ON）が起動時にボーン配置と PMX バインド位置を
+> 突き合わせ、検出したら対処法つきで `LogError` します。判定はモデルのシーン配置（並進・回転・スケール）に
+> 依存しません（`ModelRoot` のローカルへ落とし、重心を引いてから比較するため）。
+
 ### オイラー角の順序
 
 PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です

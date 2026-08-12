@@ -51,6 +51,9 @@ namespace UnityEngine
         // 診断(DumpZHistory)がシーン配置の確認に使う。ヘッドレスでは実体が無いので既定値を返すだけ。
         public Vector3 eulerAngles => new Vector3(0, 0, 0);
         public Vector3 lossyScale => new Vector3(1, 1, 1);
+        // 取り込み経路の検証(CheckImportConvention)がモデルの配置を除去するのに使う。
+        // ヘッドレスでは ModelRoot が無く検証も走らないので、恒等を返すだけでよい。
+        public Vector3 InverseTransformPoint(Vector3 p) => p;
     }
 
     public class MonoBehaviour : Component { }
