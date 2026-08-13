@@ -50,13 +50,15 @@ def parse(path):
 
     info = [r.text(enc) for _ in range(4)]
 
+    verts = []
     nv = r.i32()
     for _ in range(nv):
-        r.f3(); r.f3(); r.raw(8)
+        vp = r.f3(); r.f3(); r.raw(8)
         r.raw(16 * adduv)
         w = r.u8()
+        vbone = -1
         if w == 0:
-            idx(bsz)
+            vbone = idx(bsz)
         elif w == 1:
             idx(bsz); idx(bsz); r.f32()
         elif w == 2:
@@ -67,6 +69,7 @@ def parse(path):
         else:
             raise AssertionError(f"weight type {w}")
         r.f32()
+        verts.append((vp, vbone))
 
     nf = r.i32()
     for _ in range(nf):
@@ -158,7 +161,8 @@ def parse(path):
                            lin=(lmin, lmax), ang=(amin, amax), spring=(spos, srot)))
 
     assert r.o == len(r.d), f"trailing {len(r.d) - r.o} bytes (offset {r.o}/{len(r.d)})"
-    return dict(ver=ver, name=info[0], bones=bones, bodies=bodies, joints=joints)
+    return dict(ver=ver, name=info[0], bones=bones, bodies=bodies, joints=joints,
+                verts=verts)
 
 
 def main():

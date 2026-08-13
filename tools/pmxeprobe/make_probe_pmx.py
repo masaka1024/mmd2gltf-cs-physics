@@ -44,8 +44,26 @@ class ProbeModel:
         self.bones = []       # (name, pos, parent, tail_offset)
         self.bodies = []      # dict
         self.joints = []      # dict
+        self.verts = []       # (pos, bone)  BDEF1 のみ
+        self.faces = []       # (a, b, c)
 
     # --- 構築 API ---
+
+    def add_measure_triad(self, bone, origin, scale=1.0):
+        """回転観測用の四面体。原点 O と、そこから X/Y/Z へ scale だけ伸ばした3点を
+        指定ボーンに BDEF1 で剛体ウェイト付けする。
+
+        [現在の形状で保存] は頂点をスキニング済みの座標で書き出すので、保存後の
+        (v_X - v_O, v_Y - v_O, v_Z - v_O) がそのままボーンの回転行列の各列になる。
+        PMX のボーンレコードは位置しか持たず回転が残らないので、回転側を観測する
+        唯一の手段がこれ。面に含めないと保存時に落ちる可能性があるので3面張る。
+        """
+        o = len(self.verts)
+        self.verts.append((origin, bone))
+        for d in ((scale, 0.0, 0.0), (0.0, scale, 0.0), (0.0, 0.0, scale)):
+            self.verts.append(((origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]), bone))
+        self.faces += [(o, o + 1, o + 2), (o, o + 2, o + 3), (o, o + 3, o + 1)]
+        return o
 
     def add_bone(self, name, pos, parent=-1, tail=(0.0, -1.0, 0.0)):
         self.bones.append((name, pos, parent, tail))
@@ -96,20 +114,25 @@ class ProbeModel:
         out += text(comment)
         out += text(comment)
 
-        # ●頂点 : 描画のためのダミー三角形1枚(ボーン0に BDEF1)
-        out += i32(3)
-        for p in ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)):
+        # ●頂点 : 既定はダミー三角形1枚(ボーン0)。measure_triad があればそれも含む
+        verts = self.verts if self.verts else [
+            ((0.0, 0.0, 0.0), 0), ((1.0, 0.0, 0.0), 0), ((0.0, 1.0, 0.0), 0)]
+        faces = self.faces if self.faces else [(0, 1, 2)]
+
+        out += i32(len(verts))
+        for (p, bone) in verts:
             out += f3(p)              # 位置
             out += f3((0.0, 0.0, -1.0))  # 法線
             out += struct.pack("<2f", 0.0, 0.0)  # UV
             out += u8(0)              # BDEF1
-            out += i8(0)              # ボーン0
+            out += i8(bone)
             out += f32(1.0)           # エッジ倍率
 
         # ●面
-        out += i32(3)
-        for v in (0, 1, 2):
-            out += u8(v)              # 頂点Indexサイズ=1, 頂点は符号なし
+        out += i32(len(faces) * 3)
+        for f in faces:
+            for v in f:
+                out += u8(v)          # 頂点Indexサイズ=1, 頂点は符号なし
 
         # ●テクスチャ
         out += i32(0)
@@ -129,7 +152,7 @@ class ProbeModel:
         out += u8(1)                                    # 共有Toonフラグ
         out += u8(0)                                    # 共有Toon[0]
         out += text("")                                 # メモ
-        out += i32(3)                                   # 面(頂点)数
+        out += i32(len(faces) * 3)                      # 面(頂点)数
 
         # ●ボーン
         out += i32(len(self.bones))
@@ -211,7 +234,7 @@ R = 0.5           # 剛体半径(球。カプセルはマージン挙動が絡�
 
 
 def build_pendulum(mass, ang_min_deg, ang_max_deg, child_mode=1,
-                   joint_at_parent=True, damp=0.9, name="probe"):
+                   joint_at_parent=True, damp=0.9, triad=False, name="probe"):
     """親=ボーン追従(固定) / 子=物理演算 の1リンク振り子。
     接触なし(mask=0)・ばね0。Joint は移動ロック。
 
@@ -236,6 +259,13 @@ def build_pendulum(mass, ang_min_deg, ang_max_deg, child_mode=1,
     rb_child = m.add_body("子剛体", b_child, child_pos,
                           mass=mass, mode=child_mode, shape=0, size=(R, 0.0, 0.0),
                           lin_damp=damp, ang_damp=damp)
+
+    if triad:
+        # 子ボーンに回転観測用の四面体。ダミー三角形(ボーン0)も残す
+        m.verts += [((0.0, 0.0, 0.0), b_root), ((1.0, 0.0, 0.0), b_root),
+                    ((0.0, 1.0, 0.0), b_root)]
+        m.faces += [(0, 1, 2)]
+        m.add_measure_triad(b_child, child_pos, scale=1.0)
 
     jpos = (0.0, ROOT_Y, 0.0) if joint_at_parent else child_pos
 
@@ -306,6 +336,13 @@ def main():
                        name="E4_mode2_lim5")
     made.append(m.save(os.path.join(outdir, "E4_mode2_lim5.pmx"),
                        "E2 の子剛体を mode2 へ。PMX側モード と ツール側トグル の切り分け"))
+
+    # --- E7/E8: 回転観測用の四面体つき。E2/E4 と同条件で回転行列を読む ---
+    for mode, tag in ((1, "E7_triad_mode1"), (2, "E8_triad_mode2")):
+        m = build_pendulum(mass=1.0, ang_min_deg=-5.0, ang_max_deg=5.0,
+                           child_mode=mode, triad=True, name=tag)
+        made.append(m.save(os.path.join(outdir, f"{tag}.pmx"),
+                           "子ボーンに測定用四面体。保存後の頂点からボーンの回転行列を復元する"))
 
     # --- E6: 重力計。重力設定が実際に効いているかの計測系検証 ---
     m = build_gravity_meter()
