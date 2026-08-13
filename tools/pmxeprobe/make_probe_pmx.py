@@ -161,8 +161,10 @@ class ProbeModel:
             out += f3(pos)
             out += i8(parent)
             out += i32(0)                               # 変形階層
-            # 接続先=0(オフセット) / 回転可能 / 表示 / 操作可
-            out += u16(0x0002 | 0x0008 | 0x0010)
+            # 接続先=0(オフセット) / 回転可能 / 移動可能 / 表示 / 操作可
+            # ★移動可能(0x0004)は必須。物理で動いたボーンは平行移動しているので、
+            #   [Fixモーションの非物理化保存] が移動キーを書けずに失敗する。
+            out += u16(0x0002 | 0x0004 | 0x0008 | 0x0010)
             out += f3(tail)                             # 座標オフセット
 
         # ●モーフ
@@ -303,6 +305,83 @@ def build_gravity_meter(mass=1.0, k=100.0, name="E6_gravity_meter"):
     return m
 
 
+
+# ---------------- 複合プローブ (1モデルに独立実験を並べる) ----------------
+
+ISLAND_PITCH = 8.0   # 島どうしの X 間隔。剛体マスク0なので干渉しないが視認のため離す
+
+
+def add_island(m, x, tag, nlinks=1, link=2.0, limit_deg=5.0, joint_at="parent",
+               lin_locked=True, child_mode=1, damp=0.9, mass=1.0):
+    """独立した振り子の島を1つ追加する。
+
+    非衝突グループフラグ0x0000 で島どうしは一切干渉しないので、
+    1モデルに何個並べても各島が勝手に自分の固定点へ落ちる。
+    = GUI 1回の保存で島の数だけデータ点が取れる。
+
+    joint_at: "parent"(親剛体の位置) / "mid"(中点) / "child"(子剛体の位置)
+              → Joint フレームのオフセット量を振る用
+    lin_locked: False にすると移動制限を開ける(補正の対象外になるはずの対照)
+    """
+    root = m.add_bone(f"{tag}_root", (x, ROOT_Y, 0.0), -1, (0.0, 0.0, -link))
+    m.add_body(f"{tag}_b0", root, (x, ROOT_Y, 0.0),
+               mass=0.0, mode=0, shape=0, size=(R, 0.0, 0.0))
+
+    prev_bone, prev_body, prev_pos = root, len(m.bodies) - 1, (x, ROOT_Y, 0.0)
+    for i in range(1, nlinks + 1):
+        pos = (x, ROOT_Y, -link * i)
+        bone = m.add_bone(f"{tag}_bone{i}", pos, prev_bone, (0.0, 0.0, -link))
+        m.add_body(f"{tag}_b{i}", bone, pos, mass=mass, mode=child_mode,
+                   shape=0, size=(R, 0.0, 0.0), lin_damp=damp, ang_damp=damp)
+        body = len(m.bodies) - 1
+
+        if joint_at == "parent":
+            jpos = prev_pos
+        elif joint_at == "mid":
+            jpos = (x, ROOT_Y, (prev_pos[2] + pos[2]) * 0.5)
+        else:
+            jpos = pos
+
+        lmin = (0.0, 0.0, 0.0) if lin_locked else (-5.0, -5.0, -5.0)
+        lmax = (0.0, 0.0, 0.0) if lin_locked else (5.0, 5.0, 5.0)
+
+        m.add_joint(f"{tag}_J{i}", prev_body, body, jpos,
+                    lin_min=lmin, lin_max=lmax,
+                    ang_min=(rad(-limit_deg), 0.0, 0.0),
+                    ang_max=(rad(limit_deg), 0.0, 0.0))
+        prev_bone, prev_body, prev_pos = bone, body, pos
+
+
+def build_multi(name="E9_multi"):
+    """[Jointロック内部演算] のトリガー探し + オフセット/荷重スイープを1モデルに集約。
+
+    トグル条件だけは分離が必要だが、それ以外のパラメータは全部同居できる。
+    どれか1島だけ値が変われば、その構成が発動条件。
+    """
+    m = ProbeModel(name)
+    islands = [
+        # (tag,          nlinks, link, limit, joint_at, lin_locked, mode)
+        ("base",              1, 2.0,  5.0, "parent", True,  1),  # E2 と同一 = 基準
+        ("offMid",            1, 2.0,  5.0, "mid",    True,  1),  # フレームオフセット 1
+        ("offChild",          1, 2.0,  5.0, "child",  True,  1),  # フレームオフセット 0
+        ("len1",              1, 1.0,  5.0, "parent", True,  1),  # 荷重 τ=m*g*L を L で振る
+        ("len4",              1, 4.0,  5.0, "parent", True,  1),  # 収束しない既知の島(参考)
+        ("lim30",             1, 2.0, 30.0, "parent", True,  1),  # リミット角
+        ("lim0",              1, 2.0,  0.0, "parent", True,  1),  # 回転も完全ロック
+        # 鎖はリンク長2.0だと収束しなかった(同条件の再撮でばらつく)。
+        # 腕が短い島は完全に決定的だったので、負荷を下げて固定点に落とす。
+        ("chain2",            2, 1.0,  5.0, "parent", True,  1),  # ★動的×動的の移動ロック
+        ("chain3",            3, 1.0,  5.0, "parent", True,  1),  # ★さらに長い鎖
+        ("chain2L",           2, 0.5,  5.0, "parent", True,  1),  # さらに軽い鎖(保険)
+        ("linFree",           1, 2.0,  5.0, "parent", False, 1),  # 移動ロックなし = 対照
+        ("mode2",             1, 2.0,  5.0, "parent", True,  2),  # A との相互作用
+    ]
+    for i, (tag, n, link, lim, jat, lock, mode) in enumerate(islands):
+        add_island(m, i * ISLAND_PITCH, tag, nlinks=n, link=link, limit_deg=lim,
+                   joint_at=jat, lin_locked=lock, child_mode=mode)
+    return m
+
+
 def main():
     outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
     os.makedirs(outdir, exist_ok=True)
@@ -343,6 +422,11 @@ def main():
                            child_mode=mode, triad=True, name=tag)
         made.append(m.save(os.path.join(outdir, f"{tag}.pmx"),
                            "子ボーンに測定用四面体。保存後の頂点からボーンの回転行列を復元する"))
+
+    # --- E9: 複合プローブ。GUI 1回で11島ぶんのデータが取れる ---
+    m = build_multi()
+    made.append(m.save(os.path.join(outdir, "E9_multi.pmx"),
+                       "独立した振り子を11島。トグル以外のパラメータを1モデルに集約"))
 
     # --- E6: 重力計。重力設定が実際に効いているかの計測系検証 ---
     m = build_gravity_meter()
