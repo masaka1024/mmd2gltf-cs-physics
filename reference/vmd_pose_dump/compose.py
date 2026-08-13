@@ -43,7 +43,10 @@ def parse_pmx(path):
     for _ in range(4): _,o=rt(o)
     vc=struct.unpack('<I',d[o:o+4])[0]; o+=4
     for _ in range(vc):
-        o+=32+adduv*16; wt=d[o]; o+=1; o+=[vidx,vidx*2+4,vidx*4+16,vidx*2+40,vidx*4+16][wt]; o+=4
+        # ★2026-08-13 修正: 頂点デフォームのインデックスは vidx(頂点) ではなく bidx(ボーン)。
+        #   BDEF1=bidx / BDEF2=2*bidx+4 / BDEF4=4*bidx+16 / SDEF=2*bidx+4+36 / QDEF=4*bidx+16。
+        #   両者が等しいモデルばかりだったので潜伏していた (vidx=4,bidx=2 のモデルで壊れる)。
+        o+=32+adduv*16; wt=d[o]; o+=1; o+=[bidx,bidx*2+4,bidx*4+16,bidx*2+40,bidx*4+16][wt]; o+=4
     fc=struct.unpack('<I',d[o:o+4])[0]; o+=4; o+=fc*vidx
     tc=struct.unpack('<I',d[o:o+4])[0]; o+=4
     for _ in range(tc): _,o=rt(o)
@@ -74,7 +77,13 @@ def parse_pmx(path):
         bones.append(dict(name=name,pos=pos,parent=parent,layer=layer,append=append,flags=fl))
     # --- 続けて 剛体まで短いモーション、剛体→ボーン対応を返す(パーサ一本化) ---
     mc2=struct.unpack('<I',d[o:o+4])[0]; o+=4
-    per={0:mo+4,1:vidx+12,2:bidx+28,3:vidx+16,4:vidx+16,5:vidx+16,6:vidx+16,7:vidx+16,8:midx+57,9:mo+4,10:ridx+25}
+    # ★2026-08-13 修正: 材質モーフ(type 8) の要素サイズが midx+57 だった。正しくは midx+113。
+    #   内訳: 材質index + 計算方式(1) + diffuse RGBA(16) + specular RGB(12) + 反射強度(4)
+    #        + ambient RGB(12) + edge色 RGBA(16) + edgeサイズ(4) + テクスチャ係数(16)
+    #        + スフィア係数(16) + Toon係数(16) = midx + 113。
+    #   材質モーフを持つモデルはモーフ節でオフセットが壊れ、剛体まで到達できず例外で落ちていた
+    #   (モデルA は45モーフ中に材質モーフが無くたまたま通っていた)。C# の PmxReader は元から正しい。
+    per={0:mo+4,1:vidx+12,2:bidx+28,3:vidx+16,4:vidx+16,5:vidx+16,6:vidx+16,7:vidx+16,8:midx+113,9:mo+4,10:ridx+25}
     for _ in range(mc2):
         _,o=rt(o); _,o=rt(o); o+=1; t=d[o]; o+=1; cnt=struct.unpack('<I',d[o:o+4])[0]; o+=4; o+=cnt*per[t]
     dc=struct.unpack('<I',d[o:o+4])[0]; o+=4
