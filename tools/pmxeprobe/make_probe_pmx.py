@@ -1,0 +1,321 @@
+# -*- coding: utf-8 -*-
+# pmxeprobe: PmxEditor の補正層([ボーン位置合わせ再計算]/[Jointロック内部演算])を
+# ブラックボックス同定するための最小 PMX を生成する。
+#
+# 設計方針 (2026-08-13):
+#   - 「軌跡」でなく「静的平衡(固定点)」を測る。単一の動的剛体を重力で回転リミットへ
+#     押し付け、釣り合った状態を読む。カオス発散も別ベイクの軌道分岐も起きない。
+#   - 接触を完全に排除する(非衝突グループフラグ=0x0000 = どのグループとも衝突しない)。
+#     残る力は 重力 + Joint のみ。PGS の鎖漏れも無い(リンク1本)。
+#   - 移動ロック(min=max=0)にすることで [Jointロック内部演算] の対象になる。
+#     readme.txt:1051「移動ロック指定のJointは内部的に補正処理を行っています」
+#
+# 仕様出典: PmxEditor 同梱 Lib/PMX仕様/PMX仕様.txt (●PMXヘッダ/●頂点/●ボーン/●剛体/●Joint)
+# PMX 2.0 で出力する(2.1 拡張は不要)。
+
+import math
+import os
+import struct
+
+# ---------------- 低レベル書き出し ----------------
+
+ENC = "utf-16-le"  # ヘッダ [0]=0
+
+def f32(v):     return struct.pack("<f", v)
+def f3(v):      return struct.pack("<3f", *v)
+def i32(v):     return struct.pack("<i", v)
+def u16(v):     return struct.pack("<H", v)
+def u8(v):      return struct.pack("<B", v)
+def i8(v):      return struct.pack("<b", v)
+
+def text(s):
+    b = s.encode(ENC)
+    return i32(len(b)) + b
+
+def rad(deg):
+    return deg * math.pi / 180.0
+
+
+class ProbeModel:
+    """最小 PMX。Index サイズは全て 1byte 固定(要素数が 127 未満である前提)。"""
+
+    def __init__(self, name):
+        self.name = name
+        self.bones = []       # (name, pos, parent, tail_offset)
+        self.bodies = []      # dict
+        self.joints = []      # dict
+
+    # --- 構築 API ---
+
+    def add_bone(self, name, pos, parent=-1, tail=(0.0, -1.0, 0.0)):
+        self.bones.append((name, pos, parent, tail))
+        return len(self.bones) - 1
+
+    def add_body(self, name, bone, pos, mass, mode, shape=0, size=(0.5, 0.5, 0.5),
+                 rot=(0.0, 0.0, 0.0), lin_damp=0.0, ang_damp=0.0,
+                 restitution=0.0, friction=0.0, group=0, mask=0x0000):
+        """mode: 0=ボーン追従 1=物理演算 2=物理+ボーン位置合わせ
+        mask: 非衝突グループフラグ。実体は collide-with マスク。0x0000 = 一切衝突しない"""
+        self.bodies.append(dict(
+            name=name, bone=bone, group=group, mask=mask, shape=shape, size=size,
+            pos=pos, rot=rot, mass=mass, lin_damp=lin_damp, ang_damp=ang_damp,
+            restitution=restitution, friction=friction, mode=mode))
+        return len(self.bodies) - 1
+
+    def add_joint(self, name, a, b, pos, rot=(0.0, 0.0, 0.0),
+                  lin_min=(0.0, 0.0, 0.0), lin_max=(0.0, 0.0, 0.0),
+                  ang_min=(0.0, 0.0, 0.0), ang_max=(0.0, 0.0, 0.0),
+                  spring_pos=(0.0, 0.0, 0.0), spring_rot=(0.0, 0.0, 0.0)):
+        self.joints.append(dict(
+            name=name, a=a, b=b, pos=pos, rot=rot,
+            lin_min=lin_min, lin_max=lin_max, ang_min=ang_min, ang_max=ang_max,
+            spring_pos=spring_pos, spring_rot=spring_rot))
+        return len(self.joints) - 1
+
+    # --- 出力 ---
+
+    def to_bytes(self, comment=""):
+        out = bytearray()
+
+        # ●PMXヘッダ
+        out += b"PMX "
+        out += f32(2.0)
+        out += u8(8)
+        out += bytes([0,   # エンコード方式 0:UTF16
+                      0,   # 追加UV数
+                      1,   # 頂点Indexサイズ
+                      1,   # テクスチャIndexサイズ
+                      1,   # 材質Indexサイズ
+                      1,   # ボーンIndexサイズ
+                      1,   # モーフIndexサイズ
+                      1])  # 剛体Indexサイズ
+
+        # ●モデル情報
+        out += text(self.name)
+        out += text(self.name)
+        out += text(comment)
+        out += text(comment)
+
+        # ●頂点 : 描画のためのダミー三角形1枚(ボーン0に BDEF1)
+        out += i32(3)
+        for p in ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)):
+            out += f3(p)              # 位置
+            out += f3((0.0, 0.0, -1.0))  # 法線
+            out += struct.pack("<2f", 0.0, 0.0)  # UV
+            out += u8(0)              # BDEF1
+            out += i8(0)              # ボーン0
+            out += f32(1.0)           # エッジ倍率
+
+        # ●面
+        out += i32(3)
+        for v in (0, 1, 2):
+            out += u8(v)              # 頂点Indexサイズ=1, 頂点は符号なし
+
+        # ●テクスチャ
+        out += i32(0)
+
+        # ●材質
+        out += i32(1)
+        out += text("mat") + text("mat")
+        out += struct.pack("<4f", 1.0, 1.0, 1.0, 1.0)   # Diffuse
+        out += f3((0.0, 0.0, 0.0)) + f32(1.0)           # Specular + 係数
+        out += f3((0.5, 0.5, 0.5))                      # Ambient
+        out += u8(0x00)                                 # 描画フラグ
+        out += struct.pack("<4f", 0.0, 0.0, 0.0, 1.0)   # エッジ色
+        out += f32(1.0)                                 # エッジサイズ
+        out += i8(-1)                                   # 通常テクスチャ
+        out += i8(-1)                                   # スフィア
+        out += u8(0)                                    # スフィアモード 無効
+        out += u8(1)                                    # 共有Toonフラグ
+        out += u8(0)                                    # 共有Toon[0]
+        out += text("")                                 # メモ
+        out += i32(3)                                   # 面(頂点)数
+
+        # ●ボーン
+        out += i32(len(self.bones))
+        for (name, pos, parent, tail) in self.bones:
+            out += text(name) + text(name)
+            out += f3(pos)
+            out += i8(parent)
+            out += i32(0)                               # 変形階層
+            # 接続先=0(オフセット) / 回転可能 / 表示 / 操作可
+            out += u16(0x0002 | 0x0008 | 0x0010)
+            out += f3(tail)                             # 座標オフセット
+
+        # ●モーフ
+        out += i32(0)
+
+        # ●表示枠 : Root と 表情 の2つの特殊枠。
+        # 仕様書●表示枠「PMXの初期状態では 表示枠:0 -> "Root", 表示枠:1 -> "表情"(いずれも特殊枠)」
+        # 「編集時に誤って削除しないように注意」= エディタ側が両方の存在を前提にしている。
+        # Root だけだと [現在の形状で保存] が通らないケースがあるため両方入れる。
+        out += i32(2)
+
+        out += text("Root") + text("Root")
+        out += u8(1)                                    # 特殊枠
+        out += i32(1)
+        out += u8(0)                                    # 要素対象:ボーン
+        out += i8(0)
+
+        out += text("表情") + text("Exp")
+        out += u8(1)                                    # 特殊枠
+        out += i32(0)                                   # 枠内要素なし
+
+        # ●剛体
+        out += i32(len(self.bodies))
+        for b in self.bodies:
+            out += text(b["name"]) + text(b["name"])
+            out += i8(b["bone"])
+            out += u8(b["group"])
+            out += u16(b["mask"])
+            out += u8(b["shape"])
+            out += f3(b["size"])
+            out += f3(b["pos"])
+            out += f3(b["rot"])
+            out += f32(b["mass"])
+            out += f32(b["lin_damp"])
+            out += f32(b["ang_damp"])
+            out += f32(b["restitution"])
+            out += f32(b["friction"])
+            out += u8(b["mode"])
+
+        # ●Joint
+        out += i32(len(self.joints))
+        for j in self.joints:
+            out += text(j["name"]) + text(j["name"])
+            out += u8(0)                                # スプリング6DOF
+            out += i8(j["a"])
+            out += i8(j["b"])
+            out += f3(j["pos"])
+            out += f3(j["rot"])
+            out += f3(j["lin_min"])
+            out += f3(j["lin_max"])
+            out += f3(j["ang_min"])
+            out += f3(j["ang_max"])
+            out += f3(j["spring_pos"])
+            out += f3(j["spring_rot"])
+
+        return bytes(out)
+
+    def save(self, path, comment=""):
+        with open(path, "wb") as fp:
+            fp.write(self.to_bytes(comment))
+        return path
+
+
+# ---------------- 実験モデル ----------------
+
+ROOT_Y = 10.0     # 親ボーン(固定点)の高さ
+LINK = 2.0        # 親→子のリンク長(PMX単位)
+R = 0.5           # 剛体半径(球。カプセルはマージン挙動が絡むので避ける)
+
+
+def build_pendulum(mass, ang_min_deg, ang_max_deg, child_mode=1,
+                   joint_at_parent=True, damp=0.9, name="probe"):
+    """親=ボーン追従(固定) / 子=物理演算 の1リンク振り子。
+    接触なし(mask=0)・ばね0。Joint は移動ロック。
+
+    ★腕は水平(-Z 方向)。重力(-Y)と直交させることで X 軸まわりのトルク m*g*L が最大になり、
+      子が回転リミットへ押し付けられて静止する。鉛直に吊ると初期姿勢が既に平衡で
+      リミットに一度も当たらず、何も測れない。
+    ★減衰を入れて振動を殺す。静的平衡の「位置」は減衰に依存しない(速度0で減衰項も0)ので
+      同定対象には影響しない。収束を速くするためだけのもの。
+
+    平衡姿勢を4条件(補正2トグル ON/OFF)で読み比べる。
+    """
+    m = ProbeModel(name)
+
+    arm = (0.0, 0.0, -LINK)  # PMX は -Z が正面。水平に張り出す
+    child_pos = (0.0, ROOT_Y, -LINK)
+
+    b_root = m.add_bone("親", (0.0, ROOT_Y, 0.0), -1, arm)
+    b_child = m.add_bone("子", child_pos, b_root, arm)
+
+    rb_root = m.add_body("親剛体", b_root, (0.0, ROOT_Y, 0.0),
+                         mass=0.0, mode=0, shape=0, size=(R, 0.0, 0.0))
+    rb_child = m.add_body("子剛体", b_child, child_pos,
+                          mass=mass, mode=child_mode, shape=0, size=(R, 0.0, 0.0),
+                          lin_damp=damp, ang_damp=damp)
+
+    jpos = (0.0, ROOT_Y, 0.0) if joint_at_parent else child_pos
+
+    # 回転は X 軸まわりのみ許可。Y/Z はロック(min=max=0)。
+    m.add_joint("J0", rb_root, rb_child, jpos,
+                lin_min=(0.0, 0.0, 0.0), lin_max=(0.0, 0.0, 0.0),
+                ang_min=(rad(ang_min_deg), 0.0, 0.0),
+                ang_max=(rad(ang_max_deg), 0.0, 0.0))
+    return m
+
+
+def build_gravity_meter(mass=1.0, k=100.0, name="E6_gravity_meter"):
+    """重力計。親(ボーン追従)から子(動的)を Y 方向のばねで吊る。
+    静的平衡のたわみは x = m*g/k で重力に正比例するので、
+    「重力設定が本当に効いているか」を数値で確認できる。
+
+    Y の移動制限を広く開け、Y のばね定数だけ立てる。回転は全ロック(min=max=0)。
+    """
+    m = ProbeModel(name)
+
+    b_root = m.add_bone("親", (0.0, ROOT_Y, 0.0), -1, (0.0, -LINK, 0.0))
+    b_child = m.add_bone("子", (0.0, ROOT_Y - LINK, 0.0), b_root, (0.0, -LINK, 0.0))
+
+    rb_root = m.add_body("親剛体", b_root, (0.0, ROOT_Y, 0.0),
+                         mass=0.0, mode=0, shape=0, size=(R, 0.0, 0.0))
+    rb_child = m.add_body("子剛体", b_child, (0.0, ROOT_Y - LINK, 0.0),
+                          mass=mass, mode=1, shape=0, size=(R, 0.0, 0.0),
+                          lin_damp=0.9, ang_damp=0.9)
+
+    # ジョイントは子の位置に置く(=たわみ0が初期姿勢)。Y だけ自由+ばね。
+    m.add_joint("J0", rb_root, rb_child, (0.0, ROOT_Y - LINK, 0.0),
+                lin_min=(0.0, -20.0, 0.0), lin_max=(0.0, 20.0, 0.0),
+                ang_min=(0.0, 0.0, 0.0), ang_max=(0.0, 0.0, 0.0),
+                spring_pos=(0.0, k, 0.0))
+    return m
+
+
+def main():
+    outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+    os.makedirs(outdir, exist_ok=True)
+    made = []
+
+    # --- E0: Joint なし自由落下。ハーネス検証用(補正は無関係のはず) ---
+    m = ProbeModel("E0_freefall")
+    b = m.add_bone("親", (0.0, ROOT_Y, 0.0), -1)
+    m.add_body("落下剛体", b, (0.0, ROOT_Y, 0.0), mass=1.0, mode=1,
+               shape=0, size=(R, 0.0, 0.0))
+    made.append(m.save(os.path.join(outdir, "E0_freefall.pmx"),
+                       "Joint なし。重力のみ。更新1回あたりの進み方の確認用"))
+
+    # --- E1: 回転自由(±180°)。位置側=[ボーン位置合わせ再計算]の同定 ---
+    m = build_pendulum(mass=1.0, ang_min_deg=-180.0, ang_max_deg=180.0,
+                       name="E1_linlock_angfree")
+    made.append(m.save(os.path.join(outdir, "E1_linlock_angfree.pmx"),
+                       "移動ロック+回転自由。アンカー誤差が0へ潰れるかを見る"))
+
+    # --- E2: 回転リミット±5°。質量スイープで超過量の入出力対応を取る ---
+    # δ(超過量) が荷重に依存しなければ hard clamp、比例すれば部分緩和。
+    for mass in (0.1, 0.5, 1.0, 2.0, 5.0, 10.0):
+        tag = f"{mass:g}".replace(".", "p")
+        m = build_pendulum(mass=mass, ang_min_deg=-5.0, ang_max_deg=5.0,
+                           name=f"E2_lim5_m{tag}")
+        made.append(m.save(os.path.join(outdir, f"E2_lim5_m{tag}.pmx"),
+                           f"回転リミット±5° 質量{mass}。リミット超過量の荷重依存を見る"))
+
+    # --- E4: 剛体タイプ 2(物理+ボーン位置合わせ) との切り分け ---
+    m = build_pendulum(mass=1.0, ang_min_deg=-5.0, ang_max_deg=5.0, child_mode=2,
+                       name="E4_mode2_lim5")
+    made.append(m.save(os.path.join(outdir, "E4_mode2_lim5.pmx"),
+                       "E2 の子剛体を mode2 へ。PMX側モード と ツール側トグル の切り分け"))
+
+    # --- E6: 重力計。重力設定が実際に効いているかの計測系検証 ---
+    m = build_gravity_meter()
+    made.append(m.save(os.path.join(outdir, "E6_gravity_meter.pmx"),
+                       "Yばね k=100 で吊る。たわみ x = m*g/k が重力に正比例する"))
+
+    for p in made:
+        print(f"{os.path.getsize(p):6d}  {os.path.relpath(p, outdir)}")
+    print(f"\n{len(made)} models -> {outdir}")
+
+
+if __name__ == "__main__":
+    main()

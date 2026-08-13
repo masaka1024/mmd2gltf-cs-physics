@@ -1,0 +1,5 @@
+Vocaloid Pose Data file
+
+E2_lim5_m1.osm;
+0;
+
