@@ -1,1 +1,7 @@
 __pycache__/
+
+# models/ は make_probe_pmx.py で決定的に再生成できるので追跡しない
+models/
+
+# VPD は物理を記録しないと判明した(README「落とし穴」)。作業中の貼り付け用ファイル置き場
+vpd/
