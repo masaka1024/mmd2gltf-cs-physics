@@ -38,6 +38,9 @@ namespace BoneCheck
         public void Run(BoneCsv csv, PmxPhysicsModel model, List<SkirtJoint> joints)
         {
             if (int.TryParse(System.Environment.GetEnvironmentVariable("WARMUP"), out var _wu) && _wu >= 0) WarmupSteps = _wu; // ばらつき見積(診断)
+            // ★慣性は剛体構築時に確定するので Build より前に設定する (Bullet 2.75 は 0.04, 既定0=従来)。
+            if (float.TryParse(System.Environment.GetEnvironmentVariable("INERTIAMARGIN"), out var _im) && _im >= 0f)
+                CapsuleShape.InertiaMargin = _im;
             var builder = PmxPhysicsBuilder.Build(model); // 既定 World (30Hz・1サブ, gravity -98)
             var world = builder.World;
             if (SolverIterationsOverride > 0) world.SolverIterations = SolverIterationsOverride; // 診断用

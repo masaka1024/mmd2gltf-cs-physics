@@ -57,6 +57,10 @@ static class HairFid
         long bytes = new FileInfo(csvp).Length;
         if (bytes != 65805999L && bytes != 65617640L) { Console.WriteLine($"[FAIL] hair CSV バイト数不一致 {bytes} (期待65805999=ON or 65617640=OFF)。取り違え防止のため中止。"); return 1; }
 
+        // ★慣性は剛体構築時に確定するので Build より前に設定する (Bullet 2.75 は 0.04, 既定0=従来)。
+        if (float.TryParse(Environment.GetEnvironmentVariable("INERTIAMARGIN"), out var _im) && _im >= 0f)
+            CapsuleShape.InertiaMargin = _im;
+
         var model = PmxReader.LoadFile(pmx);
         var csv = BoneCsv.Load(csvp);
         var builder = PmxPhysicsBuilder.Build(model);

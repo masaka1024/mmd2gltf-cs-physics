@@ -34,6 +34,13 @@ static class Jitter
         //    btQuaternion::getAngle() = 2*acos(w) を使っており、atan2 化は Bullet からの乖離になるため
         //    採用しない、と 2026-08-12 に判断済み。
 
+        // ★慣性は剛体構築時に確定するので、Build より前に設定すること。
+        if (float.TryParse(Env("INERTIAMARGIN"), NumberStyles.Float, CultureInfo.InvariantCulture, out var im) && im >= 0f)
+        {
+            CapsuleShape.InertiaMargin = im;
+            Console.WriteLine($"[cfg] INERTIAMARGIN={im} (Bullet 2.75 = 0.04, 既定0=従来)");
+        }
+
         var model = PmxReader.LoadFile(pmx);
         var csv = BoneCsv.Load(csvp);
         var builder = PmxPhysicsBuilder.Build(model);
@@ -53,6 +60,53 @@ static class Jitter
         if (int.TryParse(Env("ITERS"), out var it) && it > 0) world.SolverIterations = it;
         if (int.TryParse(Env("SUBSTEPS"), out var ss) && ss > 0) world.SubSteps = ss;
         if (float.TryParse(Env("SPECMARGIN"), NumberStyles.Float, CultureInfo.InvariantCulture, out var spm) && spm > 0f) GjkEpa.SpeculativeMargin = spm; // 接触検出帯(既定0.02)
+        // 切り分け用: ばねを全部殺す / Bullet 準拠のゲート(ロック軸・リミット到達軸ではばねを効かせない)を模す。
+        // NOSPRING=1 で全ジョイントのばね定数を0にする。エンジン無改変。
+        if (Env("NOSPRING") == "1")
+        {
+            int nsp = 0;
+            foreach (var j in world.Joints)
+            {
+                if (j.SpringLinear.LengthSquared > 0 || j.SpringAngular.LengthSquared > 0) nsp++;
+                j.SpringLinear = Vec3.Zero; j.SpringAngular = Vec3.Zero;
+            }
+            Console.WriteLine($"[cfg] NOSPRING=1  ばねを持っていた Joint {nsp}/{world.Joints.Count} を無効化");
+        }
+        // INERTIAMARGIN=x: カプセルの慣性計算で half-extent に足すマージン (Bullet 2.75 は 0.04)。
+        // ※剛体構築後では遅いので、この env は下の PmxPhysicsBuilder.Build より前で読む必要がある。
+        // ANGLIMSCALE=x: 角度リミット幅を x 倍にする (中心はそのまま)。
+        // 「狭い角度リミットに当たり続けてチャタリングしている」仮説の切り分け用。
+        // 幅を広げてもなお揺れるなら、リミットは原因でない。lo>hi (回転フリー) の軸は触らない。
+        if (float.TryParse(Env("ANGLIMSCALE"), NumberStyles.Float, CultureInfo.InvariantCulture, out var als) && als > 0f)
+        {
+            int n2 = 0;
+            foreach (var j in world.Joints)
+            {
+                var lo = j.AngularLowerLimit; var hi = j.AngularUpperLimit;
+                for (int a = 0; a < 3; a++)
+                {
+                    if (lo[a] >= hi[a]) continue;              // フリー or ロックは対象外
+                    float c = (lo[a] + hi[a]) * 0.5f, h = (hi[a] - lo[a]) * 0.5f * als;
+                    lo[a] = c - h; hi[a] = c + h; n2++;
+                }
+                j.AngularLowerLimit = lo; j.AngularUpperLimit = hi;
+            }
+            Console.WriteLine($"[cfg] ANGLIMSCALE={als}  角度リミット {n2} 軸の幅を {als} 倍に");
+        }
+        // SPRING_LOCKGATE=1: Bullet の「ロック軸(lo==hi)ではばねを無効」だけを模す (リミット到達判定は動的なので除く)。
+        if (Env("SPRING_LOCKGATE") == "1")
+        {
+            int g = 0;
+            foreach (var j in world.Joints)
+            {
+                for (int a = 0; a < 3; a++)
+                {
+                    if (j.LinearLowerLimit[a] == j.LinearUpperLimit[a] && j.SpringLinear[a] > 0) { var v = j.SpringLinear; v[a] = 0; j.SpringLinear = v; g++; }
+                    if (j.AngularLowerLimit[a] == j.AngularUpperLimit[a] && j.SpringAngular[a] > 0) { var v = j.SpringAngular; v[a] = 0; j.SpringAngular = v; g++; }
+                }
+            }
+            Console.WriteLine($"[cfg] SPRING_LOCKGATE=1  ロック軸のばね {g} 本を無効化 (Bullet 準拠)");
+        }
 
         Console.WriteLine($"[cfg2] SPLIT={world.UseSplitImpulse} JSPLIT={world.UseJointSplitImpulse} baum={world.BaumgarteFactor} spth={world.SplitImpulsePenetrationThreshold} grav={world.Gravity.y} freeze={_freeze}");
         Console.WriteLine($"[cfg] warm={world.UseJointWarmStart}/{world.UseJointWarmStartAngular} jfac={Joint.WarmStartFactor} CWFAC={world.ContactWarmStartFactor} SLEEP={world.EnableSleeping} iters={world.SolverIterations} sub={world.SubSteps} frames={F} warmup={warm}");
