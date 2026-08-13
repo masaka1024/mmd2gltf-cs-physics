@@ -69,6 +69,9 @@ static class HairFid
         if (Environment.GetEnvironmentVariable("SPLIT") == "1") world.UseSplitImpulse = true; // 接触の貫入回復を擬似速度側へ(綱引き回避の検証)
         if (Environment.GetEnvironmentVariable("JOINTS_FIRST") == "1") world.SolveJointsFirst = true; // Bullet同順(ジョイント→接触,接触が後勝ち)
         if (float.TryParse(Environment.GetEnvironmentVariable("CWFAC"), out var _cwf)) world.ContactWarmStartFactor = _cwf; // 接触warm-start係数(Bullet=0.85)
+        // ジョイントwarm-start引継ぎ係数。既定OFF(UseJointWarmStart=false)なので、旧既定をA/Bで
+        // 再現するときだけ WARMSTART/WARMSTART_ANG と併せて使う。bonecheck/restsim/chainbug にも同名あり。
+        if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) Joint.WarmStartFactor = _wf;
         if (int.TryParse(Environment.GetEnvironmentVariable("LEVER"), out var _lv)) Joint.LinearLeverMode = _lv; // 線形レバーアーム 0/1/2
         if (float.TryParse(Environment.GetEnvironmentVariable("MAXCORR"), out var _mc)) Joint.MaxCorrectionVel = _mc; // 位置補正速度上限(既定10, Bulletは無制限)
         if (Environment.GetEnvironmentVariable("MIXAXES") == "1") Joint.AngularMixedAxes = true; // 角度リミット行=Bullet混合軸
