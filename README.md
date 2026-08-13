@@ -97,7 +97,7 @@ PMX 直読み経路と全項目・300ステップ物理がビット一致する�
 | `Core/Collision.cs` | btGjkEpa | GJK+EPA ナローフェーズ + 永続マニフォールド |
 | `Core/Constraints.cs` | btGeneric6Dof… 他 6 種 | Joint 全種を行ベース SI で求解 + ばね |
 | `Core/PhysicsWorld.cs` | btDiscreteDynamicsWorld | 重力/積分/接触/Joint 統合ステップ + スリープ |
-| `Core/SoftBody.cs` | btSoftBody | 質点-バネ (Rope / TriMesh), B-Link, Anchor, Pin |
+| `Core/SoftBody.cs` | btSoftBody | 質点-バネ (Rope / TriMesh), B-Link, Anchor, Pin。**単体部品で `PhysicsWorld` / `PmxPhysicsBuilder` からは未使用**(下記「既知の制限」) |
 | `Pmx/PmxPhysicsData.cs` | — | PMX 物理レコードの構造体 |
 | `Pmx/PmxReader.cs` | — | PMX バイナリパーサ (全セクション対応) |
 | `Pmx/GlbPhysicsReader.cs` | — | GLB の `extras.mmd` から同じモデルを構築 |
@@ -362,7 +362,14 @@ PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)** です
 
 ## 既知の制限
 
-- SoftBody のクラスタ / AeroModel は簡易対応 (PMX 仕様でも「精度・速度に問題あり・非対応も選択肢」と明記)。
+- **SoftBody はパイプラインに未配線**。`Core/SoftBody.cs` は単体で動く質点-バネ (PBD) 部品ですが、
+  `PhysicsWorld` は保持も更新もせず (参照0件)、`PmxPhysicsBuilder` も生成しません。
+  `PmxReader` は PMX2.1 の SoftBody レコードを `PmxPhysicsData.SoftBodies` へ読みますが、消費側がありません。
+  使うには自前で `SoftBody.Step(dt)` を呼ぶ必要があります。剛体との衝突・自己衝突は未実装
+  (`Group`/`CollisionMask` は宣言のみ)、アンカーは剛体への反力なしの片方向射影、
+  クラスタ / AeroModel / `DF` / `MT` は未使用、重力は `PhysicsWorld` と非連動の独自フィールドです。
+  配線していない理由: MMD 本体が PMX2.1 非対応のため実モデルがほぼ存在しない
+  (手元の全テストモデルが PMX2.0 = SoftBody セクション自体が無い)。忠実度検証の対象外。
 - ConeTwist / Slider / Hinge のモーターは未対応 (仕様上も「暫定対応」)。
 - 静止時のジッタがMMDより大きい（上記「静止時のジッタ」節。未解決）。
 - 数値は Bullet 2.75 と厳密一致ではなく挙動互換を目標とします。

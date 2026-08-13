@@ -16,7 +16,9 @@ PMX 2.1仕様に準拠したMMD物理演算エンジン。外部ネイティブ�
 - 衝突 (GJK+EPA ナローフェーズ, 永続マニフォールド) — 完了
 - Joint 6種 (行ベース Sequential-Impulse 6DOF + バネ) — 完了
 - PhysicsWorld (ブロードフェーズ/接触ソルバ/重力/固定ステップ積分/Joint) — 完了
-- SoftBody (質点-バネ Rope/TriMesh, B-Link, Anchor, Pin) — 完了(簡易)
+- SoftBody (質点-バネ Rope/TriMesh, B-Link, Anchor, Pin) — **単体部品のみ / パイプライン未配線**
+  (`PhysicsWorld` にも `PmxPhysicsBuilder` にも参照0件。`PmxReader` は PMX2.1 SoftBody を
+   `PmxPhysicsData.SoftBodies` へ読むが誰も消費しない。詳細は README「既知の制限」)
 - PMX Reader (2.0/2.1 全セクションskip対応 + 剛体/Joint/SoftBody抽出) — 完了
 - PmxPhysicsBuilder (PMX→World変換 + ボーン紐付け) — 完了
 - Unity ブリッジ MmdPhysicsBehaviour (単位スケール変換/ボーン同期) — 完了
