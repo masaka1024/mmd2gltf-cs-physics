@@ -1,4 +1,4 @@
-// ===========================================================================
+﻿// ===========================================================================
 // (2) 髪のフレーム単位 MMD突合 (スカートと同じ土俵)。
 //   MMDVMD由来の hair CSV(108ボーン)で BoneFollow(体)を駆動し、髪(dynamic)を自前物理で動かす。
 //   髪ボーン姿勢(ボーン空間 = body.WorldTransform * BodyOffsetFromBone.Inverse())をMMDと突合。
@@ -83,6 +83,9 @@ static class HairFid
         if (alignMode > 0) Console.WriteLine($"[cfg] ALIGN={alignMode} ALPHA={alpha} ORDER2={order2} ({(alignMode == 1 ? "出力のみ" : "フィードバック")}: 位置=親チェーン再構成/回転={(alpha > 0 ? $"リミットへ{alpha:P0}clamp" : "物理")})");
         if (int.TryParse(Environment.GetEnvironmentVariable("SUBSTEPS"), out var _ss) && _ss > 0) world.SubSteps = _ss; // 計算予算掃引
         if (int.TryParse(Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it;
+        // 鎖のたわみ対策 (UE5移植版からの逆輸入)。既定 0 = 従来とビット不変。
+        if (int.TryParse(Environment.GetEnvironmentVariable("JOINTITERS"), out var _ji) && _ji > 0) world.JointVelocityIterations = _ji;
+        if (float.TryParse(Environment.GetEnvironmentVariable("JOINTMAXCORR"), out var _jm) && _jm > 0f) world.JointMaxCorrectionVel = _jm;
         // 決定的テスト: スカートジョイントを自由化して「接触だけ」で貫入が解消するか見る(綱引き vs 接触能力の切り分け)。
         // 1=角度リミット自由(付いたまま回転自由) / 2=角度+並進自由(実質ジョイント無効=接触+重力のみ)。エンジン無改変。
         int skirtJFree = int.TryParse(Environment.GetEnvironmentVariable("SKIRT_JFREE"), out var sjf) ? sjf : 0;
@@ -279,11 +282,11 @@ static class HairFid
             if (alignMode > 0)
             {
                 RigidTransform? Drv(int bi) => (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var dw)) ? (RigidTransform?)dw : null;
-                var aligned = builder.ComputeAlignedBonePoses(Drv, order2 ? 0f : alpha);
+                var aligned = builder.ComputeAlignedBonePoses(Drv, order2 ? 0f : alpha, true);
                 if (order2 && alpha > 0f)
                 {
                     // 順序比較: 位置は α=0 (物理回転の親チェーン) のまま、回転だけ α clamp 版から合成。
-                    var rotOnly = builder.ComputeAlignedBonePoses(Drv, alpha);
+                    var rotOnly = builder.ComputeAlignedBonePoses(Drv, alpha, true);
                     for (int bi = 0; bi < aligned.Length; bi++)
                         if (aligned[bi].HasValue && rotOnly[bi].HasValue)
                             aligned[bi] = new RigidTransform(rotOnly[bi].Value.Rotation, aligned[bi].Value.Origin);

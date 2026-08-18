@@ -1,4 +1,4 @@
-// ===========================================================================
+﻿// ===========================================================================
 // ヘッドレス再生ドライバ (タスク2)。
 // CSVの入力ボーン(7本)を BoneFollow 剛体に与え、スカート(dynamic)を物理で動かす。
 // 座標はPMXネイティブなので変換・スケールは不要。既定=30Hz・1サブ。
@@ -50,6 +50,9 @@ namespace BoneCheck
             if (System.Environment.GetEnvironmentVariable("WARMSTART") == "1") world.UseJointWarmStart = true;
             if (System.Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
             if (int.TryParse(System.Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it; // 反復掃引(診断)
+            // 鎖のたわみ対策 (UE5移植版からの逆輸入)。既定 0 = 従来とビット不変。
+            if (int.TryParse(System.Environment.GetEnvironmentVariable("JOINTITERS"), out var _ji) && _ji > 0) world.JointVelocityIterations = _ji;
+            if (float.TryParse(System.Environment.GetEnvironmentVariable("JOINTMAXCORR"), out var _jm) && _jm > 0f) world.JointMaxCorrectionVel = _jm;
             if (int.TryParse(System.Environment.GetEnvironmentVariable("SUBSTEPS"), out var _ss) && _ss > 0) world.SubSteps = _ss; // substep掃引(診断)
             if (int.TryParse(System.Environment.GetEnvironmentVariable("FTS_DIV"), out var _fd) && _fd > 0) world.FixedTimeStep = 1f / _fd; // 刻み掃引(診断, 1/N を正確に)
             if (System.Environment.GetEnvironmentVariable("JOINTS_FIRST") == "1") world.SolveJointsFirst = true; // Bullet同順(ジョイント→接触)
@@ -107,7 +110,7 @@ namespace BoneCheck
                 {
                     float _alpha = float.TryParse(System.Environment.GetEnvironmentVariable("ALPHA"), out var _av) ? _av : 0f;
                     var aligned = builder.ComputeAlignedBonePoses(bi =>
-                        (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var dw)) ? (RigidTransform?)dw : null, _alpha);
+                        (bi >= 0 && bi < model.BoneNames.Count && csv.TryGet(f, model.BoneNames[bi], out var dw)) ? (RigidTransform?)dw : null, _alpha, true);
                     foreach (var link in builder.BoneLinks)
                         if (link.Mode != PhysicsMode.BoneFollow && link.BoneIndex >= 0 && link.BoneIndex < aligned.Length && aligned[link.BoneIndex].HasValue)
                         { link.Body.WorldTransform = aligned[link.BoneIndex].Value * link.BodyOffsetFromBone; link.Body.UpdateInertiaWorld(); }

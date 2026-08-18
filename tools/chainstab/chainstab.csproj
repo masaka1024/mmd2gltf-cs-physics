@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>9.0</LangVersion>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>ChainStab</AssemblyName>
+    <StartupObject>ChainStab</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\compilecheck\UnityShim.cs" />
+    <Compile Include="..\compilecheck\TestData.cs" />
+    <Compile Include="ChainStab.cs" />
+    <Compile Include="..\..\Assets\MmdPhysics\**\*.cs" />
+  </ItemGroup>
+</Project>
