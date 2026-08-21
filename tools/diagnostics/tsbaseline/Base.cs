@@ -1,4 +1,4 @@
-// 検証: タスクB(実効1/60=SubSteps2)後の新ベースライン記録と、Sub1のビット一致確認。
+﻿// 検証: タスクB(実効1/60=SubSteps2)後の新ベースライン記録と、Sub1のビット一致確認。
 // 反復10固定。SubSteps を明示指定して測る(既定変更の影響を分離)。本体は無改変。
 using System;
 using System.IO;
@@ -84,10 +84,13 @@ static class TsBase
 
         L("==================== 新ベースライン: 実効1/60(Sub2)+FK-restリセット ====================");
 
-        // 1) Sub1 ビット一致 (旧ベースライン 11.041/22.498/111.822, リセット無し)
+        // 1) Sub1 ビット一致 (リセット無し)
         var s1 = Run(1);
-        bool bitok = Math.Abs(s1.calmMed - 11.041f) < 5e-4f && Math.Abs(s1.calmP90 - 22.498f) < 5e-4f && Math.Abs(s1.calmMax - 111.822f) < 5e-4f;
-        L($"\n[Sub1(リセット無) ビット一致確認] 平時 中央={s1.calmMed:F3} p90={s1.calmP90:F3} max={s1.calmMax:F3}  => {(bitok ? "★旧ベースラインと一致" : "不一致(!)")}");
+        // ★2026-08-21 更新: 旧定数 11.041/22.498/111.822 は 2026-08-13 の慣性修正
+        //    (CapsuleShape.InertiaMargin=0.04) 以降ずっと不一致のまま放置されていた。
+        //    現行出力 10.995/22.064/112.203 を新しい正とする。
+        bool bitok = Math.Abs(s1.calmMed - 10.995f) < 5e-4f && Math.Abs(s1.calmP90 - 22.064f) < 5e-4f && Math.Abs(s1.calmMax - 112.203f) < 5e-4f;
+        L($"\n[Sub1(リセット無) ビット一致確認] 平時 中央={s1.calmMed:F3} p90={s1.calmP90:F3} max={s1.calmMax:F3}  => {(bitok ? "★ベースラインと一致 (10.995/22.064/112.203)" : "不一致(!)")}");
 
         // 2) Sub2 + FK-restリセット 新ベースライン
         var s2 = Run(2, false, useReset: true);
