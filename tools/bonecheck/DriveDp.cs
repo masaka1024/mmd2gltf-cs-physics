@@ -152,6 +152,7 @@ namespace BoneCheck
                 GjkEpa.BulletContactThreshold = Env("CTHRESH") == "1";
                 CollisionShape.BulletShapeMargin = Env("CMARGIN") == "1";
                 bool crhs = Env("CRHS") == "1";   // ★タスク48 (world 生成後に適用)
+                PersistentManifold.BulletManifoldPoints = Env("CMAN") == "1";   // ★タスク51
                 if (apply != null) apply();
 
                 var builder = PmxPhysicsBuilder.Build(model);

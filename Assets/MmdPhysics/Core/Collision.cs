@@ -34,8 +34,128 @@ namespace BulletPhysics
 
         public PersistentManifold(RigidBody a, RigidBody b) { BodyA = a; BodyB = b; }
 
+        /// <summary>タスク51: 接触点の管理 (同一判定・4点超過時の置換・破棄) を
+        /// Bullet 2.75 btPersistentManifold の実ソースへ揃える (既定 false = ビット不変)。
+        ///
+        /// 実測 (スカート網・60秒・両側 SubSteps=2) で支持面の育ち方が決定的に違った:
+        ///   59秒の点数分布  自前 1点=8 / 2点=10 / 3点=2 / 4点=1   総点数 38
+        ///                   Bullet 1点=7 / 2点=0 / 3点=2 / 4点=14  総点数 69
+        ///   per-frame の変位比は 60秒通して 32倍 のまま平行
+        ///   (Bullet は1秒で収束、当エンジンは一度も落ちない)。
+        /// 支持面が育たない・安定しないので、スカートが載り切らずに揺れ続けていた。
+        ///
+        /// 揃える規則は3つ。**部品化しない** (Bullet 側で一体の仕組みなので):
+        ///   1. 同一判定  getCacheEntry   : LocalPointA の距離が閾値の2乗未満なら同じ点として置換。
+        ///                従来は PositionWorldA の距離 0.02 固定で、広すぎて点が育たなかった。
+        ///   2. 4点超過時 sortCachedPoints: 4通りの組の面積 (外積長の2乗) を計算して最大を残す。
+        ///                加えて KEEP_DEEPEST_POINT で最深点は置換候補から外す。
+        ///                従来は「最も浅い点を置換」だけで支持が偏っていた。
+        ///   3. 破棄      refreshContactPoints: 法線距離 > 閾値、または法線へ射影した残差の
+        ///                長さの2乗 > 閾値の2乗 で破棄。従来は 0.04 固定で横ずれの取り方も別式。
+        /// 閾値は形状サイズ比例の接触破棄閾値を使う。当てる値は作らない。</summary>
+        public static bool BulletManifoldPoints = false;
+
+        /// <summary>診断カウンタ (タスク54)。ON の間だけ数える。数えるだけなのでビット不変。
+        /// warm-start が切れる箇所が Refresh の破棄か 同一判定の不成立かを分けるために足した。</summary>
+        public static bool CollectManifoldStats = false;
+        public static long StatRefreshKept, StatRefreshDropNormal, StatRefreshDropLateral;
+        public static long StatAddMatched, StatAddNewSlot, StatAddReplaced;
+        public static void ResetManifoldStats()
+        {
+            StatRefreshKept = StatRefreshDropNormal = StatRefreshDropLateral = 0;
+            StatAddMatched = StatAddNewSlot = StatAddReplaced = 0;
+        }
+
+        /// <summary>このペアの接触破棄閾値。Bullet の getContactBreakingThreshold() 相当。</summary>
+        private float BreakingThreshold =>
+            Math.Min(GjkEpa.BulletBreakingThresholdOf(BodyA.Shape),
+                     GjkEpa.BulletBreakingThresholdOf(BodyB.Shape));
+
+        // btPersistentManifold::refreshContactPoints の移植。
+        private void RefreshBullet()
+        {
+            float thr = BreakingThreshold;
+            float thr2 = thr * thr;
+            for (int i = Points.Count - 1; i >= 0; i--)
+            {
+                var cp = Points[i];
+                var worldA = BodyA.WorldTransform.TransformPoint(cp.LocalPointA);
+                var worldB = BodyB.WorldTransform.TransformPoint(cp.LocalPointB);
+                float d = (worldA - worldB).Dot(cp.Normal);
+                cp.PositionWorldA = worldA;
+                cp.PositionWorldB = worldB;
+                cp.Distance = d;
+                // validContactDistance: 法線方向に閾値を超えて離れたら破棄。
+                if (d > thr) { if (CollectManifoldStats) StatRefreshDropNormal++; Points.RemoveAt(i); continue; }
+                // 法線成分を除いた残差 (Bullet と同じ射影の取り方) が閾値の2乗を超えたら破棄。
+                var projected = worldA - cp.Normal * d;
+                var diff2 = worldB - projected;
+                if (diff2.LengthSquared > thr2) { if (CollectManifoldStats) StatRefreshDropLateral++; Points.RemoveAt(i); continue; }
+                if (CollectManifoldStats) StatRefreshKept++;
+                Points[i] = cp;
+            }
+        }
+
+        // btPersistentManifold の addManifoldPoint / getCacheEntry の移植。
+        private void AddPointBullet(ContactPoint cp)
+        {
+            float shortest = BreakingThreshold * BreakingThreshold;
+            int near = -1;
+            for (int i = 0; i < Points.Count; i++)
+            {
+                float d2 = (Points[i].LocalPointA - cp.LocalPointA).LengthSquared;
+                if (d2 < shortest) { shortest = d2; near = i; }
+            }
+            if (near >= 0)
+            {
+                if (CollectManifoldStats) StatAddMatched++;
+                cp.NormalImpulse = Points[near].NormalImpulse;
+                cp.TangentImpulse1 = Points[near].TangentImpulse1;
+                cp.TangentImpulse2 = Points[near].TangentImpulse2;
+                Points[near] = cp;
+                return;
+            }
+            if (Points.Count < 4) { if (CollectManifoldStats) StatAddNewSlot++; Points.Add(cp); return; }
+            if (CollectManifoldStats) StatAddReplaced++;
+            Points[SortCachedPoints(cp)] = cp;
+        }
+
+        // btPersistentManifold::sortCachedPoints の移植。置換すべき index を返す。
+        //   4通りの「新点を入れて i を捨てた組」の面積 (外積長の2乗) を出し、最大の組を選ぶ。
+        //   KEEP_DEEPEST_POINT: 最深点はその case の面積を 0 のままにして候補から外す。
+        private int SortCachedPoints(ContactPoint pt)
+        {
+            int maxPenetrationIndex = -1;
+            float maxPenetration = pt.Distance;
+            for (int i = 0; i < 4; i++)
+                if (Points[i].Distance < maxPenetration)
+                { maxPenetrationIndex = i; maxPenetration = Points[i].Distance; }
+
+            float res0 = 0f, res1 = 0f, res2 = 0f, res3 = 0f;
+            if (maxPenetrationIndex != 0)
+                res0 = Vec3.Cross(pt.LocalPointA - Points[1].LocalPointA,
+                                  Points[3].LocalPointA - Points[2].LocalPointA).LengthSquared;
+            if (maxPenetrationIndex != 1)
+                res1 = Vec3.Cross(pt.LocalPointA - Points[0].LocalPointA,
+                                  Points[3].LocalPointA - Points[2].LocalPointA).LengthSquared;
+            if (maxPenetrationIndex != 2)
+                res2 = Vec3.Cross(pt.LocalPointA - Points[0].LocalPointA,
+                                  Points[3].LocalPointA - Points[1].LocalPointA).LengthSquared;
+            if (maxPenetrationIndex != 3)
+                res3 = Vec3.Cross(pt.LocalPointA - Points[0].LocalPointA,
+                                  Points[2].LocalPointA - Points[1].LocalPointA).LengthSquared;
+
+            // btVector4::closestAxis4 = 最大成分の index。
+            int best = 0; float bv = res0;
+            if (res1 > bv) { bv = res1; best = 1; }
+            if (res2 > bv) { bv = res2; best = 2; }
+            if (res3 > bv) { bv = res3; best = 3; }
+            return best;
+        }
+
         public void Refresh()
         {
+            if (BulletManifoldPoints) { RefreshBullet(); return; }
             // 各接触点をローカル座標から現在姿勢でワールドへ再投影し、
             // 法線方向に離れた/横ずれした点を破棄する。生存点は位置を更新。
             for (int i = Points.Count - 1; i >= 0; i--)
@@ -48,9 +168,12 @@ namespace BulletPhysics
                 var lateral = diff - cp.Normal * d;
                 if (d > 0.04f || lateral.LengthSquared > 0.04f * 0.04f)
                 {
+                    if (CollectManifoldStats)
+                    { if (d > 0.04f) StatRefreshDropNormal++; else StatRefreshDropLateral++; }
                     Points.RemoveAt(i);
                     continue;
                 }
+                if (CollectManifoldStats) StatRefreshKept++;
                 // 生存: 再投影した位置と貫入量をソルバへ渡すため更新。
                 cp.PositionWorldA = worldA;
                 cp.PositionWorldB = worldB;
@@ -61,12 +184,14 @@ namespace BulletPhysics
 
         public void AddPoint(ContactPoint cp)
         {
+            if (BulletManifoldPoints) { AddPointBullet(cp); return; }
             // 近い既存点があればウォームスタート値を引き継いで置換。
             const float mergeDist2 = 0.02f * 0.02f;
             for (int i = 0; i < Points.Count; i++)
             {
                 if ((Points[i].PositionWorldA - cp.PositionWorldA).LengthSquared < mergeDist2)
                 {
+                    if (CollectManifoldStats) StatAddMatched++;
                     cp.NormalImpulse = Points[i].NormalImpulse;
                     cp.TangentImpulse1 = Points[i].TangentImpulse1;
                     cp.TangentImpulse2 = Points[i].TangentImpulse2;
@@ -74,8 +199,8 @@ namespace BulletPhysics
                     return;
                 }
             }
-            if (Points.Count < 4) Points.Add(cp);
-            else Points[WorstPointIndex(cp)] = cp;
+            if (Points.Count < 4) { if (CollectManifoldStats) StatAddNewSlot++; Points.Add(cp); }
+            else { if (CollectManifoldStats) StatAddReplaced++; Points[WorstPointIndex(cp)] = cp; }
         }
 
         private int WorstPointIndex(ContactPoint candidate)
@@ -168,6 +293,9 @@ namespace BulletPhysics
         ///   球     : (r,r,r)                    … margin = r なので実質そのまま
         ///   箱     : HalfExtents                … getHalfExtentsWithMargin() と一致
         ///   カプセル: (r,hh+r,r) + margin(0.04) … btCapsuleShape::getAabb が margin を足すため</summary>
+        /// <summary>ペアの片側ぶんの接触破棄閾値。PersistentManifold からも使う。</summary>
+        internal static float BulletBreakingThresholdOf(CollisionShape s) => BulletBreakingThreshold(s);
+
         private static float BulletBreakingThreshold(CollisionShape s)
         {
             Vec3 h;
