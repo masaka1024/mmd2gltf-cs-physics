@@ -375,6 +375,22 @@ Bullet 2.75/2.83 solveSingleIteration は 1反復内で NonContact(ジョイン�
      ただし**モデルP は +140% と退行**するためモデル依存。採否は 31モデルスイープの後。
 4. **linear slop PenetrationSlop=0.005** (2026-08-21): Bullet 2.75 は `m_linearSlop = 0.0`。
    0 にすると静止スカートが悪化する (モデルA +33% / モデルP +174%) ため現状維持。
+5. **ブロードフェーズが軸ごとAABBではなく境界球** (2026-08-23): Bullet の
+   `btCollisionWorld::updateSingleAabb` は **形状の軸ごと AABB** (カプセルは
+   `(r, hh+r, r) + getMargin()`) に `gContactBreakingThreshold = 0.02` を各軸へ足す。
+   当エンジン `RigidBody.ComputeAabb` は **中心まわりの境界球** `BoundingRadius + Margin` で、
+   カプセルでは `hh + 2r` になる。しかも `BroadphaseNarrowphase` の追加膨張は
+   `SpeculativeMargin - SpeculativeMarginDefault` = **0** なので 0.02 も足していない。
+   実測 (モデルA 髪):
+   | 剛体 | Bullet AABB 半幅 +0.02 | 当方 境界球 半径 |
+   |---|---|---|
+   | 髪FL3 | (0.49, 1.63, 0.49) | **2.04** |
+   | 右太もも | (1.07, 1.76, 1.07) | **2.75** |
+   → **ペアが Bullet より遥かに長く生き残る**。ペア消滅→マニフォールド解放の連動自体は
+   当エンジンにも在る (`BroadphaseNarrowphase` の「消えたペアを掃除」) ので、
+   欠けているのは**連動ではなく AABB の大きさ**。
+   ★ただしタスク66 の机上計算では、**幻の接触行 22/22 は Bullet の AABB でもまだ重なっている**
+     ので、これを直しても幻は 1 件も消えない。**逸脱としては登録するが、幻の原因ではない。**
 
 ### 形状マージンの逸脱は「原因ではない」と確定 (2026-08-22)
 | 形状 | 当エンジン | Bullet 2.75 |
