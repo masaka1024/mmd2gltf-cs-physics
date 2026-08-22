@@ -158,6 +158,70 @@ def main():
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=10)
 
     ws.freeze_panes = "A%d" % first_data
+
+    # ================= 第2ラウンド =================
+    w2 = wb.create_sheet("第2ラウンド")
+    w2.column_dimensions["A"].width = 5
+    w2.column_dimensions["B"].width = 22
+    for col in "CD": w2.column_dimensions[col].width = 9
+    w2.column_dimensions["E"].width = 16
+    w2.column_dimensions["F"].width = 44
+    LAD = [(7, 0.30), (8, 0.22), (9, 0.15), (10, 0.08)]
+    r = 1
+    put(w2, r, 1, "第2ラウンド — 「全部滑る」の裏取り", HDR, WHITE, "left")
+    w2.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6); w2.row_dimensions[r].height = 24
+    r += 1
+    put(w2, r, 1, "第1ラウンドは全6件「滑る」だった。候補5方式でこれに当てはまるのは 積 だけ。"
+                  "ただし『摩擦がまるで効いていない (μ≈0)』でも同じ結果になるので切り分けが要る。"
+                  "浅い角度を並べて、止まり始める角度から μ を直に読む。対B (坂0.5 / 箱0.5) のみ。",
+        None, None, "left", False, True)
+    w2.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6); w2.row_dimensions[r].height = 44
+    r += 2
+    for c, t in enumerate(["#", "ファイル", "tanθ", "θ", "観察", "備考"], start=1):
+        put(w2, r, c, t, HDR, WHITE)
+    r += 1
+    dv3 = DataValidation(type="list", formula1='"滑る,止まる"', allow_blank=True, showDropDown=False)
+    w2.add_data_validation(dv3)
+    f2 = r
+    for (num, tan) in LAD:
+        put(w2, r, 1, num)
+        put(w2, r, 2, "fric_L_tan%03d.pmx" % int(round(tan * 100)), None, None, "left")
+        put(w2, r, 3, tan)
+        put(w2, r, 4, "%.1f°" % math.degrees(math.atan(tan)))
+        dv3.add(put(w2, r, 5, None, INPUT))
+        r += 1
+    r += 1
+    put(w2, r, 1, "判定", HDR, WHITE, "left")
+    w2.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6); r += 1
+    for c, t in enumerate(["観察", "μ", "意味"], start=1):
+        put(w2, r, c, t, SUB, Font(bold=True))
+    w2.merge_cells(start_row=r, start_column=3, end_row=r, end_column=6)
+    r += 1
+    rows = [("#7 滑る / #8 止まる", "0.22〜0.30", "★積 (0.25) で確定。第1ラウンドの読みが裏付けられる"),
+            ("#7#8 滑る / #9 止まる", "0.15〜0.22", "積より小さい。別の規則 (積×何か) を疑う"),
+            ("#7#8#9 滑る / #10 止まる", "0.08〜0.15", "かなり小さい。摩擦を弱く扱っている"),
+            ("全部 滑る", "< 0.08", "★摩擦がほぼ効いていない。「積」という読みは取り下げ")]
+    for a, b_, c_ in rows:
+        put(w2, r, 1, a, None, None, "left"); put(w2, r, 2, b_)
+        put(w2, r, 3, c_, None, None, "left"); w2.merge_cells(start_row=r, start_column=3, end_row=r, end_column=6)
+        r += 1
+    r += 1
+    put(w2, r, 1, "較正 (当エンジンで確認済み・120F の移動量)", HDR, WHITE, "left")
+    w2.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6); r += 1
+    for c, t in enumerate(["実装", "#7 0.30", "#8 0.22", "#9 0.15", "#10 0.08"], start=1):
+        put(w2, r, c, t, SUB, Font(bold=True))
+    r += 1
+    for name, vals in (("FRICMUL=1 (積 μ=0.25)", [9.80, 0.16, 0.12, 0.04]),
+                       ("既定 (幾何平均 μ=0.5)", [0.11, 0.02, 0.02, 0.05])):
+        put(w2, r, 1, name, CAL, None, "left")
+        for i, v in enumerate(vals):
+            put(w2, r, 2 + i, ("%.2f 滑る" % v) if v > 0.5 else ("%.2f 止まる" % v), CAL)
+        r += 1
+    r += 1
+    put(w2, r, 1, "→ μ=0.25 の境目が 0.22 と 0.30 の間に正しく出ている。装置は μ を挟めている。",
+        None, None, "left", False)
+    w2.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
+
     wb.save(out)
     print("書き出した:", os.path.abspath(out))
 
