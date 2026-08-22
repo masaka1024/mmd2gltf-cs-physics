@@ -19,7 +19,7 @@ namespace BoneCheck
 
         static int Main()
         {
-            // タスク35: 駆動ありの部位別 |Δp| ゲート。参照CSVがIA用でないので
+            // タスク35: 駆動ありの部位別 |Δp| ゲート。参照CSVがモデルA用でないので
             // BoneCsv.Validate (43ボーン固定) より **手前** で分岐する。
             if (Environment.GetEnvironmentVariable("DRIVEDP") == "1") return DriveDp.Run();
 

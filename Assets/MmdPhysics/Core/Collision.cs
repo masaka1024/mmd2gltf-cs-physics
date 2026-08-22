@@ -139,6 +139,49 @@ namespace BulletPhysics
         public static float SpeculativeMargin = 0.02f;
         public const float SpeculativeMarginDefault = 0.02f;
 
+        // ★タスク38: 接触の受理閾値を Bullet 2.75 の方式へ (既定 false = ビット不変)。
+        //   当エンジン: 全ペア一律 SpeculativeMargin = 0.02 の**固定距離**。
+        //   Bullet 2.75: ペアごとに **形状サイズ比例**。
+        //     btCollisionDispatcher.cpp:84
+        //       threshold = min(shapeA->getContactBreakingThreshold(), shapeB->...)
+        //     btCollisionShape.cpp:48
+        //       getContactBreakingThreshold() = getAngularMotionDisc() * gContactThresholdFactor
+        //       gContactThresholdFactor = 0.02 (btCollisionShape.cpp:18)
+        //     btCollisionShape.cpp:52
+        //       getAngularMotionDisc() = disc + |center|
+        //       (getBoundingSphere は**単位変換**の getAabb から
+        //        disc = |max-min|*0.5 / center = (min+max)*0.5 を作る)
+        //   PMX の3形状はどれもローカル原点対称なので center = 0、disc = ローカルAABBの半対角。
+        //   実測の差: 半幅(0.347,0.371,0.200)のスカート箱で Bullet 0.0109 に対し当方 0.02。
+        //   **当方が約2倍広く拾っている** = 分離しているペアまで接触に上げている。
+        public static bool BulletContactThreshold = false;
+
+        /// <summary>Bullet 2.75 gContactThresholdFactor。つまみにしない (実ソースの値)。</summary>
+        public const float ContactThresholdFactor = 0.02f;
+
+        // このペアで使う受理閾値。Detect の冒頭で毎回決める。
+        //   エンジンは単一スレッドで回す前提 (PhysicsWorld のループは逐次)。
+        private static float _pairThreshold = SpeculativeMarginDefault;
+
+        /// <summary>Bullet 2.75 btCollisionShape::getContactBreakingThreshold() 相当。
+        /// ローカル AABB は **Bullet の getAabb と同じ取り方** をする:
+        ///   球     : (r,r,r)                    … margin = r なので実質そのまま
+        ///   箱     : HalfExtents                … getHalfExtentsWithMargin() と一致
+        ///   カプセル: (r,hh+r,r) + margin(0.04) … btCapsuleShape::getAabb が margin を足すため</summary>
+        private static float BulletBreakingThreshold(CollisionShape s)
+        {
+            Vec3 h;
+            if (s is SphereShape sp) h = new Vec3(sp.Radius, sp.Radius, sp.Radius);
+            else if (s is BoxShape bx) h = bx.HalfExtents;
+            else if (s is CapsuleShape cp)
+            {
+                float m = CollisionShape.BulletConvexDistanceMargin;   // 0.04
+                h = new Vec3(cp.Radius + m, cp.HalfHeight + cp.Radius + m, cp.Radius + m);
+            }
+            else { float r = s.BoundingRadius; h = new Vec3(r, r, r); }
+            return h.Length * ContactThresholdFactor;   // disc(=|h|) * 0.02、center=0
+        }
+
         // カプセル軸がほぼ平行とみなす閾値 (sin^2θ)。
         // cross(dA,dB)^2 = |dA|^2|dB|^2 sin^2θ なので、正規化した外積長^2 と比較する。
         // 1e-3 は sinθ≈0.0316 (≈1.8°)。スカート等の面接触が数度以内で平行判定されるよう
@@ -152,6 +195,11 @@ namespace BulletPhysics
         /// </summary>
         public static void Detect(RigidBody a, RigidBody b, List<ContactPoint> outPoints)
         {
+            // ★このペアの受理閾値を先に決める (タスク38)。既定は従来どおり固定 0.02。
+            _pairThreshold = BulletContactThreshold
+                ? Math.Min(BulletBreakingThreshold(a.Shape), BulletBreakingThreshold(b.Shape))
+                : SpeculativeMargin;
+
             var ta = a.Shape.Type;
             var tb = b.Shape.Type;
 
@@ -204,7 +252,7 @@ namespace BulletPhysics
             var cB = b.WorldTransform.Origin; float rB = ((SphereShape)b.Shape).Radius;
             var dab = cB - cA; float rsum = rA + rB;
             float dist2 = dab.LengthSquared;
-            float rlim = rsum + SpeculativeMargin;
+            float rlim = rsum + _pairThreshold;
             if (dist2 >= rlim * rlim) return;
 
             float dist = (float)Math.Sqrt(dist2);
@@ -223,7 +271,7 @@ namespace BulletPhysics
             var cc = ClosestPtPointSegment(sc, q0, q1);
             var d = cc - sc; float rsum = sr + cr;
             float dist = d.Length;
-            if (dist >= rsum + SpeculativeMargin) return;
+            if (dist >= rsum + _pairThreshold) return;
 
             var nSphereToCap = dist > ContactEps ? d / dist : Vec3.YAxis;
             float sep = dist - rsum;
@@ -271,7 +319,7 @@ namespace BulletPhysics
             // 単一最近点。
             ClosestPtSegmentSegment(a0, a1, b0, b1, out _, out _, out var c1, out var c2);
             var d = c2 - c1; float dist = d.Length;
-            if (dist >= rsum + SpeculativeMargin) return;
+            if (dist >= rsum + _pairThreshold) return;
             Vec3 n = dist > ContactEps ? d / dist : PerpVector(dA); // A→B、縮退は軸垂直
             float sep = dist - rsum;
             Emit(a, b, outPoints, n, sep, c1 + n * rA, c2 - n * rB);
@@ -284,7 +332,7 @@ namespace BulletPhysics
             var cA = a0 + dAn * param;
             var cB = ClosestPtPointSegment(cA, b0, b1);
             var d = cB - cA; float dist = d.Length;
-            if (dist >= rsum + SpeculativeMargin) return;
+            if (dist >= rsum + _pairThreshold) return;
             var n = dist > ContactEps ? d / dist : PerpVector(dAn);
             float sep = dist - rsum;
             Emit(a, b, outPoints, n, sep, cA + n * rA, cB - n * rB);
@@ -292,7 +340,7 @@ namespace BulletPhysics
 
         // 球中心(箱ローカル座標 local)・箱半サイズ he・実効半径 r から、
         // 「箱→球」ローカル法線・分離(sep<0 で貫入)・箱表面点(ローカル)を解く。
-        // 非接触(SpeculativeMargin 超過)なら false。SphereBox / CapsuleBox の共通コア。
+        // 非接触(受理閾値 _pairThreshold 超過)なら false。SphereBox / CapsuleBox の共通コア。
         private static bool SolveSphereBoxLocal(Vec3 local, Vec3 he, float r,
             out Vec3 nLocalBoxToSphere, out float sep, out Vec3 boxSurfLocal)
         {
@@ -306,7 +354,7 @@ namespace BulletPhysics
                     Math.Clamp(local.y, -he.y, he.y),
                     Math.Clamp(local.z, -he.z, he.z));
                 var dl = local - q; float dist = dl.Length;
-                if (dist >= r + SpeculativeMargin)
+                if (dist >= r + _pairThreshold)
                 {
                     nLocalBoxToSphere = Vec3.YAxis; sep = 0f; boxSurfLocal = q;
                     return false;

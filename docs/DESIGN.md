@@ -365,6 +365,30 @@ Bullet 2.75/2.83 solveSingleIteration は 1反復内で NonContact(ジョイン�
 2. **接触warm-start係数 ContactWarmStartFactor=1.0** (2026-08-09): Bulletは 0.85 (m_warmstartingFactor)。
    当エンジン既定 1.0。実測で 0.85 は深貫入を悪化(JOINTS_FIRST 2241→7109)させたため 1.0 を暫定維持。
    ★「1.0が正しい」わけではない。持続接触で満額warm-startが効いて見えるだけの可能性。貫入の根本解明後に再評価。
+3. **接触の受理閾値 Collision.SpeculativeMargin=0.02 の固定距離** (2026-08-22): Bullet 2.75 は
+   **ペアごとに形状サイズ比例**。`min(shapeA,shapeB)` の
+   `getContactBreakingThreshold() = getAngularMotionDisc() * gContactThresholdFactor(=0.02)`
+   で、`getAngularMotionDisc()` は単位変換 AABB の半対角 + |中心|。
+   実測差: 半幅(0.347,0.371,0.200) のスカート箱で Bullet 0.0109 に対し当方 0.02 = **当方が約2倍広い**。
+   分離しているペアまで接触に上げている。`GjkEpa.BulletContactThreshold` で A/B できる (既定OFF)。
+   ★静止スカートに**効く**。モデルB は参照比 3.84× → 1.37×、モデルA も −24%。
+     ただし**モデルP は +140% と退行**するためモデル依存。採否は 31モデルスイープの後。
+4. **linear slop PenetrationSlop=0.005** (2026-08-21): Bullet 2.75 は `m_linearSlop = 0.0`。
+   0 にすると静止スカートが悪化する (モデルA +33% / モデルP +174%) ため現状維持。
+
+### 形状マージンの逸脱は「原因ではない」と確定 (2026-08-22)
+| 形状 | 当エンジン | Bullet 2.75 |
+|---|---|---|
+| 箱 | `最小半幅 * 0.04` | **0.04 固定** (`CONVEX_DISTANCE_MARGIN`)。`setSafeMargin` は 2.75 に**存在しない** — 後年の Bullet で追加された機能なので、これを 2.75 の仕様として引くのは誤り |
+| カプセル | `Margin = 半径` (コア = 線分) | `Margin = 0.04`、コア = 線分 + (半径 − 0.04)。**外形はどちらも 線分+半径 で一致**。差が出るのは `getMargin()` 由来の量 (GJK 探索距離・AABB・受理閾値) だけ |
+| 球 | `Margin = 半径` | 同じ (`btSphereShape` も margin=半径) |
+
+`CollisionShape.BulletShapeMargin` で A/B したが、静止スカートは
+モデルA・モデルB で**ビット不変**、モデルP で +1.4% と実質無反応だった。
+理由: PMX のスカートは箱、脚は カプセルで、当エンジンはこの組を**解析解**で解くため
+`Margin` を読まない。箱×箱 は GJK を通るが、同一グループの剛体どうしは
+PMX の当たり判定マスクで弾かれるので実際にはペアが立たない。
+→ **逸脱としては残るが、揺れの原因ではない。**
 
 ## 最小再現の設計知見: 単鎖は実スカートの横滑り署名を再現できない (2026-08-09)
 実スカートの失敗署名「方向変化角/枠傾き=6.0(枠は立ったまま位置が滑る)」は、合成単鎖では再現できない

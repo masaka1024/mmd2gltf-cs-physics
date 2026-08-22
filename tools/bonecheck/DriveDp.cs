@@ -4,10 +4,10 @@
 //
 //  なぜ要るか:
 //    既存ゲートの穴が2つあった。
-//      - bonecheck/hairfid は modelA (IA) 基準で、IA は **ばね定数が全ゼロ** の唯一のモデル。
+//      - bonecheck/hairfid は モデルA 基準で、モデルA は **ばね定数が全ゼロ** の唯一のモデル。
 //        つまり「ばねの実装差」を1ビットも評価できない。
 //      - BoneDp は駆動なし静止なので、揺れ物が「動くべきときに動くか」を見ていない。
-//    ばね持ちモデル (モデルB = modelB) の焼き込み済み参照を使い、
+//    ばね持ちモデル (モデルB) の焼き込み済み参照を使い、
 //    **動いている最中の揺れの量** を部位別に比べる。
 //
 //  ★|Δp| の定義は BoneDp / analyze_static_bake.py / タスク6・9 と完全に同一:
@@ -148,6 +148,9 @@ namespace BoneCheck
                 //   上書きしてはいけない。出荷既定は ShippedSpringMotor に静的初期化時点で控えてある。
                 Joint.SpringAsMotorRow = Env("SPRINGMOTOR") != null ? Env("SPRINGMOTOR") == "1" : ShippedSpringMotor;
                 PhysicsWorld.BulletRotationIntegration = Env("ROTEXP") == "1";
+                // タスク38: 接触側の逸脱2件。★CMARGIN は形状の構築時に読むので Build より前に。
+                GjkEpa.BulletContactThreshold = Env("CTHRESH") == "1";
+                CollisionShape.BulletShapeMargin = Env("CMARGIN") == "1";
                 if (apply != null) apply();
 
                 var builder = PmxPhysicsBuilder.Build(model);
@@ -287,7 +290,7 @@ namespace BoneCheck
             }
             L("");
             L("  読み方: 比 > 1 = 参照より動きすぎ / < 1 = 動かなさすぎ。中央は平時の揺れ量、p90 は大振れ側。");
-            L("  ★ばね系の変更はこのゲートを通すこと (IA は spring 全ゼロで、ばねの差を評価できない)。");
+            L("  ★ばね系の変更はこのゲートを通すこと (モデルA は spring 全ゼロで、ばねの差を評価できない)。");
 
             // ★ボーン別の生値を出す (部位統計の標本不確かさをボーン・ブートストラップで見積もるため。
             //   もみあげ4本/アホ毛2本のような少数部位は中央値の精度自体が低く、

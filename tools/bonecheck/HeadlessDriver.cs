@@ -41,6 +41,8 @@ namespace BoneCheck
             // ★慣性は剛体構築時に確定するので Build より前に設定する (Bullet 2.75 は 0.04, 既定0=従来)。
             if (float.TryParse(System.Environment.GetEnvironmentVariable("INERTIAMARGIN"), out var _im) && _im >= 0f)
                 CapsuleShape.InertiaMargin = _im;
+            // ★形状マージンも剛体構築時に確定するので Build より前 (タスク38)。
+            if (System.Environment.GetEnvironmentVariable("CMARGIN") == "1") CollisionShape.BulletShapeMargin = true;
             var builder = PmxPhysicsBuilder.Build(model); // 既定 World (30Hz・1サブ, gravity -98)
             var world = builder.World;
             if (SolverIterationsOverride > 0) world.SolverIterations = SolverIterationsOverride; // 診断用
@@ -76,6 +78,7 @@ namespace BoneCheck
                 if (_sm != null) Joint.SpringAsMotorRow = _sm == "1";
             }
             if (System.Environment.GetEnvironmentVariable("ROTEXP") == "1") PhysicsWorld.BulletRotationIntegration = true;
+            if (System.Environment.GetEnvironmentVariable("CTHRESH") == "1") GjkEpa.BulletContactThreshold = true;
             if (float.TryParse(System.Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) Joint.WarmStartFactor = _wf;
 
             // ★実効フラグのエコー (env の値ではなくエンジンから読み戻した値)。
@@ -95,6 +98,8 @@ namespace BoneCheck
                     + "  AngConv=" + Joint.BulletAngleConvention
                     + "  SpringMotor=" + Joint.SpringAsMotorRow
                     + "  RotExp=" + PhysicsWorld.BulletRotationIntegration
+                    + "  CThresh=" + GjkEpa.BulletContactThreshold
+                    + "  CMargin=" + CollisionShape.BulletShapeMargin
                     + "  MaxCorrVel=" + Joint.MaxCorrectionVel.ToString("G6"));
             }
 

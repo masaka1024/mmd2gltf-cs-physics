@@ -63,6 +63,15 @@ static class HairFid
 
         var model = PmxReader.LoadFile(pmx);
         var csv = BoneCsv.Load(csvp);
+        // ★タスク38: 接触側の逸脱2件。CMARGIN は形状の構築時に読むので Build より前。
+        if (Environment.GetEnvironmentVariable("CMARGIN") == "1") CollisionShape.BulletShapeMargin = true;
+        if (Environment.GetEnvironmentVariable("CTHRESH") == "1") GjkEpa.BulletContactThreshold = true;
+        // ★タスク37: ばねのモーター行化。既定 ON なので、明示されたときだけ上書きする。
+        {
+            var _sm = Environment.GetEnvironmentVariable("SPRINGMOTOR");
+            if (_sm != null) Joint.SpringAsMotorRow = _sm == "1";
+        }
+        if (Environment.GetEnvironmentVariable("ROTEXP") == "1") PhysicsWorld.BulletRotationIntegration = true;
         var builder = PmxPhysicsBuilder.Build(model);
         var world = builder.World;
         if (Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
@@ -119,6 +128,9 @@ static class HairFid
             Console.WriteLine($"[cfg] SKIRT_JFREE={skirtJFree} スカート絡みジョイント{cnt}本を自由化(1=角度,2=角度+並進)");
         }
         Console.WriteLine($"[cfg] warm={world.UseJointWarmStart}/{world.UseJointWarmStartAngular} fac={Joint.WarmStartFactor} split={world.UseSplitImpulse} frames={csv.FrameCount}");
+        Console.WriteLine($"[実効] hairfid  SpringMotor={Joint.SpringAsMotorRow}  RotExp={PhysicsWorld.BulletRotationIntegration}"
+            + $"  CThresh={GjkEpa.BulletContactThreshold}  CMargin={CollisionShape.BulletShapeMargin}"
+            + $"  LeverMode={Joint.LinearLeverMode}  MixedAxes={Joint.AngularMixedAxes}  JointsFirst={world.SolveJointsFirst}  Slop={world.PenetrationSlop:G6}");
 
         // 髪 dynamic 剛体リンクと、体コライダー(BoneFollow)リンク。
         var hairLinks = new List<(BoneLink link, string bone, RigidTransform bindBone)>();
