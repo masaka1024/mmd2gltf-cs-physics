@@ -59,8 +59,44 @@ namespace BoneCheck
             if (System.Environment.GetEnvironmentVariable("SPLIT") == "1") world.UseSplitImpulse = true; // 接触の貫入回復を擬似速度側(参考)
             if (float.TryParse(System.Environment.GetEnvironmentVariable("CWFAC"), out var _cwf)) world.ContactWarmStartFactor = _cwf; // 接触warm-start係数
             if (int.TryParse(System.Environment.GetEnvironmentVariable("LEVER"), out var _lv)) Joint.LinearLeverMode = _lv; // 線形レバーアーム 0/1/2
+            // ★2026-08-21 追加: ジョイント位置補正係数の掃引 (既定0.2)。未設定=無変更。
+            //   LEVER=1 の下で翻り量(ゲイン)がどう動くかを測るため。
+            if (float.TryParse(System.Environment.GetEnvironmentVariable("JBETA"),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var _jb) && _jb >= 0f)
+                foreach (var j in world.Joints) j.Beta = _jb;
             if (System.Environment.GetEnvironmentVariable("MIXAXES") == "1") Joint.AngularMixedAxes = true; // 角度リミット行=Bullet混合軸
+            // タスク22: 角度抽出を Bullet 2.75 実挙動 (R_B⁻¹R_A のオイラー + 角度行の軸反転) へ。
+            //   restosc の ANGCONV と同名。MIXAXES と違い、こちらは角度そのものの規約。
+            if (System.Environment.GetEnvironmentVariable("ANGCONV") == "1") Joint.BulletAngleConvention = true;
+            // タスク32: ばねを Bullet 2.75 のモーター行として解く。
+            // ★タスク37: 既定が ON。env は明示されたときだけ上書きする (未設定で false にしない)。
+            {
+                var _sm = System.Environment.GetEnvironmentVariable("SPRINGMOTOR");
+                if (_sm != null) Joint.SpringAsMotorRow = _sm == "1";
+            }
+            if (System.Environment.GetEnvironmentVariable("ROTEXP") == "1") PhysicsWorld.BulletRotationIntegration = true;
             if (float.TryParse(System.Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) Joint.WarmStartFactor = _wf;
+
+            // ★実効フラグのエコー (env の値ではなくエンジンから読み戻した値)。
+            //   モードを足すたびに env の配線を忘れる事故が続いたので、常時出す (restosc と同じ流儀)。
+            {
+                float _bmin = float.MaxValue, _bmax = float.MinValue;
+                foreach (var j in world.Joints) { if (j.Beta < _bmin) _bmin = j.Beta; if (j.Beta > _bmax) _bmax = j.Beta; }
+                System.Console.WriteLine("[実効] bonecheck  FixedTimeStep=1/" + (1f / world.FixedTimeStep).ToString("F2")
+                    + "  SubSteps=" + world.SubSteps + "  Iters=" + world.SolverIterations
+                    + "  Joint.Beta=" + (world.Joints.Count == 0 ? "-" : (_bmin == _bmax ? _bmin.ToString("G6") : _bmin.ToString("G6") + "~" + _bmax.ToString("G6")))
+                    + "  ContactBaumgarte=" + world.BaumgarteFactor.ToString("G6"));
+                System.Console.WriteLine("[実効] bonecheck  JSplit=" + world.UseJointSplitImpulse
+                    + "  Split=" + world.UseSplitImpulse
+                    + "  JWarm=" + world.UseJointWarmStart + "/" + world.UseJointWarmStartAngular
+                    + "  LeverMode=" + Joint.LinearLeverMode
+                    + "  MixedAxes=" + Joint.AngularMixedAxes
+                    + "  AngConv=" + Joint.BulletAngleConvention
+                    + "  SpringMotor=" + Joint.SpringAsMotorRow
+                    + "  RotExp=" + PhysicsWorld.BulletRotationIntegration
+                    + "  MaxCorrVel=" + Joint.MaxCorrectionVel.ToString("G6"));
+            }
 
             // BoneFollow リンク: bone名 → CSV姿勢で駆動。CSVに無いものは記録して据え置き。
             var driven = new List<(BoneLink link, string bone)>();

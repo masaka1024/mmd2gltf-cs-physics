@@ -32,3 +32,19 @@ UserSettings/
 .vs/
 .idea/
 .vscode/
+
+# --- 診断ツールの実行結果 (ソースではないので追跡しない。2026-08-22) ---
+# 各ツールは計測結果を自分のディレクトリへ .txt/.csv で吐く。モデル名やローカル絶対パスが
+# 混ざるうえ再生成できるので、リポジトリには入れない。ソース (.cs/.py/.cpp/.bat/.rsp/.md) は追跡する。
+tools/**/*.txt
+tools/**/*.csv
+__pycache__/
+
+# bulletref は作業ディレクトリ (t21/t34/eps/...) に exe と計測結果を大量に置くので、
+# ソースだけを名指しで通す (ホワイトリスト方式)。
+tools/diagnostics/bulletref/*
+!tools/diagnostics/bulletref/*.cpp
+!tools/diagnostics/bulletref/*.py
+!tools/diagnostics/bulletref/*.bat
+!tools/diagnostics/bulletref/lib.rsp
+!tools/diagnostics/bulletref/README_bulletref.md

@@ -19,6 +19,10 @@ namespace BoneCheck
 
         static int Main()
         {
+            // タスク35: 駆動ありの部位別 |Δp| ゲート。参照CSVがIA用でないので
+            // BoneCsv.Validate (43ボーン固定) より **手前** で分岐する。
+            if (Environment.GetEnvironmentVariable("DRIVEDP") == "1") return DriveDp.Run();
+
             string csvPath = BoneCsv.FindPath();
             if (!File.Exists(PmxPath))
             {
@@ -147,7 +151,7 @@ namespace BoneCheck
             {
                 winRatios.Sort();
                 float rmed = winRatios[winRatios.Count / 2], rmin = winRatios[0], rmax = winRatios[winRatios.Count - 1];
-                L($"  [12窓比 自前/MMD] 中央={rmed:F4} 最小={rmin:F4} 最大={rmax:F4} (1.0=MMD一致, 既定ベースライン中央1.0588)");
+                L($"  [12窓比 自前/MMD] 中央={rmed:F4} 最小={rmin:F4} 最大={rmax:F4} (1.0=MMD一致, ベースライン中央: 2026-08-20実測 0.9867 / 旧記録 1.0588)");
             }
 
             // ---- 3) 窓1・窓4 対決 ----

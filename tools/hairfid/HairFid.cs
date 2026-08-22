@@ -67,12 +67,19 @@ static class HairFid
         var world = builder.World;
         if (Environment.GetEnvironmentVariable("WARM_OFF") == "1") { world.UseJointWarmStart = false; world.UseJointWarmStartAngular = false; }
         if (Environment.GetEnvironmentVariable("SPLIT") == "1") world.UseSplitImpulse = true; // 接触の貫入回復を擬似速度側へ(綱引き回避の検証)
+        // ★2026-08-20 追加: ジョイント側 split impulse。静止の髪振動に最も効いた候補の駆動系検証用。
+        if (Environment.GetEnvironmentVariable("JSPLIT") == "1") world.UseJointSplitImpulse = true;
         if (Environment.GetEnvironmentVariable("JOINTS_FIRST") == "1") world.SolveJointsFirst = true; // Bullet同順(ジョイント→接触,接触が後勝ち)
         if (float.TryParse(Environment.GetEnvironmentVariable("CWFAC"), out var _cwf)) world.ContactWarmStartFactor = _cwf; // 接触warm-start係数(Bullet=0.85)
         // ジョイントwarm-start引継ぎ係数。既定OFF(UseJointWarmStart=false)なので、旧既定をA/Bで
         // 再現するときだけ WARMSTART/WARMSTART_ANG と併せて使う。bonecheck/restsim/chainbug にも同名あり。
         if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) Joint.WarmStartFactor = _wf;
         if (int.TryParse(Environment.GetEnvironmentVariable("LEVER"), out var _lv)) Joint.LinearLeverMode = _lv; // 線形レバーアーム 0/1/2
+        // ★2026-08-21 追加: ジョイント位置補正係数の掃引 (既定0.2)。未設定=無変更。
+        if (float.TryParse(Environment.GetEnvironmentVariable("JBETA"),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var _jb) && _jb >= 0f)
+            foreach (var j in world.Joints) j.Beta = _jb;
         if (float.TryParse(Environment.GetEnvironmentVariable("MAXCORR"), out var _mc)) Joint.MaxCorrectionVel = _mc; // 位置補正速度上限(既定10, Bulletは無制限)
         if (Environment.GetEnvironmentVariable("MIXAXES") == "1") Joint.AngularMixedAxes = true; // 角度リミット行=Bullet混合軸
         if (Environment.GetEnvironmentVariable("CNBF") == "1") world.ContactNormalBeforeFriction = true; // 法線→摩擦順(Bullet)
@@ -83,6 +90,16 @@ static class HairFid
         if (alignMode > 0) Console.WriteLine($"[cfg] ALIGN={alignMode} ALPHA={alpha} ORDER2={order2} ({(alignMode == 1 ? "出力のみ" : "フィードバック")}: 位置=親チェーン再構成/回転={(alpha > 0 ? $"リミットへ{alpha:P0}clamp" : "物理")})");
         if (int.TryParse(Environment.GetEnvironmentVariable("SUBSTEPS"), out var _ss) && _ss > 0) world.SubSteps = _ss; // 計算予算掃引
         if (int.TryParse(Environment.GetEnvironmentVariable("ITERS"), out var _it) && _it > 0) world.SolverIterations = _it;
+        // ★2026-08-20 追加: 接触の位置補正係数を A/B するための env。未設定=無変更(既定のまま)。
+        //   既定値そのものを 0.2 -> 0 にした変更 (静止では全31モデル改善) の、駆動系での裏取り用。
+        //   BAUM=0.2 を渡すと変更前の挙動を再現できる。
+        if (float.TryParse(Environment.GetEnvironmentVariable("BAUM"),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var _bg) && _bg >= 0f)
+        {
+            world.BaumgarteFactor = _bg;
+            Console.WriteLine($"[cfg] BAUM={_bg} (接触Baumgarte。既定は 0)");
+        }
         // 鎖のたわみ対策 (UE5移植版からの逆輸入)。既定 0 = 従来とビット不変。
         if (int.TryParse(Environment.GetEnvironmentVariable("JOINTITERS"), out var _ji) && _ji > 0) world.JointVelocityIterations = _ji;
         if (float.TryParse(Environment.GetEnvironmentVariable("JOINTMAXCORR"), out var _jm) && _jm > 0f) world.JointMaxCorrectionVel = _jm;

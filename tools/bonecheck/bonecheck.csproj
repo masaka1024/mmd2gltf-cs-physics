@@ -18,6 +18,7 @@
     <Compile Include="SkirtMeasure.cs" />
     <Compile Include="SwingTwistTest.cs" />
     <Compile Include="HeadlessDriver.cs" />
+    <Compile Include="DriveDp.cs" />
     <Compile Include="SyntheticTurn.cs" />
     <Compile Include="Program.cs" />
     <!-- 検証対象のエンジン本体 (リポジトリ相対、読み取りのみ) -->
