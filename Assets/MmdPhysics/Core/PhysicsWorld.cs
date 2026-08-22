@@ -299,13 +299,13 @@ namespace BulletPhysics
                     // Bullet 2.75 同順: ジョイント → 接触 (接触が後勝ち)。
                     if (doJoints) foreach (var j in Joints) j.SolveVelocity();
                     if (ProfileEnabled) ProfSolveJoint += Tick();
-                    if (doContacts) SolveContacts();
+                    if (doContacts) { _contactIter = it; SolveContacts(); }
                     if (ProfileEnabled) ProfSolveContact += Tick();
                 }
                 else
                 {
                     // 従来順: 接触 → ジョイント (ジョイントが後勝ち)。
-                    if (doContacts) SolveContacts();
+                    if (doContacts) { _contactIter = it; SolveContacts(); }
                     if (ProfileEnabled) ProfSolveContact += Tick();
                     if (doJoints) foreach (var j in Joints) j.SolveVelocity();
                     if (ProfileEnabled) ProfSolveJoint += Tick();
@@ -837,6 +837,18 @@ namespace BulletPhysics
             float dist, float normalBias, float pushBias, float friction,
             float normalMass, float warmNormal, float warmT1, float warmT2)> DebugContactRows;
 
+        /// <summary>★タスク47: 接触行の **反復単位** の読み取り専用フック (既定 null = 何もしない)。
+        /// 1エントリ = (反復, 剛体A, 剛体B, 接触点index, 累積法線インパルス, 累積摩擦1, 累積摩擦2,
+        ///              法線が下限0でクランプされたか, 摩擦1が上限でクランプされたか,
+        ///              法線方向の相対速度(この反復で解く直前))。
+        /// ジョイント側の `Joint.DebugRows` と同じ家風: null の間は分岐1つぶんしか触らないのでビット不変。
+        /// 第一不一致点が「反復0の接触求解」と判ったので、その中身を見るために足した。</summary>
+        public System.Collections.Generic.List<(int iter, string a, string b, int pt,
+            float ni, float t1, float t2, bool nClamp, bool tClamp, float relN)> DebugContactIterRows;
+
+        /// <summary>DebugContactIterRows へ書く反復番号。求解ループが毎反復セットする。</summary>
+        private int _contactIter;
+
         // 蓄積インパルスを manifold へ書き戻し、次フレームのウォームスタートに使う。
         private void StoreImpulses()
         {
@@ -891,6 +903,7 @@ namespace BulletPhysics
                         SolveFriction(ref c, c.A, c.B, c.Tangent2, c.TangentMass2, ref c.TangentImpulse2);
                     _contacts[i] = c;
                 }
+                EmitContactIterRows();
                 return;
             }
             for (int i = 0; i < _contacts.Count; i++)
@@ -914,6 +927,28 @@ namespace BulletPhysics
                 }
 
                 _contacts[i] = c;
+            }
+            EmitContactIterRows();
+        }
+
+        // 反復ごとの接触行を出す (フックが null の間は即 return = ビット不変)。
+        private void EmitContactIterRows()
+        {
+            var sink = DebugContactIterRows;
+            if (sink == null) return;
+            for (int i = 0; i < _contacts.Count; i++)
+            {
+                var c = _contacts[i];
+                // 法線方向の相対速度 (符号規約は SolveNormal と同じ)。
+                var dv = (c.B.LinearVelocity + Vec3.Cross(c.B.AngularVelocity, c.RelB))
+                       - (c.A.LinearVelocity + Vec3.Cross(c.A.AngularVelocity, c.RelA));
+                float relN = dv.Dot(c.Normal);
+                float maxT = c.Friction * c.NormalImpulse;
+                sink.Add((_contactIter, c.A.Name, c.B.Name, c.PointRef,
+                          c.NormalImpulse, c.TangentImpulse1, c.TangentImpulse2,
+                          c.NormalImpulse <= 0f,
+                          maxT > 0f && Math.Abs(c.TangentImpulse1) >= maxT * 0.999999f,
+                          relN));
             }
         }
 
