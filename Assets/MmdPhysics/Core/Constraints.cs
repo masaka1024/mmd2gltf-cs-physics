@@ -208,6 +208,37 @@ namespace BulletPhysics
         ///   - 静止ゲート (Tda スカート |Δp|) が参照比 8.43x → 3.84x</summary>
         public static bool SpringAsMotorRow = true;
 
+        /// <summary>タスク59: ロック軸 (lo==hi) の行を立てる条件を Bullet 2.75 の意味論へ
+        /// 揃える (既定 false = ビット不変)。
+        ///
+        /// Bullet の btRotationalLimitMotor::testLimitValue / btTranslationalLimitMotor::needApplyForce:
+        ///   testLimitValue: lo&gt;hi → 0 / v&lt;lo → 2 / v&gt;hi → 1 / それ以外 → **0**
+        ///   needApplyForce: m_currentLimit==0 かつ モーター無効 → **行を作らない**
+        /// つまり **ロック軸でも、変位がちょうど限界値のときは行が立たない**。
+        /// 当エンジンは IsLocked なら無条件に両側限界の行を立てていたので、
+        /// Bullet が自由にしている瞬間に速度拘束を掛けていた。
+        ///
+        /// 実測 (モデルA 髪網・移植姿勢): 行数が 自前239 / Bullet238 とずれ、
+        /// 余分な行は frame0 `髪BC1 dof2 並` / frame1 `前髪R dof2 並` と
+        /// **毎サブステップ1行前後、別のジョイントで間欠的に**現れていた。
+        /// 反復0 は共通行が完全一致 (4.86e-07) なのに反復1から崩れるのは、
+        /// この余分な行が反復0で解かれてインパルスを与えるため。
+        /// 最大差の行が余分な行と同じジョイントだったことも因果を裏づける。
+        ///
+        /// ★力積の上下限は変えない。Bullet も lo==hi のときは両側 (-INF,+INF) で、
+        ///   片側になるのは lo!=hi の違反時だけ。そちらは既に一致している
+        ///   (当エンジンの線形行は Bullet の鏡像なので上下限が入れ替わって対応する)。</summary>
+        public static bool BulletLimitRowGating = false;
+
+        /// <summary>Bullet の testLimitValue 相当。0=行不要 / 1=上限超過 / 2=下限未満。</summary>
+        private static int TestLimitValue(float v, float lo, float hi)
+        {
+            if (lo > hi) return 0;          // free
+            if (v < lo) return 2;
+            if (v > hi) return 1;
+            return 0;                       // ちょうど限界内 (ロック軸の err==0 を含む)
+        }
+
         /// <summary>Bullet 2.75 `btGeneric6DofSpringConstraint` の `m_springDamping` 既定値。
         /// PMX にはこの値が無いので **Bullet の既定 1.0 をそのまま使う**。つまみにしない。</summary>
         public const float BulletSpringDamping = 1.0f;
@@ -417,6 +448,12 @@ namespace BulletPhysics
 
                 float cur = curF;
                 float err, lower, upper;
+                // タスク59: Bullet はロック軸でも変位がちょうど限界値なら行を作らない。
+                if (BulletLimitRowGating && IsLocked(lo, hi) && TestLimitValue(cur, lo, hi) == 0)
+                {
+                    if (SpringAsMotorRow) AddSpringMotorRow(false, i, axis, cur, lo, hi, rA, rB, invDt);
+                    continue;
+                }
                 if (IsLocked(lo, hi)) { err = lo - cur; lower = -1e18f; upper = 1e18f; }
                 else if (cur < lo) { err = lo - cur; lower = 0f; upper = 1e18f; }
                 else if (cur > hi) { err = hi - cur; lower = -1e18f; upper = 0f; }
@@ -491,6 +528,13 @@ namespace BulletPhysics
                 float cur = euler[i];
                 float err, lower, upper;
                 int sideCode;
+                // タスク59: 並進と同じ。ロック軸でちょうど限界値なら行なし。
+                if (BulletLimitRowGating && IsLocked(lo, hi) && TestLimitValue(cur, lo, hi) == 0)
+                {
+                    DebugAngularRows?.Add((Name, i, 1, cur, 0f));
+                    if (SpringAsMotorRow) AddSpringMotorRow(true, i, axis, cur, lo, hi, Vec3.Zero, Vec3.Zero, invDt);
+                    continue;
+                }
                 if (IsLocked(lo, hi)) { err = lo - cur; lower = -1e18f; upper = 1e18f; sideCode = 0; }
                 else if (cur < lo) { err = lo - cur; lower = 0f; upper = 1e18f; sideCode = 1; }
                 else if (cur > hi) { err = hi - cur; lower = -1e18f; upper = 0f; sideCode = 2; }

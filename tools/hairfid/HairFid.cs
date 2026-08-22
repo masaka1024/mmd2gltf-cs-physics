@@ -81,6 +81,7 @@ static class HairFid
         if (Environment.GetEnvironmentVariable("JOINTS_FIRST") == "1") world.SolveJointsFirst = true; // Bullet同順(ジョイント→接触,接触が後勝ち)
         if (Environment.GetEnvironmentVariable("CRHS") == "1") world.ContactRhsBullet = true;   // ★タスク48
         if (Environment.GetEnvironmentVariable("CMAN") == "1") PersistentManifold.BulletManifoldPoints = true;   // ★タスク51
+        if (Environment.GetEnvironmentVariable("LIMGATE") == "1") Joint.BulletLimitRowGating = true;   // ★タスク59
         if (float.TryParse(Environment.GetEnvironmentVariable("CWFAC"), out var _cwf)) world.ContactWarmStartFactor = _cwf; // 接触warm-start係数(Bullet=0.85)
         // ジョイントwarm-start引継ぎ係数。既定OFF(UseJointWarmStart=false)なので、旧既定をA/Bで
         // 再現するときだけ WARMSTART/WARMSTART_ANG と併せて使う。bonecheck/restsim/chainbug にも同名あり。
@@ -131,7 +132,7 @@ static class HairFid
         }
         Console.WriteLine($"[cfg] warm={world.UseJointWarmStart}/{world.UseJointWarmStartAngular} fac={Joint.WarmStartFactor} split={world.UseSplitImpulse} frames={csv.FrameCount}");
         Console.WriteLine($"[実効] hairfid  SpringMotor={Joint.SpringAsMotorRow}  RotExp={PhysicsWorld.BulletRotationIntegration}"
-            + $"  CThresh={GjkEpa.BulletContactThreshold}  CMargin={CollisionShape.BulletShapeMargin}  CRhs={world.ContactRhsBullet}  CMan={PersistentManifold.BulletManifoldPoints}"
+            + $"  CThresh={GjkEpa.BulletContactThreshold}  CMargin={CollisionShape.BulletShapeMargin}  CRhs={world.ContactRhsBullet}  CMan={PersistentManifold.BulletManifoldPoints}  LimGate={Joint.BulletLimitRowGating}"
             + $"  LeverMode={Joint.LinearLeverMode}  MixedAxes={Joint.AngularMixedAxes}  JointsFirst={world.SolveJointsFirst}  Slop={world.PenetrationSlop:G6}");
 
         // 髪 dynamic 剛体リンクと、体コライダー(BoneFollow)リンク。
