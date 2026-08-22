@@ -1,4 +1,4 @@
-// ===========================================================================
+﻿// ===========================================================================
 // Unity Bullet 互換物理エンジン – Narrowphase (GJK + EPA)
 // 凸形状同士の接触判定・貫入量・法線・接触点を算出する。
 // Bullet の btGjkPairDetector + btGjkEpaPenetrationDepthSolver 相当。
@@ -18,6 +18,13 @@ namespace BulletPhysics
         public Vec3 LocalPointB;      // B ローカルの接触点 (Refresh 再投影用)
         public Vec3 Normal;           // B から A へ向かう単位法線
         public float Distance;        // 負値 = 貫入量
+
+        /// <summary>★タスク68: このフレームのナローフェーズが「この点はまだ在る」と
+        /// 確認したか。Refresh の頭で false に落とし、AddPoint が
+        /// (既存に一致して置換 / 新規に追加) したときだけ true になる。
+        /// 幻の定義そのもの (= 新点で確認されなかった古い点) を表すので、
+        /// 深い側の破棄をこのフラグが false の点だけに限定できる。</summary>
+        public bool ConfirmedThisStep;
 
         // ソルバ用の蓄積インパルス (ウォームスタート)。
         public float NormalImpulse;
@@ -92,10 +99,12 @@ namespace BulletPhysics
         ///   幻の d はそのまま接触 rhs に載る: NormalBias = -d*erp/dt = 0.2*0.66*60 = 7.9。
         ///   定常窓の接触行の 14% (22/154) がこの幻だった。
         ///
-        /// ★副作用 (承知の上): 正当に深い接触も、次のフレームの refresh で一度捨てられる。
-        ///   接触が本物なら同フレームの AddPoint で作り直されるので接触自体は消えないが、
-        ///   **warm-start の引き継ぎは切れる**。初期突入 (両エンジンとも -0.19 まで潜る) に
-        ///   どう出るかは出力ゲートで見る。</summary>
+        /// ★タスク68 で **鮮度条件つき** に限定した。破棄の対象は
+        ///   「そのフレームのナローフェーズに確認されなかった点」だけ (ContactPoint.ConfirmedThisStep)。
+        ///   タスク67 の無条件版は正当に深い接触まで毎フレーム捨てて warm-start を切ってしまい、
+        ///   スカート (接触点の **61%** が閾値 0.0109 より深い) を 0.73x -> 0.17x と過減衰させた。
+        ///   鮮度条件を入れると、毎フレーム作り直される本物の深い接触は無傷のまま
+        ///   滑って取り残された幻だけを殺せる。</summary>
         public static bool SymmetricBreakingDistance = false;
 
         // btPersistentManifold::refreshContactPoints の移植。
@@ -114,15 +123,30 @@ namespace BulletPhysics
                 cp.Distance = d;
                 // validContactDistance: 法線方向に閾値を超えて離れたら破棄。
                 if (d > thr) { if (CollectManifoldStats) StatRefreshDropNormal++; Points.RemoveAt(i); continue; }
-                // ★タスク67: 深い側も同じ閾値で。滑った古い点が負へ暴走するのを止める。
-                if (SymmetricBreakingDistance && d < -thr)
-                { if (CollectManifoldStats) StatRefreshDropDeep++; Points.RemoveAt(i); continue; }
                 // 法線成分を除いた残差 (Bullet と同じ射影の取り方) が閾値の2乗を超えたら破棄。
                 var projected = worldA - cp.Normal * d;
                 var diff2 = worldB - projected;
                 if (diff2.LengthSquared > thr2) { if (CollectManifoldStats) StatRefreshDropLateral++; Points.RemoveAt(i); continue; }
                 if (CollectManifoldStats) StatRefreshKept++;
+                cp.ConfirmedThisStep = false;   // ★タスク68: 今フレームの確認はまだ無い
                 Points[i] = cp;
+            }
+        }
+
+        /// <summary>★タスク68: 深い側の破棄。**Refresh → Detect → AddPoint のあとに** 呼ぶ。
+        /// このフレームのナローフェーズに確認されなかった点だけを対象にするので、
+        /// 毎フレーム作り直される正当な深い接触 (スカートは接触点の61%が閾値より深い) は無傷。
+        /// 閾値は既存の contactBreakingThreshold をそのまま流用する。</summary>
+        public void PruneStaleDeep()
+        {
+            if (!SymmetricBreakingDistance) return;
+            float thr = BulletManifoldPoints ? BreakingThreshold : 0.04f;
+            for (int i = Points.Count - 1; i >= 0; i--)
+            {
+                var cp = Points[i];
+                if (cp.ConfirmedThisStep || cp.Distance >= -thr) continue;
+                if (CollectManifoldStats) StatRefreshDropDeep++;
+                Points.RemoveAt(i);
             }
         }
 
@@ -136,6 +160,7 @@ namespace BulletPhysics
                 float d2 = (Points[i].LocalPointA - cp.LocalPointA).LengthSquared;
                 if (d2 < shortest) { shortest = d2; near = i; }
             }
+            cp.ConfirmedThisStep = true;   // ★タスク68: 今フレームのナローフェーズ由来
             if (near >= 0)
             {
                 if (CollectManifoldStats) StatAddMatched++;
@@ -196,11 +221,10 @@ namespace BulletPhysics
                 var diff = worldA - worldB;
                 var d = diff.Dot(cp.Normal);
                 var lateral = diff - cp.Normal * d;
-                if (d > 0.04f || (SymmetricBreakingDistance && d < -0.04f)
-                    || lateral.LengthSquared > 0.04f * 0.04f)
+                if (d > 0.04f || lateral.LengthSquared > 0.04f * 0.04f)
                 {
                     if (CollectManifoldStats)
-                    { if (d > 0.04f) StatRefreshDropNormal++; else if (d < -0.04f) StatRefreshDropDeep++; else StatRefreshDropLateral++; }
+                    { if (d > 0.04f) StatRefreshDropNormal++; else StatRefreshDropLateral++; }
                     Points.RemoveAt(i);
                     continue;
                 }
@@ -209,6 +233,7 @@ namespace BulletPhysics
                 cp.PositionWorldA = worldA;
                 cp.PositionWorldB = worldB;
                 cp.Distance = d;
+                cp.ConfirmedThisStep = false;   // ★タスク68
                 Points[i] = cp;
             }
         }
@@ -216,6 +241,7 @@ namespace BulletPhysics
         public void AddPoint(ContactPoint cp)
         {
             if (BulletManifoldPoints) { AddPointBullet(cp); return; }
+            cp.ConfirmedThisStep = true;   // ★タスク68
             // 近い既存点があればウォームスタート値を引き継いで置換。
             const float mergeDist2 = 0.02f * 0.02f;
             for (int i = 0; i < Points.Count; i++)

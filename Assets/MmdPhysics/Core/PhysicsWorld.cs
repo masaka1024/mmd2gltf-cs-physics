@@ -691,6 +691,9 @@ namespace BulletPhysics
                 GjkEpa.Detect(a, b, _detectBuffer);
                 for (int di = 0; di < _detectBuffer.Count; di++)
                     m.AddPoint(_detectBuffer[di]);
+                // ★タスク68: 今フレームのナローフェーズに確認されなかった深い点を落とす。
+                //   Detect / AddPoint の **後** でないと「確認されたか」が決まらない。
+                m.PruneStaleDeep();
             }
             // 消えたペアを掃除。
             if (_manifolds.Count > seen.Count)
