@@ -43,6 +43,17 @@ namespace BoneCheck
     {
         /// <summary>出荷既定の控え (タスク37)。エンジンに触る前の静的初期化時点で読む。</summary>
         static readonly bool ShippedSpringMotor = Joint.SpringAsMotorRow;
+    // ★2026-08-23: 出荷既定を静的初期化時に控え、env 明示時だけ上書きする
+        //   (SpringAsMotorRow で確立した方式を 9 フラグへ広げたもの)。
+        static readonly bool ShipAngConv = Joint.BulletAngleConvention;
+        static readonly bool ShipAxes    = Joint.AngularMixedAxes;
+        static readonly int  ShipLever   = Joint.LinearLeverMode;
+        static readonly bool ShipCThresh = GjkEpa.BulletContactThreshold;
+        static readonly bool ShipRotExp  = PhysicsWorld.BulletRotationIntegration;
+        static readonly bool ShipCMan    = PersistentManifold.BulletManifoldPoints;
+        static readonly bool ShipLimGate = Joint.BulletLimitRowGating;
+        static readonly bool ShipSymDist = PersistentManifold.SymmetricBreakingDistance;
+
 
         static string Env(string k) { return Environment.GetEnvironmentVariable(k); }
         static int EnvI(string k, int d) { int v; return int.TryParse(Env(k), out v) ? v : d; }
@@ -142,27 +153,27 @@ namespace BoneCheck
             Func<Action, Series> Once = delegate (Action apply)
             {
                 // 土台 (両条件に同じだけ掛ける)。A/B 軸だけを apply で切り替える。
-                Joint.BulletAngleConvention = Env("ANGCONV") == "1";
-                Joint.AngularMixedAxes = Env("AXES") == "1";
-                Joint.LinearLeverMode = EnvI("LEVER", 0);
+                Joint.BulletAngleConvention = Env("ANGCONV") != null ? Env("ANGCONV") == "1" : ShipAngConv;
+                Joint.AngularMixedAxes = Env("AXES") != null ? Env("AXES") == "1" : ShipAxes;
+                Joint.LinearLeverMode = EnvI("LEVER", ShipLever);
                 // ★2026-08-22 (タスク37) 既定が ON になったので、env 未設定のときに false へ
                 //   上書きしてはいけない。出荷既定は ShippedSpringMotor に静的初期化時点で控えてある。
                 Joint.SpringAsMotorRow = Env("SPRINGMOTOR") != null ? Env("SPRINGMOTOR") == "1" : ShippedSpringMotor;
-                PhysicsWorld.BulletRotationIntegration = Env("ROTEXP") == "1";
+                PhysicsWorld.BulletRotationIntegration = Env("ROTEXP") != null ? Env("ROTEXP") == "1" : ShipRotExp;
                 // タスク38: 接触側の逸脱2件。★CMARGIN は形状の構築時に読むので Build より前に。
-                GjkEpa.BulletContactThreshold = Env("CTHRESH") == "1";
+                GjkEpa.BulletContactThreshold = Env("CTHRESH") != null ? Env("CTHRESH") == "1" : ShipCThresh;
                 CollisionShape.BulletShapeMargin = Env("CMARGIN") == "1";
-                bool crhs = Env("CRHS") == "1";   // ★タスク48 (world 生成後に適用)
-                PersistentManifold.BulletManifoldPoints = Env("CMAN") == "1";   // ★タスク51
-                Joint.BulletLimitRowGating = Env("LIMGATE") == "1";   // ★タスク59
-                PersistentManifold.SymmetricBreakingDistance = Env("SYMDIST") == "1";   // ★タスク67
+                string crhsEnv = Env("CRHS");   // ★タスク48 (world 生成後に適用・未設定=出荷既定)
+                PersistentManifold.BulletManifoldPoints = Env("CMAN") != null ? Env("CMAN") == "1" : ShipCMan;   // ★タスク51
+                Joint.BulletLimitRowGating = Env("LIMGATE") != null ? Env("LIMGATE") == "1" : ShipLimGate;   // ★タスク59
+                PersistentManifold.SymmetricBreakingDistance = Env("SYMDIST") != null ? Env("SYMDIST") == "1" : ShipSymDist;   // ★タスク67
                 if (apply != null) apply();
 
                 var builder = PmxPhysicsBuilder.Build(model);
                 var world = builder.World;
                 world.SubSteps = EnvI("SUBSTEPS", world.SubSteps);
                 world.SolverIterations = EnvI("ITERS", world.SolverIterations);
-                world.ContactRhsBullet = crhs;
+                if (crhsEnv != null) world.ContactRhsBullet = crhsEnv == "1";
                 // ★タスク71: 配線漏れの修正。drivedp も摩擦セットと求解順を受け付けていなかった。
                 if (Env("CSET") == "1")
                 { world.ContactPoolOrder = true; world.FrictionVelocityAligned = true; world.FrictionCombineMultiply = true; }
