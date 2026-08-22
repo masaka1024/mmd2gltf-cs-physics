@@ -416,6 +416,41 @@ namespace BulletPhysics
             // 既定 false のときは従来どおり qRel をそのまま使う = ビット不変。
             var euler = ToEulerXYZ(BulletAngleConvention ? qRel.Conjugated().Normalized : qRel.Normalized);
 
+            // ★タスク62: LIMGATE のときは、限界判定に食わせる変位を **Bullet の実計算鎖**で作る。
+            //   btGeneric6DofConstraint::calculateLinearInfo (btGeneric6DofConstraint.cpp:745)
+            //     m_calculatedLinearDiff = A.getBasis().inverse() * (originB - originA)
+            //   btGeneric6DofConstraint::calculateAngleInfo (同 345)
+            //     relative_frame = A.getBasis().inverse() * B.getBasis()
+            //     matrixToEulerXYZ(relative_frame, ...)
+            //   ★要点は inverse() が **転置ではなく余因子逆行列** であること (Matrix3x3.BulletInverse)。
+            //     当方は「列との内積」「四元数の共役積」で同じ値を数学的には出していたが、
+            //     どちらも厳密な 0 を保つ経路なので、バインド姿勢で誤差が **厳密に 0** になり、
+            //     testLimitValue が 0 (=行不要) を返して拘束が消えていた。
+            //     ノイズを真似るのではなく、Bullet と同じ変換・同じ減算順を通す。
+            Vec3 linDiffBt = default;
+            if (BulletLimitRowGating)
+            {
+                // ★鎖ごと Bullet に合わせる。要点は3つ、どれも「数学的に同じ・丸めが違う」。
+                //   (1) 関節フレームの基底は **行列同士の積**。当方は四元数の積 -> 行列だったので、
+                //       積がちょうど単位四元数になると基底が **厳密な単位行列** になり、
+                //       軸が (1,0,0)/(0,1,0)/(0,0,1) と割り切れてしまう。
+                //       Bullet は (1, 2.2e-08, 0) のような残差を必ず持つ。
+                //   (2) 原点も btTransform::operator() と同じ **行列×ベクトル + 原点**。
+                //   (3) 逆行列は転置ではなく余因子 (Matrix3x3.BulletInverse)。
+                //   バインド姿勢では変位の隙間が (1.5e-08, 0, 0) のように1軸だけ立つので、
+                //   残りの2軸が 0 になるか 3.3e-16 になるかは基底の残差だけで決まり、
+                //   それが testLimitValue の 0/1/2 = **行を作るか消すか** に直結する。
+                var bmA = Matrix3x3.FromQuatBullet(BodyA.WorldTransform.Rotation);
+                var bmB = Matrix3x3.FromQuatBullet(BodyB.WorldTransform.Rotation);
+                var basisAbt = bmA * Matrix3x3.FromQuatBullet(FrameInA.Rotation);
+                var basisBbt = bmB * Matrix3x3.FromQuatBullet(FrameInB.Rotation);
+                var oA = bmA * FrameInA.Origin + BodyA.WorldTransform.Origin;
+                var oB = bmB * FrameInB.Origin + BodyB.WorldTransform.Origin;
+                var invBasisA = basisAbt.BulletInverse();
+                linDiffBt = invBasisA * (oB - oA);
+                euler = ToEulerXYZBullet(invBasisA * basisBbt, BulletAngleConvention);
+            }
+
             // LinearLeverMode=2 用の前計算 (Bullet calculateTransforms / setLinearLimits 相当)。
             bool hasStatic = false; float factA = 0.5f, factB = 0.5f;
             Span<bool> angActive = stackalloc bool[3];
@@ -438,7 +473,8 @@ namespace BulletPhysics
             {
                 var axis = freezeLin ? _bindAxes[i] : _axesA[i];
                 float lo = LinearLowerLimit[i], hi = LinearUpperLimit[i];
-                float curF = linDelta.Dot(axis);
+                // タスク62: LIMGATE のときは Bullet の calculateLinearInfo と同じ鎖で作った値を使う。
+                float curF = (BulletLimitRowGating && !freezeLin) ? linDiffBt[i] : linDelta.Dot(axis);
                 if (IsFree(lo, hi))
                 {
                     // 自由軸 (lo>hi)。Bullet は limit=0 なのでモーターだけが行を作る。
@@ -889,6 +925,51 @@ namespace BulletPhysics
                 }
                 _rows[r] = row;
             }
+        }
+
+        /// <summary>Bullet 2.75 matrixToEulerXYZ (btGeneric6DofConstraint.cpp:70) の**行列版**移植。
+        /// 四元数を経由せず、渡された行列の成分をそのまま読む。
+        ///
+        /// ★成分の読み方について。Bullet は btGetMatrixElem(mat, index) で
+        ///   i = index%3, j = index/3, mat[i][j] と読む。これは**列優先の添字を行優先の行列に当てる**
+        ///   ので、実際には転置の成分を読んでいる。当エンジンの BulletAngleConvention は
+        ///   この事実を四元数側で再現したものなので、行列版でも同じ切替を持たせて直交させる。
+        ///   bulletElem=true が Bullet の実挙動。
+        /// 分岐のしきい値も Bullet と同じく厳密な ±1.0 を使う (当方の ToEulerXYZ は 1e-6 の余裕を持つ)。</summary>
+        internal static Vec3 ToEulerXYZBullet(Matrix3x3 m, bool bulletElem)
+        {
+            // bulletElem: (i,j) を転置で読む = Bullet の btGetMatrixElem
+            float e02 = bulletElem ? m.Row2.x : m.Row0.z;   // index 2
+            float e12 = bulletElem ? m.Row2.y : m.Row1.z;   // index 5
+            float e22 = bulletElem ? m.Row2.z : m.Row2.z;   // index 8
+            float e01 = bulletElem ? m.Row1.x : m.Row0.y;   // index 1
+            float e00 = bulletElem ? m.Row0.x : m.Row0.x;   // index 0
+            float e10 = bulletElem ? m.Row0.y : m.Row1.x;   // index 3
+            float e11 = bulletElem ? m.Row1.y : m.Row1.y;   // index 4
+
+            float x, y, z;
+            if (e02 < 1f)
+            {
+                if (e02 > -1f)
+                {
+                    x = (float)Math.Atan2(-e12, e22);
+                    y = (float)Math.Asin(e02);
+                    z = (float)Math.Atan2(-e01, e00);
+                }
+                else
+                {
+                    x = -(float)Math.Atan2(e10, e11);
+                    y = -(float)(Math.PI / 2);
+                    z = 0f;
+                }
+            }
+            else
+            {
+                x = (float)Math.Atan2(e10, e11);
+                y = (float)(Math.PI / 2);
+                z = 0f;
+            }
+            return new Vec3(x, y, z);
         }
 
         // --- Euler XYZ 抽出 (Bullet の matrixToEulerXYZ 相当) ---
