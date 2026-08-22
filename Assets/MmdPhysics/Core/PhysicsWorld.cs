@@ -98,7 +98,17 @@ namespace BulletPhysics
         //   駆動中はキネマティック剛体が動的剛体を押し込む。押し戻す手段を丸ごと外すと戻れない。
         //   ★教訓: **接触まわりの変更を静止だけで判断しない。必ず hairfid で駆動系を通す。**
         //     (BAUM env を hairfid に追加済み。BAUM=0.2 で変更前を再現できる)
+
         public float BaumgarteFactor = 0.2f;
+
+        /// <summary>★タスク48: 接触の rhs を Bullet 2.75 の一本式にする (既定 false = ビット不変)。
+        /// 当エンジンは貫入/分離で2枝に分かれており、実測で次の差が出ていた:
+        ///   分離枝に erp が掛かっておらず (-dist/dt)、Bullet (-dist*erp/dt) より **5倍 緩い**。
+        ///   その結果 法線インパルスが系統的に小さく出る (モデルB スカート網の反復0で 19/25 ペアが乖離、
+        ///   差は上位12ペアすべて負)。深さ差のあるペアには集中していなかったので、
+        ///   種は接触生成ではなく **rhs の式** と特定した。
+        /// 差1〜3 を個別フラグにはしない。Bullet 側が1つの式なので、分けると存在しない中間状態を作る。</summary>
+        public bool ContactRhsBullet = false;
         public float RestitutionThreshold = 1.0f;
 
         // --- Split Impulse (接触の貫入回復を実速度から切り離す) ---
@@ -769,7 +779,35 @@ namespace BulletPhysics
                     float rest = (float)Math.Sqrt(Math.Max(0, a.Restitution) * Math.Max(0, b.Restitution));
                     float restBias = (-relN > RestitutionThreshold) ? rest * -relN : 0f;
 
-                    if (cp.Distance <= 0f)
+                    if (ContactRhsBullet)
+                    {
+                        // ★タスク48: Bullet 2.75 の **枝分かれの無い一本式** をそのまま使う。
+                        //   btSequentialImpulseConstraintSolver.cpp:542-595
+                        //     penetration     = cp.getDistance() + m_linearSlop   (m_linearSlop 既定 0)
+                        //     positionalError = -penetration * m_erp / dt         (m_erp = BaumgarteFactor)
+                        //     velocityError   = restitution - rel_vel
+                        //     m_rhs           = (positionalError + velocityError) * jacDiagABInv
+                        //   当エンジンの求解は dPn = (NormalBias - relN) * NormalMass なので、
+                        //   NormalBias = positionalError + restitution と置けば
+                        //   (positionalError + restitution - relN) となり Bullet と厳密に同じ式になる。
+                        //   ★従来との違いは3つ (個別フラグにはしない。1つの式なので):
+                        //     1. 分離 (dist>0) にも erp が掛かる。従来は -dist/dt で **5倍 緩かった**
+                        //     2. 貫入で PenetrationSlop を引かない (Bullet の m_linearSlop は 0)
+                        //     3. 反発を max ではなく **和** で載せる
+                        float penB = cp.Distance;                       // + m_linearSlop (=0)
+                        float posErr = -penB * BaumgarteFactor / dt;
+                        if (UseSplitImpulse && penB <= SplitImpulsePenetrationThreshold)
+                        {
+                            cc.NormalBias = restBias;                   // 実速度側: 反発のみ
+                            cc.PushBias = posErr;                       // 擬似速度側: 位置補正
+                        }
+                        else
+                        {
+                            cc.NormalBias = posErr + restBias;
+                            cc.PushBias = 0f;
+                        }
+                    }
+                    else if (cp.Distance <= 0f)
                     {
                         // 貫入: Baumgarte 位置補正 + 反発。
                         float pen = -cp.Distance - PenetrationSlop;

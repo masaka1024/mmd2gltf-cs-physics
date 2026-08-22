@@ -79,6 +79,7 @@ namespace BoneCheck
             }
             if (System.Environment.GetEnvironmentVariable("ROTEXP") == "1") PhysicsWorld.BulletRotationIntegration = true;
             if (System.Environment.GetEnvironmentVariable("CTHRESH") == "1") GjkEpa.BulletContactThreshold = true;
+            if (System.Environment.GetEnvironmentVariable("CRHS") == "1") world.ContactRhsBullet = true;   // ★タスク48
             if (float.TryParse(System.Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) Joint.WarmStartFactor = _wf;
 
             // ★実効フラグのエコー (env の値ではなくエンジンから読み戻した値)。

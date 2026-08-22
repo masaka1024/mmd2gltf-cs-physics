@@ -151,12 +151,14 @@ namespace BoneCheck
                 // タスク38: 接触側の逸脱2件。★CMARGIN は形状の構築時に読むので Build より前に。
                 GjkEpa.BulletContactThreshold = Env("CTHRESH") == "1";
                 CollisionShape.BulletShapeMargin = Env("CMARGIN") == "1";
+                bool crhs = Env("CRHS") == "1";   // ★タスク48 (world 生成後に適用)
                 if (apply != null) apply();
 
                 var builder = PmxPhysicsBuilder.Build(model);
                 var world = builder.World;
                 world.SubSteps = EnvI("SUBSTEPS", world.SubSteps);
                 world.SolverIterations = EnvI("ITERS", world.SolverIterations);
+                world.ContactRhsBullet = crhs;
 
                 var links = new List<BoneLink>();
                 var names = new List<string>();
