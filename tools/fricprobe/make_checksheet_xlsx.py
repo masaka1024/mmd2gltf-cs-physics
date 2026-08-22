@@ -53,11 +53,14 @@ def main():
     put(ws, r, 1, "摩擦合成方式の神託チェックシート", HDR, WHITE, "left"); ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=10)
     ws.row_dimensions[r].height = 24
     r += 1
-    put(ws, r, 1, "傾いた板の上に箱を置いただけのモデル。物理を有効にして 1〜2 秒見て、動き出せば「滑る」、"
-                  "その場に留まれば「止まる」を選ぶだけ。黄色いセルがドロップダウンです。  "
+    put(ws, r, 1, "傾いた板の上に箱を置いただけのモデル。物理を有効にして 1〜2 秒見て、"
+                  "青い箱が赤い出発点マーカーから出ていけば「滑る」、載ったままなら「止まる」を選ぶ。"
+                  "黄色いセルがドロップダウンです。  ★MMD は物理中のボーンマーカーを描かないので "
+                  "[物理演算]→[常に演算] にして、青い箱そのものを見ること。  "
                   "PMX の場所: " + os.path.abspath(os.path.dirname(__file__)),
         None, None, "left", False, True)
-    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=10); ws.row_dimensions[r].height = 30
+    ws.row_dimensions[r].height = 44
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=10)
     r += 2
 
     hdr_row = r

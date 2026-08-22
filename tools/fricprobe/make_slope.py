@@ -44,10 +44,21 @@ def build(tag, f0, f1, tan, out_dir):
                size=(8.0, SLOPE_HY, 4.0), rot=(0.0, 0.0, th),
                friction=f0, group=0, mask=0xFFFF)
     # 箱: 物理演算。グループ 1 (同一グループ同士の除外に引っかからないように分ける)。
-    m.add_body("box", 1, (n[0] * (SLOPE_HY + BOX_HY),
-                          n[1] * (SLOPE_HY + BOX_HY), 0.0), 1.0, 1, shape=1,
+    box_c = (n[0] * (SLOPE_HY + BOX_HY), n[1] * (SLOPE_HY + BOX_HY), 0.0)
+    m.add_body("box", 1, box_c, 1.0, 1, shape=1,
                size=(1.0, BOX_HY, 1.0), rot=(0.0, 0.0, th),
                friction=f1, group=1, mask=0xFFFF)
+    # ★見えるメッシュ。MMD は物理演算中のボーンマーカーを描かないので、
+    #   形状が無いと「滑ったかどうか」が目視できない。
+    #   坂と出発点マーカーは親ボーン(動かない)に、箱は box ボーン(物理で動く)に付ける。
+    m.add_box_mesh(0, (0.0, 0.0, 0.0), (8.0, SLOPE_HY, 4.0), th,
+                   "坂", (0.55, 0.58, 0.62, 1.0))
+    # 出発点マーカー: 箱の初期位置に薄い赤い板を置く。箱がここから離れたら「滑った」。
+    m.add_box_mesh(0, (box_c[0] - n[0] * BOX_HY * 0.9,
+                       box_c[1] - n[1] * BOX_HY * 0.9, 0.0),
+                   (1.15, 0.03, 1.15), th, "出発点", (0.90, 0.20, 0.20, 1.0))
+    m.add_box_mesh(1, box_c, (1.0, BOX_HY, 1.0), th,
+                   "箱", (0.20, 0.45, 0.90, 1.0))
     name = "fric_%s_tan%03d.pmx" % (tag, int(round(tan * 100)))
     p = os.path.join(out_dir, name)
     m.save(p, "friction combine probe: slope f=%.3g / box f=%.3g / tan=%.2f" % (f0, f1, tan))

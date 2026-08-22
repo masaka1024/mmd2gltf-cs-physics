@@ -46,6 +46,7 @@ class ProbeModel:
         self.joints = []      # dict
         self.verts = []       # (pos, bone)  BDEF1 のみ
         self.faces = []       # (a, b, c)
+        self.materials = []   # (name, rgba, 面数) 省略時は従来どおり単一材質
 
     # --- 構築 API ---
 
@@ -64,6 +65,45 @@ class ProbeModel:
             self.verts.append(((origin[0] + d[0], origin[1] + d[1], origin[2] + d[2]), bone))
         self.faces += [(o, o + 1, o + 2), (o, o + 2, o + 3), (o, o + 3, o + 1)]
         return o
+
+    def add_box_mesh(self, bone, center, half, rot_z=0.0, name=None, rgba=(0.8, 0.8, 0.8, 1.0)):
+        """見える箱を1つ足す。**MMD は物理演算中のボーンマーカーを描かない**ので、
+        剛体の動きを目視するには形状が要る。面ごとに頂点を複製して平坦シェーディングにする。
+        rot_z は Z 軸まわりの傾き [rad]。ボーンは回転を持てないので頂点側へ焼き込む。"""
+        c, s_ = math.cos(rot_z), math.sin(rot_z)
+        hx, hy, hz = half
+        base = len(self.verts)
+        corner = []
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                for sz in (-1, 1):
+                    x, y, z = sx * hx, sy * hy, sz * hz
+                    corner.append((center[0] + x * c - y * s_,
+                                   center[1] + x * s_ + y * c,
+                                   center[2] + z))
+        # 8 隅の並びは (sx,sy,sz) の辞書順: 0=(-,-,-) 1=(-,-,+) 2=(-,+,-) 3=(-,+,+)
+        #                                   4=(+,-,-) 5=(+,-,+) 6=(+,+,-) 7=(+,+,+)
+        quads = [(0, 1, 3, 2), (4, 6, 7, 5),    # -X, +X
+                 (0, 4, 5, 1), (2, 3, 7, 6),    # -Y, +Y
+                 (0, 2, 6, 4), (1, 5, 7, 3)]    # -Z, +Z
+        nfaces = 0
+        for q in quads:
+            for tri in ((q[0], q[1], q[2]), (q[0], q[2], q[3])):
+                a, bb, cc = (corner[i] for i in tri)
+                u = (bb[0] - a[0], bb[1] - a[1], bb[2] - a[2])
+                v = (cc[0] - a[0], cc[1] - a[1], cc[2] - a[2])
+                nx = u[1] * v[2] - u[2] * v[1]
+                ny = u[2] * v[0] - u[0] * v[2]
+                nz = u[0] * v[1] - u[1] * v[0]
+                ln = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+                nrm = (nx / ln, ny / ln, nz / ln)
+                i0 = len(self.verts)
+                for pt in (a, bb, cc):
+                    self.verts.append((pt, bone, nrm))
+                self.faces.append((i0, i0 + 1, i0 + 2))
+                nfaces += 1
+        self.materials.append((name or ("mat%d" % len(self.materials)), rgba, nfaces))
+        return base
 
     def add_bone(self, name, pos, parent=-1, tail=(0.0, -1.0, 0.0)):
         self.bones.append((name, pos, parent, tail))
@@ -120,9 +160,11 @@ class ProbeModel:
         faces = self.faces if self.faces else [(0, 1, 2)]
 
         out += i32(len(verts))
-        for (p, bone) in verts:
+        for vrec in verts:
+            p, bone = vrec[0], vrec[1]
+            nrm = vrec[2] if len(vrec) > 2 else (0.0, 0.0, -1.0)
             out += f3(p)              # 位置
-            out += f3((0.0, 0.0, -1.0))  # 法線
+            out += f3(nrm)            # 法線
             out += struct.pack("<2f", 0.0, 0.0)  # UV
             out += u8(0)              # BDEF1
             out += i8(bone)
@@ -137,22 +179,24 @@ class ProbeModel:
         # ●テクスチャ
         out += i32(0)
 
-        # ●材質
-        out += i32(1)
-        out += text("mat") + text("mat")
-        out += struct.pack("<4f", 1.0, 1.0, 1.0, 1.0)   # Diffuse
-        out += f3((0.0, 0.0, 0.0)) + f32(1.0)           # Specular + 係数
-        out += f3((0.5, 0.5, 0.5))                      # Ambient
-        out += u8(0x00)                                 # 描画フラグ
-        out += struct.pack("<4f", 0.0, 0.0, 0.0, 1.0)   # エッジ色
-        out += f32(1.0)                                 # エッジサイズ
-        out += i8(-1)                                   # 通常テクスチャ
-        out += i8(-1)                                   # スフィア
-        out += u8(0)                                    # スフィアモード 無効
-        out += u8(1)                                    # 共有Toonフラグ
-        out += u8(0)                                    # 共有Toon[0]
-        out += text("")                                 # メモ
-        out += i32(len(faces) * 3)                      # 面(頂点)数
+        # ●材質 : materials が空なら従来どおり全面を1材質でくるむ
+        mats = self.materials if self.materials else [("mat", (1.0, 1.0, 1.0, 1.0), len(faces))]
+        out += i32(len(mats))
+        for (mname, rgba, nf) in mats:
+            out += text(mname) + text(mname)
+            out += struct.pack("<4f", *rgba)                # Diffuse
+            out += f3((0.1, 0.1, 0.1)) + f32(5.0)           # Specular + 係数
+            out += f3((rgba[0] * 0.5, rgba[1] * 0.5, rgba[2] * 0.5))   # Ambient
+            out += u8(0x01)                                 # 描画フラグ: 両面描画
+            out += struct.pack("<4f", 0.0, 0.0, 0.0, 1.0)   # エッジ色
+            out += f32(1.0)                                 # エッジサイズ
+            out += i8(-1)                                   # 通常テクスチャ
+            out += i8(-1)                                   # スフィア
+            out += u8(0)                                    # スフィアモード 無効
+            out += u8(1)                                    # 共有Toonフラグ
+            out += u8(0)                                    # 共有Toon[0]
+            out += text("")                                 # メモ
+            out += i32(nf * 3)                              # 面(頂点)数
 
         # ●ボーン
         out += i32(len(self.bones))
