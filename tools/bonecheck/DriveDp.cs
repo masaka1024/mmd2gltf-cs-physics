@@ -30,6 +30,7 @@
 // ===========================================================================
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -162,6 +163,26 @@ namespace BoneCheck
                 world.SubSteps = EnvI("SUBSTEPS", world.SubSteps);
                 world.SolverIterations = EnvI("ITERS", world.SolverIterations);
                 world.ContactRhsBullet = crhs;
+                // ★タスク71: 配線漏れの修正。drivedp も摩擦セットと求解順を受け付けていなかった。
+                if (Env("CSET") == "1")
+                { world.ContactPoolOrder = true; world.FrictionVelocityAligned = true; world.FrictionCombineMultiply = true; }
+                if (Env("CPOOL") == "1") world.ContactPoolOrder = true;
+                if (Env("NORMFIRST") == "1") world.ContactNormalBeforeFriction = true;
+                if (Env("FRICALIGN") == "1") world.FrictionVelocityAligned = true;
+                if (Env("FRICMUL") == "1") world.FrictionCombineMultiply = true;
+                if (Env("JOINTS_FIRST") == "1") world.SolveJointsFirst = true;
+                {
+                    float bv;
+                    if (float.TryParse(Env("BAUM"), NumberStyles.Float, CultureInfo.InvariantCulture, out bv) && bv >= 0f)
+                        world.BaumgarteFactor = bv;
+                }
+                Console.WriteLine("  [実効] drivedp  AngConv=" + Joint.BulletAngleConvention + "  MixedAxes=" + Joint.AngularMixedAxes
+                    + "  Lever=" + Joint.LinearLeverMode + "  CThresh=" + GjkEpa.BulletContactThreshold
+                    + "  CRhs=" + world.ContactRhsBullet + "  CMan=" + PersistentManifold.BulletManifoldPoints
+                    + "  LimGate=" + Joint.BulletLimitRowGating + "  SymDist=" + PersistentManifold.SymmetricBreakingDistance
+                    + "  PoolOrder=" + world.ContactPoolOrder + "  NormalFirst=" + world.ContactNormalBeforeFriction
+                    + "  FricAligned=" + world.FrictionVelocityAligned + "  FricMul=" + world.FrictionCombineMultiply
+                    + "  JointsFirst=" + world.SolveJointsFirst + "  ContactBaumgarte=" + world.BaumgarteFactor);
 
                 var links = new List<BoneLink>();
                 var names = new List<string>();

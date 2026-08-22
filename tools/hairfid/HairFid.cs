@@ -96,6 +96,16 @@ static class HairFid
         if (float.TryParse(Environment.GetEnvironmentVariable("MAXCORR"), out var _mc)) Joint.MaxCorrectionVel = _mc; // 位置補正速度上限(既定10, Bulletは無制限)
         if (Environment.GetEnvironmentVariable("MIXAXES") == "1") Joint.AngularMixedAxes = true; // 角度リミット行=Bullet混合軸
         if (Environment.GetEnvironmentVariable("CNBF") == "1") world.ContactNormalBeforeFriction = true; // 法線→摩擦順(Bullet)
+        // ★タスク71: 配線漏れの修正。hairfid だけ 3点構成の ANGCONV と摩擦セット (CSET系) を
+        //   受け付けておらず、フルスタックのゲートとして成立していなかった (11件目の教訓の再発)。
+        if (Environment.GetEnvironmentVariable("ANGCONV") == "1") Joint.BulletAngleConvention = true;
+        if (Environment.GetEnvironmentVariable("AXES") == "1") Joint.AngularMixedAxes = true;   // MIXAXES の別名
+        if (Environment.GetEnvironmentVariable("NORMFIRST") == "1") world.ContactNormalBeforeFriction = true;
+        if (Environment.GetEnvironmentVariable("CPOOL") == "1") world.ContactPoolOrder = true;
+        if (Environment.GetEnvironmentVariable("FRICALIGN") == "1") world.FrictionVelocityAligned = true;
+        if (Environment.GetEnvironmentVariable("FRICMUL") == "1") world.FrictionCombineMultiply = true;
+        if (Environment.GetEnvironmentVariable("CSET") == "1")
+        { world.ContactPoolOrder = true; world.FrictionVelocityAligned = true; world.FrictionCombineMultiply = true; }
         // 補正層再現: 1=出力のみ(計測をaligned姿勢で行い剛体は復元) 2=フィードバック(aligned姿勢を剛体へ書き戻し=次stepへ影響)
         int alignMode = int.TryParse(Environment.GetEnvironmentVariable("ALIGN"), out var _al) ? _al : 0;
         float alpha = float.TryParse(Environment.GetEnvironmentVariable("ALPHA"), out var _aa) ? _aa : 0f; // 回転clamp割合(0=無効)
@@ -134,6 +144,9 @@ static class HairFid
         Console.WriteLine($"[cfg] warm={world.UseJointWarmStart}/{world.UseJointWarmStartAngular} fac={Joint.WarmStartFactor} split={world.UseSplitImpulse} frames={csv.FrameCount}");
         Console.WriteLine($"[実効] hairfid  SpringMotor={Joint.SpringAsMotorRow}  RotExp={PhysicsWorld.BulletRotationIntegration}"
             + $"  CThresh={GjkEpa.BulletContactThreshold}  CMargin={CollisionShape.BulletShapeMargin}  CRhs={world.ContactRhsBullet}  CMan={PersistentManifold.BulletManifoldPoints}  LimGate={Joint.BulletLimitRowGating}  SymDist={PersistentManifold.SymmetricBreakingDistance}"
+            + $"  AngConv={Joint.BulletAngleConvention}  MixedAxes={Joint.AngularMixedAxes}  Lever={Joint.LinearLeverMode}"
+            + $"  PoolOrder={world.ContactPoolOrder}  NormalFirst={world.ContactNormalBeforeFriction}  FricAligned={world.FrictionVelocityAligned}  FricMul={world.FrictionCombineMultiply}"
+            + $"  JointsFirst={world.SolveJointsFirst}  ContactBaumgarte={world.BaumgarteFactor}"
             + $"  LeverMode={Joint.LinearLeverMode}  MixedAxes={Joint.AngularMixedAxes}  JointsFirst={world.SolveJointsFirst}  Slop={world.PenetrationSlop:G6}");
 
         // 髪 dynamic 剛体リンクと、体コライダー(BoneFollow)リンク。
