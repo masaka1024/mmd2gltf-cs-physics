@@ -58,11 +58,11 @@ namespace BulletPhysics
         /// <summary>診断カウンタ (タスク54)。ON の間だけ数える。数えるだけなのでビット不変。
         /// warm-start が切れる箇所が Refresh の破棄か 同一判定の不成立かを分けるために足した。</summary>
         public static bool CollectManifoldStats = false;
-        public static long StatRefreshKept, StatRefreshDropNormal, StatRefreshDropLateral;
+        public static long StatRefreshKept, StatRefreshDropNormal, StatRefreshDropLateral, StatRefreshDropDeep;
         public static long StatAddMatched, StatAddNewSlot, StatAddReplaced;
         public static void ResetManifoldStats()
         {
-            StatRefreshKept = StatRefreshDropNormal = StatRefreshDropLateral = 0;
+            StatRefreshKept = StatRefreshDropNormal = StatRefreshDropLateral = StatRefreshDropDeep = 0;
             StatAddMatched = StatAddNewSlot = StatAddReplaced = 0;
         }
 
@@ -70,6 +70,33 @@ namespace BulletPhysics
         private float BreakingThreshold =>
             Math.Min(GjkEpa.BulletBreakingThresholdOf(BodyA.Shape),
                      GjkEpa.BulletBreakingThresholdOf(BodyB.Shape));
+
+        /// <summary>★タスク67: validContactDistance を **深い側にも対称に**適用する
+        /// (既定 false = ビット不変)。閾値は既存の contactBreakingThreshold をそのまま使い、
+        /// 新しいパラメータは足さない。
+        ///
+        /// ★これは Bullet に無い機構である。2.75 も現行 3.x master も
+        ///   `validContactDistance(pt) { return pt.m_distance1 <= getContactBreakingThreshold(); }`
+        ///   の**片側**判定のままで、深い側の番人はどこにも無い
+        ///   (bulletphysics/bullet3 master btPersistentManifold.h / .cpp を 2026-08-23 に確認)。
+        ///   したがって北極星 原則2 の「登録済み逸脱 + 出力ゲート判定」の手続きで扱う。
+        ///
+        /// なぜ要るか (タスク65/66 の実測):
+        ///   剛体が回ると、保存済みローカル点は真の最近接から滑る。
+        ///   `d = (worldA - worldB)·normal` は法線が凍結したまま **負へ暴走**し、
+        ///   実測で真値「接触なし」のペアが d = -0.66 まで育った。
+        ///   片側判定は正の側しか見ず、横ずれ判定は法線方向のドリフトを捕まえないので、
+        ///   この点は誰にも殺されない。しかも新しく生成された正しい点は
+        ///   getCacheEntry の一致閾値 (0.0354) に対し pA が 0.50〜1.10 も離れているため
+        ///   **別スロットに入るだけで幻を置換できない**。
+        ///   幻の d はそのまま接触 rhs に載る: NormalBias = -d*erp/dt = 0.2*0.66*60 = 7.9。
+        ///   定常窓の接触行の 14% (22/154) がこの幻だった。
+        ///
+        /// ★副作用 (承知の上): 正当に深い接触も、次のフレームの refresh で一度捨てられる。
+        ///   接触が本物なら同フレームの AddPoint で作り直されるので接触自体は消えないが、
+        ///   **warm-start の引き継ぎは切れる**。初期突入 (両エンジンとも -0.19 まで潜る) に
+        ///   どう出るかは出力ゲートで見る。</summary>
+        public static bool SymmetricBreakingDistance = false;
 
         // btPersistentManifold::refreshContactPoints の移植。
         private void RefreshBullet()
@@ -87,6 +114,9 @@ namespace BulletPhysics
                 cp.Distance = d;
                 // validContactDistance: 法線方向に閾値を超えて離れたら破棄。
                 if (d > thr) { if (CollectManifoldStats) StatRefreshDropNormal++; Points.RemoveAt(i); continue; }
+                // ★タスク67: 深い側も同じ閾値で。滑った古い点が負へ暴走するのを止める。
+                if (SymmetricBreakingDistance && d < -thr)
+                { if (CollectManifoldStats) StatRefreshDropDeep++; Points.RemoveAt(i); continue; }
                 // 法線成分を除いた残差 (Bullet と同じ射影の取り方) が閾値の2乗を超えたら破棄。
                 var projected = worldA - cp.Normal * d;
                 var diff2 = worldB - projected;
@@ -166,10 +196,11 @@ namespace BulletPhysics
                 var diff = worldA - worldB;
                 var d = diff.Dot(cp.Normal);
                 var lateral = diff - cp.Normal * d;
-                if (d > 0.04f || lateral.LengthSquared > 0.04f * 0.04f)
+                if (d > 0.04f || (SymmetricBreakingDistance && d < -0.04f)
+                    || lateral.LengthSquared > 0.04f * 0.04f)
                 {
                     if (CollectManifoldStats)
-                    { if (d > 0.04f) StatRefreshDropNormal++; else StatRefreshDropLateral++; }
+                    { if (d > 0.04f) StatRefreshDropNormal++; else if (d < -0.04f) StatRefreshDropDeep++; else StatRefreshDropLateral++; }
                     Points.RemoveAt(i);
                     continue;
                 }

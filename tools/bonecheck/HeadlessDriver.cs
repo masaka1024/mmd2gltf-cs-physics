@@ -82,6 +82,7 @@ namespace BoneCheck
             if (System.Environment.GetEnvironmentVariable("CRHS") == "1") world.ContactRhsBullet = true;   // ★タスク48
             if (System.Environment.GetEnvironmentVariable("CMAN") == "1") PersistentManifold.BulletManifoldPoints = true;   // ★タスク51
             if (System.Environment.GetEnvironmentVariable("LIMGATE") == "1") Joint.BulletLimitRowGating = true;   // ★タスク59
+            if (System.Environment.GetEnvironmentVariable("SYMDIST") == "1") PersistentManifold.SymmetricBreakingDistance = true;   // ★タスク67
             if (float.TryParse(System.Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) Joint.WarmStartFactor = _wf;
 
             // ★実効フラグのエコー (env の値ではなくエンジンから読み戻した値)。
@@ -104,6 +105,7 @@ namespace BoneCheck
                     + "  CThresh=" + GjkEpa.BulletContactThreshold
                     + "  CMan=" + PersistentManifold.BulletManifoldPoints
                     + "  LimGate=" + Joint.BulletLimitRowGating
+                    + "  SymDist=" + PersistentManifold.SymmetricBreakingDistance
                     + "  CMargin=" + CollisionShape.BulletShapeMargin
                     + "  MaxCorrVel=" + Joint.MaxCorrectionVel.ToString("G6"));
             }

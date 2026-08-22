@@ -154,6 +154,7 @@ namespace BoneCheck
                 bool crhs = Env("CRHS") == "1";   // ★タスク48 (world 生成後に適用)
                 PersistentManifold.BulletManifoldPoints = Env("CMAN") == "1";   // ★タスク51
                 Joint.BulletLimitRowGating = Env("LIMGATE") == "1";   // ★タスク59
+                PersistentManifold.SymmetricBreakingDistance = Env("SYMDIST") == "1";   // ★タスク67
                 if (apply != null) apply();
 
                 var builder = PmxPhysicsBuilder.Build(model);
