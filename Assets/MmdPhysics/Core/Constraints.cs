@@ -154,7 +154,7 @@ namespace BulletPhysics
         // 自前既定は A基底の直交列(_axesA)。8/07に一度試して破棄したが、当時は
         // (1)軸と誤差の対応順序が未確認のままで実装誤りの可能性 (2)判定相手が補正ON版のみ。
         // 補正OFF版(純Bullet)を相手に再評価するため復活。既定 false=従来(ビット不変)。
-        public static bool AngularMixedAxes = false;
+        public static bool AngularMixedAxes = true;   // ★完全セットv1 で既定ON (2026-08-23)
 
         /// <summary>A/B (既定 false = ビット不変): 角度の抽出規約を **Bullet 2.75 の実挙動** に合わせる。
         /// 2026-08-22 のタスク21 で、同一姿勢に対する相対角が 15 DOF すべて食い違うことが判明した。
@@ -176,7 +176,7 @@ namespace BulletPhysics
         ///       相対速度を (wB-wA)·axis で測る当エンジンの行と符号を合わせるために要る。
         ///       これで err の作り方・不等式の側・力積の上下限が Bullet と1対1で対応する。
         /// 軸そのものの選び方 (A基底 vs 混合軸) は <see cref="AngularMixedAxes"/> の担当で、こことは独立。</summary>
-        public static bool BulletAngleConvention = false;
+        public static bool BulletAngleConvention = true;   // ★完全セットv1 で既定ON (2026-08-23)
 
         /// <summary>A/B (既定 false = ビット不変): **ばねを Bullet 2.75 と同じ「モーター行」として解く。**
         /// タスク32。当エンジンは陽的力積 (`ApplySprings` で `-k*err*dt` を直接 ApplyImpulse し
@@ -228,7 +228,7 @@ namespace BulletPhysics
         /// ★力積の上下限は変えない。Bullet も lo==hi のときは両側 (-INF,+INF) で、
         ///   片側になるのは lo!=hi の違反時だけ。そちらは既に一致している
         ///   (当エンジンの線形行は Bullet の鏡像なので上下限が入れ替わって対応する)。</summary>
-        public static bool BulletLimitRowGating = false;
+        public static bool BulletLimitRowGating = true;   // ★完全セットv1 で既定ON (2026-08-23)
 
         /// <summary>Bullet の testLimitValue 相当。0=行不要 / 1=上限超過 / 2=下限未満。</summary>
         private static int TestLimitValue(float v, float lo, float hi)
@@ -273,7 +273,7 @@ namespace BulletPhysics
         //     J1ang=(anchorB-posA)×ax, J2ang=-(anchorB-posB)×ax → 誤差があると親へ e×P の結合トルクが伝わる
         //  2=Bullet2.8x系(offset, D6_USE_FRAME_OFFSET true 既定): 軸平行成分を除去した ortho +
         //     totalDist を質量比 factA=miB/(miA+miB) で分配。hasStaticBody&&!rotAllowed で fact スケール。
-        public static int LinearLeverMode = 0;
+        public static int LinearLeverMode = 1;   // ★完全セットv1 で既定ON (2026-08-23)
 
         // 内部状態。
         private readonly List<ConstraintRow> _rows = new(6);

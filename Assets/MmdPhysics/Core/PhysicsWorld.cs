@@ -108,7 +108,7 @@ namespace BulletPhysics
         ///   差は上位12ペアすべて負)。深さ差のあるペアには集中していなかったので、
         ///   種は接触生成ではなく **rhs の式** と特定した。
         /// 差1〜3 を個別フラグにはしない。Bullet 側が1つの式なので、分けると存在しない中間状態を作る。</summary>
-        public bool ContactRhsBullet = false;
+        public bool ContactRhsBullet = true;   // ★完全セットv1 で既定ON (2026-08-23)
         public float RestitutionThreshold = 1.0f;
 
         // --- Split Impulse (接触の貫入回復を実速度から切り離す) ---
@@ -528,7 +528,7 @@ namespace BulletPhysics
         /// 既定 false は従来の線形化更新 (q += 0.5*w*q*dt) でビット不変。
         /// Bullet の btTransformUtil::integrateTransform は QUATERNION_DERIVATIVE を
         /// #ifdef で切っており、走るのは指数写像のほう。</summary>
-        public static bool BulletRotationIntegration = false;
+        public static bool BulletRotationIntegration = true;   // ★完全セットv1 で既定ON (2026-08-23)
 
         /// <summary>Bullet ANGULAR_MOTION_THRESHOLD = 0.5 * SIMD_HALF_PI。</summary>
         private const float AngularMotionThreshold = 0.5f * (float)(Math.PI * 0.5);

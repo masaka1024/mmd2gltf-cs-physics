@@ -60,7 +60,7 @@ namespace BulletPhysics
         ///   3. 破棄      refreshContactPoints: 法線距離 > 閾値、または法線へ射影した残差の
         ///                長さの2乗 > 閾値の2乗 で破棄。従来は 0.04 固定で横ずれの取り方も別式。
         /// 閾値は形状サイズ比例の接触破棄閾値を使う。当てる値は作らない。</summary>
-        public static bool BulletManifoldPoints = false;
+        public static bool BulletManifoldPoints = true;   // ★完全セットv1 で既定ON (2026-08-23)
 
         /// <summary>診断カウンタ (タスク54)。ON の間だけ数える。数えるだけなのでビット不変。
         /// warm-start が切れる箇所が Refresh の破棄か 同一判定の不成立かを分けるために足した。</summary>
@@ -105,7 +105,7 @@ namespace BulletPhysics
         ///   スカート (接触点の **61%** が閾値 0.0109 より深い) を 0.73x -> 0.17x と過減衰させた。
         ///   鮮度条件を入れると、毎フレーム作り直される本物の深い接触は無傷のまま
         ///   滑って取り残された幻だけを殺せる。</summary>
-        public static bool SymmetricBreakingDistance = false;
+        public static bool SymmetricBreakingDistance = true;   // ★完全セットv1 で既定ON (2026-08-23)
 
         // btPersistentManifold::refreshContactPoints の移植。
         private void RefreshBullet()
@@ -336,7 +336,7 @@ namespace BulletPhysics
         //   PMX の3形状はどれもローカル原点対称なので center = 0、disc = ローカルAABBの半対角。
         //   実測の差: 半幅(0.347,0.371,0.200)のスカート箱で Bullet 0.0109 に対し当方 0.02。
         //   **当方が約2倍広く拾っている** = 分離しているペアまで接触に上げている。
-        public static bool BulletContactThreshold = false;
+        public static bool BulletContactThreshold = true;   // ★完全セットv1 で既定ON (2026-08-23)
 
         /// <summary>Bullet 2.75 gContactThresholdFactor。つまみにしない (実ソースの値)。</summary>
         public const float ContactThresholdFactor = 0.02f;
