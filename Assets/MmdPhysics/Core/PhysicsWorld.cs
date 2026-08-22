@@ -266,7 +266,10 @@ namespace BulletPhysics
         {
             float sub = dt / SubSteps;
             for (int s = 0; s < SubSteps; s++)
+            {
+                DebugSubStep = s;   // 診断CSVの substep 列用 (フックが null でも代入のみ = ビット不変)
                 SubStep(sub, (float)(gBase + s + 1) / totalSub);
+            }
         }
 
         // frac: フレーム開始→終端目標の 等分補間割合 (1/totalSub .. 1)。フレーム全体で連続する。
@@ -834,7 +837,7 @@ namespace BulletPhysics
                         float speculative = -cp.Distance / dt;
                         cc.NormalBias = Math.Min(speculative, restBias);
                     }
-                    DebugContactRows?.Add((a.Name, b.Name, cp.PositionWorldA, cp.PositionWorldB, n,
+                    DebugContactRows?.Add((DebugSubStep, a.Name, b.Name, cp.PositionWorldA, cp.PositionWorldB, n,
                         cp.Distance, cc.NormalBias, cc.PushBias, cc.Friction, cc.NormalMass,
                         cp.NormalImpulse, cp.TangentImpulse1, cp.TangentImpulse2));
                     _contacts.Add(cc);
@@ -871,7 +874,7 @@ namespace BulletPhysics
         /// 生成情報と行の係数を記録する。Bullet 2.75 の manifold / btSolverConstraint と
         /// 同じ土俵で「点数・位置・法線・深さ・bias・摩擦・実効質量・warm引き継ぎ量」を並べるため。
         /// `DebugContacts` と同じ流儀。</summary>
-        public System.Collections.Generic.List<(string a, string b, Vec3 pA, Vec3 pB, Vec3 n,
+        public System.Collections.Generic.List<(int sub, string a, string b, Vec3 pA, Vec3 pB, Vec3 n,
             float dist, float normalBias, float pushBias, float friction,
             float normalMass, float warmNormal, float warmT1, float warmT2)> DebugContactRows;
 
@@ -887,6 +890,11 @@ namespace BulletPhysics
 
         /// <summary>DebugContactIterRows へ書く反復番号。求解ループが毎反復セットする。</summary>
         private int _contactIter;
+
+        /// <summary>診断用: 今どのサブステップか。接触CSVの substep 列を正しく出すために要る。
+        /// 以前これが無く、NetDump が substep 列へ点index を書いていたため、
+        /// 自前だけ全サブステップぶんが混ざって点数が約2倍に見えていた。</summary>
+        public int DebugSubStep;
 
         // 蓄積インパルスを manifold へ書き戻し、次フレームのウォームスタートに使う。
         private void StoreImpulses()
