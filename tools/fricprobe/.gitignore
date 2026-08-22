@@ -5,3 +5,6 @@ bul_*/
 probe_test/
 bin/
 obj/
+
+# Excel の生成物 (make_checksheet_xlsx.py で再生成できる)
+*.xlsx
