@@ -882,7 +882,8 @@ namespace BulletPhysics
         /// ジョイント側の `Joint.DebugRows` と同じ家風: null の間は分岐1つぶんしか触らないのでビット不変。
         /// 第一不一致点が「反復0の接触求解」と判ったので、その中身を見るために足した。</summary>
         public System.Collections.Generic.List<(int iter, string a, string b, int pt,
-            float ni, float t1, float t2, bool nClamp, bool tClamp, float relN)> DebugContactIterRows;
+            float ni, float t1, float t2, bool nClamp, bool tClamp, float relN,
+            float fric, float maxT, float relT, float tanMass)> DebugContactIterRows;
 
         /// <summary>DebugContactIterRows へ書く反復番号。求解ループが毎反復セットする。</summary>
         private int _contactIter;
@@ -982,11 +983,14 @@ namespace BulletPhysics
                        - (c.A.LinearVelocity + Vec3.Cross(c.A.AngularVelocity, c.RelA));
                 float relN = dv.Dot(c.Normal);
                 float maxT = c.Friction * c.NormalImpulse;
+                // ★タスク49: 摩擦が0になる直接原因を割るための量。
+                //   摩擦係数 / 上限 (μ×Pn) / 1本目接線方向の相対速度 / 接線の実効質量。
+                float relT = dv.Dot(c.Tangent1);
                 sink.Add((_contactIter, c.A.Name, c.B.Name, c.PointRef,
                           c.NormalImpulse, c.TangentImpulse1, c.TangentImpulse2,
                           c.NormalImpulse <= 0f,
                           maxT > 0f && Math.Abs(c.TangentImpulse1) >= maxT * 0.999999f,
-                          relN));
+                          relN, c.Friction, maxT, relT, c.TangentMass1));
             }
         }
 
