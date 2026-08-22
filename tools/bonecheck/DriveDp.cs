@@ -42,6 +42,7 @@ namespace BoneCheck
     static class DriveDp
     {
         /// <summary>出荷既定の控え (タスク37)。エンジンに触る前の静的初期化時点で読む。</summary>
+        static string G(float v) => v.ToString("G9", CultureInfo.InvariantCulture);
         static readonly bool ShippedSpringMotor = Joint.SpringAsMotorRow;
     // ★2026-08-23: 出荷既定を静的初期化時に控え、env 明示時だけ上書きする
         //   (SpringAsMotorRow で確立した方式を 9 フラグへ広げたもの)。
@@ -221,10 +222,35 @@ namespace BoneCheck
                 for (int i = 0; i < links.Count; i++) series[i] = new List<float>();
                 var prev = new Vec3[links.Count];
                 bool have = false;
+                // ★タスク73: 症状窓を探すための毎フレーム出力と、その窓を移植するための
+                //   全剛体スナップショット。どちらも env 未設定なら何もしない。
+                int snapAt = EnvI("STATEDUMP_AT", -1);
+                string snapOut = Env("STATEDUMP_OUT");
                 for (int f = 0; f < frames; f++)
                 {
                     fcur = f;
                     builder.ApplyKinematicTargets(at);
+                    if (f == snapAt && !string.IsNullOrEmpty(snapOut))
+                    {
+                        // bulletref の --initstate と同じ書式 (ステップ**前**の状態)
+                        var sbq = new StringBuilder();
+                        sbq.Append("# drivedp snapshot at frame ").Append(f)
+                           .Append('\n');
+                        for (int bi = 0; bi < world.Bodies.Count; bi++)
+                        {
+                            var bd = world.Bodies[bi];
+                            var tr = bd.WorldTransform; var q = tr.Rotation; var o = tr.Origin;
+                            var lv = bd.LinearVelocity; var av = bd.AngularVelocity;
+                            sbq.Append("state ").Append(bi).Append(" name=").Append(bd.Name.Replace(' ', '_'))
+                               .Append(" pos=").Append(G(o.x)).Append(' ').Append(G(o.y)).Append(' ').Append(G(o.z))
+                               .Append(" quat=").Append(G(q.x)).Append(' ').Append(G(q.y)).Append(' ').Append(G(q.z)).Append(' ').Append(G(q.w))
+                               .Append(" linvel=").Append(G(lv.x)).Append(' ').Append(G(lv.y)).Append(' ').Append(G(lv.z))
+                               .Append(" angvel=").Append(G(av.x)).Append(' ').Append(G(av.y)).Append(' ').Append(G(av.z))
+                               .Append('\n');
+                        }
+                        File.WriteAllText(snapOut, sbq.ToString(), new UTF8Encoding(false));
+                        Console.WriteLine("  -> " + snapOut + " (frame " + f + " / " + world.Bodies.Count + " 体)");
+                    }
                     world.StepSimulation(1f / 30f);
                     for (int i = 0; i < links.Count; i++)
                     {
@@ -349,6 +375,31 @@ namespace BoneCheck
                           .Append(Pct(results[c].Dp[i], 0.9f).ToString("G9")).Append('\n');
                 File.WriteAllText(bcsv, sb.ToString(), new UTF8Encoding(false));
                 L("  -> " + bcsv + " (ボーン別の生値)");
+            }
+
+            // ★タスク73: 毎フレームの |Δp| (部位で絞れる)。症状窓の特定用。
+            string dpf = Env("DPFRAMES_OUT");
+            if (!string.IsNullOrEmpty(dpf))
+            {
+                string want = Env("DPPART");
+                var sb = new StringBuilder();
+                sb.Append("frame,bone,part,cond,dp\n");
+                void Emit(string cond, Series ss)
+                {
+                    for (int i = 0; i < ss.Bones.Count; i++)
+                    {
+                        string pt = partOf[ss.Bones[i]];
+                        if (!string.IsNullOrEmpty(want) && pt != want) continue;
+                        var seq = ss.Dp[i];
+                        for (int f = 0; f < seq.Count; f++)
+                            sb.Append(f).Append(',').Append(ss.Bones[i]).Append(',').Append(pt).Append(',')
+                              .Append(cond.Replace(',', '_')).Append(',').Append(seq[f].ToString("G9")).Append('\n');
+                    }
+                }
+                Emit("参照", refS);
+                for (int c = 0; c < results.Count; c++) Emit(labels[c], results[c]);
+                File.WriteAllText(dpf, sb.ToString(), new UTF8Encoding(false));
+                L("  -> " + dpf + " (毎フレームの |Δp|" + (string.IsNullOrEmpty(want) ? "" : " / 部位=" + want) + ")");
             }
 
             string outp = Env("OUT");

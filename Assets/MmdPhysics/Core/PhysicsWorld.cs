@@ -760,7 +760,12 @@ namespace BulletPhysics
                         var vrel = b.VelocityAtPoint(cp.PositionWorldB) - a.VelocityAtPoint(cp.PositionWorldA);
                         var lat = vrel - n * vrel.Dot(n);
                         float l2 = lat.LengthSquared;
-                        if (l2 > 1e-12f) { t1 = lat / (float)Math.Sqrt(l2); t2 = Vec3.Cross(t1, n); }
+                        // ★タスク73: フォールバック閾値は Bullet の SIMD_EPSILON (=FLT_EPSILON)。
+                        //   btSequentialImpulseConstraintSolver.cpp:619 `lat_rel_vel > SIMD_EPSILON`。
+                        //   従来の 1e-12 は |lat| にして 340倍 きつく、接線速度がほぼ無い接触でも
+                        //   数値ノイズから向きを作ってしまっていた。Bullet はそこを btPlaneSpace1
+                        //   (法線だけから決まる安定な基底) へ落とす。
+                        if (l2 > 1.1920929e-07f) { t1 = lat / (float)Math.Sqrt(l2); t2 = Vec3.Cross(t1, n); }
                         useT2 = false;   // Bullet 既定は摩擦1方向
                     }
 
@@ -908,8 +913,13 @@ namespace BulletPhysics
                 if (c.Manifold == null || c.PointRef >= c.Manifold.Points.Count) continue;
                 var cp = c.Manifold.Points[c.PointRef];
                 cp.NormalImpulse = c.NormalImpulse;
-                cp.TangentImpulse1 = c.TangentImpulse1;
-                cp.TangentImpulse2 = c.TangentImpulse2;
+                // ★タスク73: Bullet は SOLVER_USE_FRICTION_WARMSTARTING が無いので
+                //   接線力積を接触点へ書き戻さない (恒久的に 0 のまま)。
+                if (!FrictionVelocityAligned)
+                {
+                    cp.TangentImpulse1 = c.TangentImpulse1;
+                    cp.TangentImpulse2 = c.TangentImpulse2;
+                }
                 c.Manifold.Points[c.PointRef] = cp;
                 DebugContacts?.Add((c.A.Name, c.B.Name, cp.Distance, c.NormalImpulse));
             }
@@ -921,6 +931,18 @@ namespace BulletPhysics
             for (int i = 0; i < _contacts.Count; i++)
             {
                 var c = _contacts[i];
+                // ★タスク73: Bullet 2.75 の既定 solverMode は
+                //   `SOLVER_USE_WARMSTARTING | SOLVER_SIMD` (btContactSolverInfo.h:80) で、
+                //   **SOLVER_USE_FRICTION_WARMSTARTING が入っていない**。したがって Bullet は
+                //   摩擦行を warm-start しない (btSequentialImpulseConstraintSolver.cpp:660 の門が閉じ、
+                //   1102 で m_appliedImpulseLateral1/2 の書き戻しも行われない = 恒久的に 0)。
+                //   当エンジンは接線力積を持ち越して適用していた。
+                //   ★これが FRICALIGN と組むと**エネルギーを注ぎ込む**: 摩擦方向は毎フレーム
+                //     相対速度から作り直されるので、前フレームの力積を **別の向き** に再適用してしまう。
+                //     実測 (モデルA・駆動7001F): もみあげの鎖が回り続け、
+                //     毎フレーム変位が 2.6992 の一定値に張り付いた (参照比 19.7)。
+                //   摩擦の向きが幾何基底で安定している FRICALIGN 無しでは表面化しない。
+                if (FrictionVelocityAligned) { c.TangentImpulse1 = 0f; c.TangentImpulse2 = 0f; }
                 // Bullet同様、蓄積インパルスに係数を掛けてから適用+アキュムレータ初期値にする(0.85時)。
                 if (wf != 1.0f) { c.NormalImpulse *= wf; c.TangentImpulse1 *= wf; c.TangentImpulse2 *= wf; }
                 var P = c.Normal * c.NormalImpulse
