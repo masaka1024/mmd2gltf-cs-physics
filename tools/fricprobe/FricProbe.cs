@@ -34,7 +34,22 @@ static class FricProbe
         int frames = EnvI("FRAMES", 120);
         var start = new Vec3[world.Bodies.Count];
         for (int i = 0; i < world.Bodies.Count; i++) start[i] = world.Bodies[i].WorldTransform.Origin;
-        for (int f = 0; f < frames; f++) world.StepSimulation(1f / 60f);
+        // ★軌跡の書き出し (TRAJ_OUT)。ベイクした VMD の曲線と並べるため。
+        //   NetDump はジョイント0本のモデルで箱を「網の外」に落としてしまうので使えない。
+        var traj = new StringBuilder();
+        string trajOut = Env("TRAJ_OUT");
+        if (trajOut != null) traj.Append("frame,name,px,py,pz").Append('\n');
+        for (int f = 0; f < frames; f++)
+        {
+            if (trajOut != null)
+                foreach (var bd in world.Bodies)
+                    traj.Append(f).Append(',').Append(bd.Name).Append(',')
+                        .Append(bd.WorldTransform.Origin.x.ToString("G9", CultureInfo.InvariantCulture)).Append(',')
+                        .Append(bd.WorldTransform.Origin.y.ToString("G9", CultureInfo.InvariantCulture)).Append(',')
+                        .Append(bd.WorldTransform.Origin.z.ToString("G9", CultureInfo.InvariantCulture)).Append('\n');
+            world.StepSimulation(1f / 60f);
+        }
+        if (trajOut != null) File.WriteAllText(trajOut, traj.ToString(), new UTF8Encoding(false));
 
         var sb = new StringBuilder();
         sb.Append("  [実効] FricMul=").Append(world.FrictionCombineMultiply)
