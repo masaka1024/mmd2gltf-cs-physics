@@ -30,6 +30,13 @@ static class FricProbe
         if (Env("FRICALIGN") != null) world.FrictionVelocityAligned = Env("FRICALIGN") == "1";
         if (Env("CPOOL") != null) world.ContactPoolOrder = Env("CPOOL") == "1";
         if (Env("NORMFIRST") != null) world.ContactNormalBeforeFriction = Env("NORMFIRST") == "1";
+        // ★タスク75: MMD は滑り出した箱を 0.5〜0.7 秒で止める。Bullet の眠り (deactivation) が
+        //   効いている可能性を測るための A/B。既定は OFF (出荷既定と同じ)。
+        if (Env("SLEEP") != null) world.EnableSleeping = Env("SLEEP") == "1";
+        { float v;
+          if (float.TryParse(Env("SLEEP_LIN"), NumberStyles.Float, CultureInfo.InvariantCulture, out v)) world.LinearSleepThreshold = v;
+          if (float.TryParse(Env("SLEEP_ANG"), NumberStyles.Float, CultureInfo.InvariantCulture, out v)) world.AngularSleepThreshold = v;
+          if (float.TryParse(Env("SLEEP_T"), NumberStyles.Float, CultureInfo.InvariantCulture, out v)) world.DeactivationTime = v; }
 
         int frames = EnvI("FRAMES", 120);
         var start = new Vec3[world.Bodies.Count];
@@ -56,6 +63,8 @@ static class FricProbe
           .Append("  FricAligned=").Append(world.FrictionVelocityAligned)
           .Append("  PoolOrder=").Append(world.ContactPoolOrder)
           .Append("  NormalFirst=").Append(world.ContactNormalBeforeFriction)
+          .Append("  Sleep=").Append(world.EnableSleeping)
+          .Append("/").Append(world.LinearSleepThreshold).Append("/").Append(world.DeactivationTime)
           .Append("  SubSteps=").Append(world.SubSteps).Append("  Iters=").Append(world.SolverIterations)
           .Append('\n');
         for (int i = 0; i < world.Bodies.Count; i++)
