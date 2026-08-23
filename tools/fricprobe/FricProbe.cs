@@ -33,6 +33,13 @@ static class FricProbe
         // ★タスク75: MMD は滑り出した箱を 0.5〜0.7 秒で止める。Bullet の眠り (deactivation) が
         //   効いている可能性を測るための A/B。既定は OFF (出荷既定と同じ)。
         if (Env("SLEEP") != null) world.EnableSleeping = Env("SLEEP") == "1";
+        // ★タスク75: MMD は滑る箱を止める。PMX の減衰値を上書きして当てはめを探すための A/B。
+        //   試験PMX は 移動減衰/回転減衰 とも 0 で作ってあるので、既定では何も起きない。
+        { float dv;
+          if (float.TryParse(Env("LINDAMP"), NumberStyles.Float, CultureInfo.InvariantCulture, out dv))
+              foreach (var bd in world.Bodies) bd.LinearDamping = dv;
+          if (float.TryParse(Env("ANGDAMP"), NumberStyles.Float, CultureInfo.InvariantCulture, out dv))
+              foreach (var bd in world.Bodies) bd.AngularDamping = dv; }
         { float v;
           if (float.TryParse(Env("SLEEP_LIN"), NumberStyles.Float, CultureInfo.InvariantCulture, out v)) world.LinearSleepThreshold = v;
           if (float.TryParse(Env("SLEEP_ANG"), NumberStyles.Float, CultureInfo.InvariantCulture, out v)) world.AngularSleepThreshold = v;
