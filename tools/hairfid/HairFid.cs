@@ -355,7 +355,16 @@ static class HairFid
                     if (f > 0 && csv.TryGet(f, model.BoneNames[link.BoneIndex], out var r1)
                              && csv.TryGet(f - 1, model.BoneNames[link.BoneIndex], out var r0))
                         vref = (r1.Origin - r0.Origin).Length / DT;
-                    Console.WriteLine($"   [RW] f{f} {bn,-10} |v|={bd.LinearVelocity.Length,9:F3} |w|={bd.AngularVelocity.Length,8:F3} 接触={npt} ni={ni,9:F2} MMD差={dref,8:F3} MMD速={vref,9:F3}");
+                    // ★タスク76: 自前の姿勢そのままで体コライダーとの最短距離を測る。
+                    //   「接触0件」が 検出漏れなのか それとも本当に離れているのか を分ける。
+                    float dmin = float.MaxValue; string dmName = "-";
+                    foreach (var (bl2, _bn2) in bodyLinks)
+                    {
+                        if (!PhysicsWorld.ShouldCollide(bd, bl2.Body)) continue;
+                        buf.Clear(); GjkEpa.Detect(bd, bl2.Body, buf);
+                        foreach (var cp in buf) if (cp.Distance < dmin) { dmin = cp.Distance; dmName = bl2.Body.Name; }
+                    }
+                    Console.WriteLine($"[RW],{f},{bn},{bd.LinearVelocity.Length:F3},{bd.AngularVelocity.Length:F3},{npt},{ni:F2},{dref:F3},{vref:F3},{dmName},{(dmin == float.MaxValue ? 9.999f : dmin):F3}");
                 }
             }
             // 補正層再現 (ALIGN>0): aligned姿勢へ物理剛体を配置。mode1は計測後に復元(出力のみ)、mode2は恒久(フィードバック)。
@@ -469,6 +478,23 @@ static class HairFid
             foreach (var (hl, hbn, _) in hairLinks) if (csv.TryGet(f, hbn, out var bw)) { hl.Body.WorldTransform = bw * hl.BodyOffsetFromBone; hl.Body.UpdateInertiaWorld(); }
             foreach (var (j2, t2) in jClass) jErrRef[t2].Add(JErr(j2)); // ジョイント種別別アンカー誤差(MMDベイクCSV幾何)
             CollectAng(true); // 角度リミット実効挙動(MMD幾何)
+            // ★タスク76: 参照(MMD)側の幾何で、窓のあいだ「体コライダーとどれだけ近いか」を出す。
+            //   MMD が先端を1フレームで止めている理由が接触なのかを見るため、
+            //   貫入していなくても **最短距離** を出す (貫入だけ見ると触れる直前が分からない)。
+            if (rwFrom >= 0 && f >= rwFrom && f <= rwTo)
+                foreach (var (hl, hb, _) in hairLinks)
+                {
+                    if (rwBone.Length > 0 && !hb.StartsWith(rwBone)) continue;
+                    float best = float.MaxValue; string bestName = "-";
+                    foreach (var (bl, _bbn2) in bodyLinks)
+                    {
+                        if (!PhysicsWorld.ShouldCollide(hl.Body, bl.Body)) continue;
+                        buf.Clear(); GjkEpa.Detect(hl.Body, bl.Body, buf);
+                        foreach (var cp in buf) if (cp.Distance < best) { best = cp.Distance; bestName = bl.Body.Name; }
+                    }
+                    if (best < float.MaxValue)
+                        Console.WriteLine($"[RWREF],{f},{hb},{bestName},{best:F3}");
+                }
             foreach (var (hl, hb, _) in hairLinks)
                 foreach (var (bl, bbn) in bodyLinks)
                 {

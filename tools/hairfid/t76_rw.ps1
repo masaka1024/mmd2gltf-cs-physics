@@ -5,11 +5,11 @@ foreach ($k in @("ANGCONV","AXES","CTHRESH","ROTEXP","NORMFIRST","CRHS","CMAN","
 [Environment]::SetEnvironmentVariable("LEVER","1")
 [Environment]::SetEnvironmentVariable("MMD_TEST_PMX","C:\mytask2\unity-bullet-physics\Assets\testdata\IA.pmx")
 [Environment]::SetEnvironmentVariable("MMD_TEST_HAIRCSV","C:\mytask2\_mmd_ref\modelA_bone_world_pose_hair.csv")
-[Environment]::SetEnvironmentVariable("RUNAWAY","4100,4160")
+[Environment]::SetEnvironmentVariable("RUNAWAY","4128,4155")
 [Environment]::SetEnvironmentVariable("RUNAWAY_BONE","モミアゲL")
-foreach ($fm in @("1","0")) {
+foreach ($fm in @("1")) {
   [Environment]::SetEnvironmentVariable("FRICMUL",$fm)
   Write-Output ("===== FRICMUL=" + $fm)
   $o = & ".\bin\Release\net9.0\HairFid.exe" 2>&1
-  $o | Select-String "^   \[RW\]"
+  $o | Select-String "^\[RW"
 }
