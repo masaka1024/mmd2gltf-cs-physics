@@ -54,10 +54,14 @@ namespace BoneCheck
         static readonly bool ShipCMan    = PersistentManifold.BulletManifoldPoints;
         static readonly bool ShipLimGate = Joint.BulletLimitRowGating;
         static readonly bool ShipSymDist = PersistentManifold.SymmetricBreakingDistance;
+        // ★タスク78: 出荷既定を静的初期化時に控え、env 明示時だけ上書きする (FRICMUL=0 も効くように)。
+        static readonly float ShipLeverGate = Joint.LeverArmGate;
+        static readonly bool ShipFricMul = new PhysicsWorld().FrictionCombineMultiply;
 
 
         static string Env(string k) { return Environment.GetEnvironmentVariable(k); }
         static int EnvI(string k, int d) { int v; return int.TryParse(Env(k), out v) ? v : d; }
+        static float EnvF(string k, float d) { float v; return float.TryParse(Env(k), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) ? v : d; }
 
         static float Med(List<float> v)
         {
@@ -157,6 +161,8 @@ namespace BoneCheck
                 Joint.BulletAngleConvention = Env("ANGCONV") != null ? Env("ANGCONV") == "1" : ShipAngConv;
                 Joint.AngularMixedAxes = Env("AXES") != null ? Env("AXES") == "1" : ShipAxes;
                 Joint.LinearLeverMode = EnvI("LEVER", ShipLever);
+                // ★タスク78: 腕長ゲート (0=無効=ビット不変)。
+                Joint.LeverArmGate = EnvF("LEVERGATE", ShipLeverGate);
                 // ★2026-08-22 (タスク37) 既定が ON になったので、env 未設定のときに false へ
                 //   上書きしてはいけない。出荷既定は ShippedSpringMotor に静的初期化時点で控えてある。
                 Joint.SpringAsMotorRow = Env("SPRINGMOTOR") != null ? Env("SPRINGMOTOR") == "1" : ShippedSpringMotor;
@@ -181,7 +187,7 @@ namespace BoneCheck
                 if (Env("CPOOL") == "1") world.ContactPoolOrder = true;
                 if (Env("NORMFIRST") == "1") world.ContactNormalBeforeFriction = true;
                 if (Env("FRICALIGN") == "1") world.FrictionVelocityAligned = true;
-                if (Env("FRICMUL") == "1") world.FrictionCombineMultiply = true;
+                world.FrictionCombineMultiply = Env("FRICMUL") != null ? Env("FRICMUL") == "1" : ShipFricMul;
                 if (Env("JOINTS_FIRST") == "1") world.SolveJointsFirst = true;
                 {
                     float bv;

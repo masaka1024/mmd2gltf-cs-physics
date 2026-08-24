@@ -89,7 +89,7 @@ static class HairFid
         if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) Joint.WarmStartFactor = _wf;
         if (int.TryParse(Environment.GetEnvironmentVariable("LEVER"), out var _lv)) Joint.LinearLeverMode = _lv; // 線形レバーアーム 0/1/2
         // ★タスク78: 腕長ゲート (0=無効)。LEVER=1 の潜在不安定だけを止める。
-        if (float.TryParse(Environment.GetEnvironmentVariable("LEVERGATE"), out var _lg) && _lg > 0f) Joint.LeverArmGate = _lg;
+        if (float.TryParse(Environment.GetEnvironmentVariable("LEVERGATE"), out var _lg) && _lg >= 0f) Joint.LeverArmGate = _lg;   // ★タスク78: 0 も効く
         if (Environment.GetEnvironmentVariable("LEVERPROBE") == "1") Joint.LeverArmProbe = true;
         // ★2026-08-21 追加: ジョイント位置補正係数の掃引 (既定0.2)。未設定=無変更。
         if (float.TryParse(Environment.GetEnvironmentVariable("JBETA"),
@@ -106,7 +106,7 @@ static class HairFid
         if (Environment.GetEnvironmentVariable("NORMFIRST") == "1") world.ContactNormalBeforeFriction = true;
         if (Environment.GetEnvironmentVariable("CPOOL") == "1") world.ContactPoolOrder = true;
         if (Environment.GetEnvironmentVariable("FRICALIGN") == "1") world.FrictionVelocityAligned = true;
-        if (Environment.GetEnvironmentVariable("FRICMUL") == "1") world.FrictionCombineMultiply = true;
+        if (Environment.GetEnvironmentVariable("FRICMUL") != null) world.FrictionCombineMultiply = Environment.GetEnvironmentVariable("FRICMUL") == "1";
         if (Environment.GetEnvironmentVariable("CSET") == "1")
         { world.ContactPoolOrder = true; world.FrictionVelocityAligned = true; world.FrictionCombineMultiply = true; }
         // 補正層再現: 1=出力のみ(計測をaligned姿勢で行い剛体は復元) 2=フィードバック(aligned姿勢を剛体へ書き戻し=次stepへ影響)

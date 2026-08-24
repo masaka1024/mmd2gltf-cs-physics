@@ -291,7 +291,7 @@ namespace BulletPhysics
         /// **これは Bullet に無い規則である。** 2.75 に忠実であることが PMXe には存在しない
         /// 破綻を生む事例なので、NORTH_STAR 0 の「出力を優先する」側で入れている。
         /// Bullet 自身も 2.8x でこの箇所を作り変えている (`D6_USE_FRAME_OFFSET` = `LEVER=2`)。</summary>
-        public static float LeverArmGate = 0f;
+        public static float LeverArmGate = 5f;   // ★タスク78 で既定化 (2026-08-24)
 
         /// <summary>診断用: 腕長ゲートが発動した行数の累計 (ゲートが平時に発動しないことの確認用)。</summary>
         public static long LeverArmGateHits;

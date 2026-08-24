@@ -193,7 +193,7 @@ namespace BulletPhysics
         /// <summary>(4) 摩擦係数の合成を Bullet と同じ **積** にする。
         /// Bullet: `btManifoldResult::calculateCombinedFriction` = `f0 * f1`。
         /// 当エンジン: `sqrt(f0 * f1)`。例: 0.8 と 0.5 なら Bullet 0.40 / 当エンジン 0.632。</summary>
-        public bool FrictionCombineMultiply = false;
+        public bool FrictionCombineMultiply = true;   // ★タスク78 で既定化 (2026-08-24)
 
         public readonly List<RigidBody> Bodies = new();
         public readonly List<Joint> Joints = new();

@@ -44,6 +44,11 @@ static class BoneDp
     static readonly bool ShipCMan    = PersistentManifold.BulletManifoldPoints;
     static readonly bool ShipLimGate = Joint.BulletLimitRowGating;
     static readonly bool ShipSymDist = PersistentManifold.SymmetricBreakingDistance;
+    // ★タスク78: 出荷既定を静的初期化時に控え、env 明示時だけ上書きする (FRICMUL=0 も効くように)。
+    static readonly float ShipLeverGate = Joint.LeverArmGate;
+    static readonly bool ShipFricMul = new PhysicsWorld().FrictionCombineMultiply;
+    // ★A 条件 (旧エンジン相当) で world の摩擦合成を旧方式 (幾何平均) へ落とすためのフラグ。
+    static bool _forceOldFricMul = false;
 
 
     static string Env(string k) => Environment.GetEnvironmentVariable(k);
@@ -101,6 +106,8 @@ static class BoneDp
             Joint.BulletAngleConvention = Env("ANGCONV") != null ? Env("ANGCONV") == "1" : ShipAngConv;
             Joint.AngularMixedAxes = Env("AXES") != null ? Env("AXES") == "1" : ShipAxes;
             Joint.LinearLeverMode = Env("LEVER") != null ? EnvI("LEVER", ShipLever) : ShipLever;
+            // ★タスク78: 腕長ゲート (0=無効=ビット不変)。LEVER=1 の潜在不安定だけを止める。
+            Joint.LeverArmGate = Env("LEVERGATE") != null ? EnvF("LEVERGATE", ShipLeverGate) : ShipLeverGate;
             PhysicsWorld.BulletRotationIntegration = Env("ROTEXP") != null ? Env("ROTEXP") == "1" : ShipRotExp;
             Joint.BulletLimitRowGating = Env("LIMGATE") != null ? Env("LIMGATE") == "1" : ShipLimGate;   // タスク59 (両条件に共通の土台)
             PersistentManifold.SymmetricBreakingDistance = Env("SYMDIST") != null ? Env("SYMDIST") == "1" : ShipSymDist;   // タスク67 (同上)
@@ -143,7 +150,8 @@ static class BoneDp
                 if (Env("CPOOL") == "1") world.ContactPoolOrder = true;          // 法線プール→摩擦プール
                 if (Env("NORMFIRST") == "1") world.ContactNormalBeforeFriction = true;
                 if (Env("FRICALIGN") == "1") world.FrictionVelocityAligned = true; // 1方向・接線速度整列
-                if (Env("FRICMUL") == "1") world.FrictionCombineMultiply = true;   // 摩擦合成=積
+                world.FrictionCombineMultiply = Env("FRICMUL") != null ? Env("FRICMUL") == "1" : ShipFricMul;   // 摩擦合成=積 (★タスク78 で既定)
+                if (_forceOldFricMul) world.FrictionCombineMultiply = false;   // A 条件 (旧エンジン相当)
                 // ★CSET は **3フラグ** (CPOOL + FRICALIGN + FRICMUL)。
                 //   4つ目の ContactNormalBeforeFriction は NORMFIRST で別に立てること。
                 //   (以前ここに「4点セット」と書いていたが数が合っていなかった)
@@ -261,9 +269,12 @@ static class BoneDp
             PersistentManifold.BulletManifoldPoints = false;
             GjkEpa.BulletContactThreshold = false;
             PhysicsWorld.BulletRotationIntegration = false;
+            Joint.LeverArmGate = 0f;                                    // ★タスク78
             _forceOldContactRhs = true;   // world 生成後に world.ContactRhsBullet=false を当てる
+            _forceOldFricMul = true;      // 同上 (摩擦合成=幾何平均へ)
         });
         _forceOldContactRhs = false;
+        _forceOldFricMul = false;
         // B: 出荷既定 (完全セットv1)。env 上書きは Once の中で効いている。
         var newR = Once("出荷既定", null);
         Joint.SpringAsMotorRow = ShippedSpringMotor;
@@ -281,7 +292,7 @@ static class BoneDp
             if (Env("CPOOL") == "1") w2.ContactPoolOrder = true;
             if (Env("NORMFIRST") == "1") w2.ContactNormalBeforeFriction = true;
             if (Env("FRICALIGN") == "1") w2.FrictionVelocityAligned = true;
-            if (Env("FRICMUL") == "1") w2.FrictionCombineMultiply = true;
+            w2.FrictionCombineMultiply = Env("FRICMUL") != null ? Env("FRICMUL") == "1" : ShipFricMul;
             if (Env("CSET") == "1") { w2.ContactPoolOrder = true; w2.FrictionVelocityAligned = true; w2.FrictionCombineMultiply = true; }
             void FlagEcho(Res r) => L("  [実効] " + r.Label.PadRight(10)
                 + " SpringMotor=" + r.SpringMotorUsed + "  AngConv=" + r.AngConvUsed

@@ -48,6 +48,9 @@ static class RestOsc
     static readonly bool ShipCMan     = PersistentManifold.BulletManifoldPoints;
     static readonly bool ShipLimGate  = Joint.BulletLimitRowGating;
     static readonly bool ShipSymDist  = PersistentManifold.SymmetricBreakingDistance;
+    // ★タスク78: 腕長ゲートと摩擦合成も出荷既定を控える (env 明示時だけ上書き。0 も効く)。
+    static readonly float ShipLeverGate = Joint.LeverArmGate;
+    static readonly bool ShipFricMul = new PhysicsWorld().FrictionCombineMultiply;
 
     static string Env(string k) => Environment.GetEnvironmentVariable(k);
     static int EnvI(string k, int d) { int v; return int.TryParse(Env(k), out v) ? v : d; }
@@ -115,6 +118,7 @@ static class RestOsc
         Joint.MaxCorrectionVel = 10f;
         if (_baum >= 0f) world.BaumgarteFactor = _baum;
         if (Env("CRHS") != null) world.ContactRhsBullet = Env("CRHS") == "1";   // ★タスク48 (未設定=出荷既定)
+        world.FrictionCombineMultiply = Env("FRICMUL") != null ? Env("FRICMUL") == "1" : ShipFricMul;   // ★タスク78 (未設定=出荷既定)
         // ★2026-08-21: 単体モードで JSPLIT が黙って無視されていたのを修正 (JBETA と同じ取りこぼし)。
         //   AB モードの各条件は tweak で上書きするので影響しない。
         if (Env("JSPLIT") == "1") world.UseJointSplitImpulse = true;
@@ -947,6 +951,7 @@ static class RestOsc
         PersistentManifold.BulletManifoldPoints = Env("CMAN") != null ? Env("CMAN") == "1" : ShipCMan;
         // タスク67: validContactDistance の対称化。
         PersistentManifold.SymmetricBreakingDistance = Env("SYMDIST") != null ? Env("SYMDIST") == "1" : ShipSymDist;
+        Joint.LeverArmGate = Env("LEVERGATE") != null ? EnvF("LEVERGATE", ShipLeverGate) : ShipLeverGate;   // ★タスク78
         Joint.SpringAsMotorRow = Env("SPRINGMOTOR") != null ? Env("SPRINGMOTOR") == "1" : ShippedSpringMotor;
         // タスク34: 姿勢積分を Bullet 2.75 の実経路 (指数写像) へ。
         PhysicsWorld.BulletRotationIntegration = Env("ROTEXP") != null ? Env("ROTEXP") == "1" : ShipRotExp;
