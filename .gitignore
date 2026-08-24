@@ -48,3 +48,12 @@ tools/diagnostics/bulletref/*
 !tools/diagnostics/bulletref/*.bat
 !tools/diagnostics/bulletref/lib.rsp
 !tools/diagnostics/bulletref/README_bulletref.md
+
+# 静止3つ組のランナーはローカルのモデル置き場を直書きするので追跡しない
+# (t70/t71/t72 と同じ扱い)。
+tools/diagnostics/restosc/t7?_static.ps1
+tools/diagnostics/restosc/t77_lever2.ps1
+
+# 計測ランナー (.ps1) はローカルのモデル実ファイル名を直書きするので追跡しない。
+# 実行条件は docs/DESIGN.md 側に env 名で残すこと。
+tools/**/t[0-9][0-9]_*.ps1

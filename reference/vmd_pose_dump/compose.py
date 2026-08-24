@@ -290,11 +290,11 @@ if __name__=='__main__':
     refbody=open(REF,'rb').read(); refbody=refbody[refbody.index(b'\n')+1:]  # ヘッダ除く
     print(f"[43部不変] 抽出43行bytes={len(sub)} REF(ヘッダ除)bytes={len(refbody)} {'byte一致OK' if sub==refbody else 'FAIL不一致'}")
 
-    # === (1) 本家の髪ドリフト (FK-rest基準・剛体位置復元・自前maxDrift定義) ===
+    # === (1) 参照の髪ドリフト (FK-rest基準・剛体位置復元・自前maxDrift定義) ===
     hairrb=[(rn,bi,rp) for rn,bi,rp in rbmap if 0<=bi<len(bones) and any(k in bones[bi]['name'] for k in ('髪','ツインテ','もみあげ','前髪','モミアゲ'))]
     hbset=set(bones[bi]['name'] for _,bi,_ in hairrb)
     keys_fk={k:v for k,v in keys.items() if k not in hbset}
-    Wp_fk,Wq_fk=compose_all(bones,order,keys_fk,NF)  # FK-rest: 髪ローカル恒等・親は本家
+    Wp_fk,Wq_fk=compose_all(bones,order,keys_fk,NF)  # FK-rest: 髪ローカル恒等・親は参照
     def rbpos_arr(WP,WQ,bi,rp):
         off=np.array([rp[j]-bones[bi]['pos'][j] for j in range(3)],dtype=np.float64)
         return WP[bi]+qrot_b(WQ[bi],np.tile(off,(NF,1)))
@@ -310,7 +310,7 @@ if __name__=='__main__':
     drift=np.linalg.norm(refP-fkP,axis=2)  # (NB,NF) FK-rest基準ドリフト
     def stt(x): x=np.sort(np.asarray(x,dtype=float)); return x[len(x)//2],x[int(len(x)*0.9)],x.max()
     md,p9,mx=stt(drift.max(axis=1))
-    print(f"[本家 髪drift 全編] per-bone max: 中央={md:.3f} p90={p9:.3f} 最大={mx:.3f}  (自前静止maxDrift=7.95)")
+    print(f"[参照 髪drift 全編] per-bone max: 中央={md:.3f} p90={p9:.3f} 最大={mx:.3f}  (自前静止maxDrift=7.95)")
     # 静区間
     def qrelang(q0,q1):
         cx,cy,cz,cw=-q0[0],-q0[1],-q0[2],q0[3]; x1,y1,z1,w1=q1[0],q1[1],q1[2],q1[3]
@@ -340,12 +340,12 @@ if __name__=='__main__':
     if allpbm:
         md,p9,mx=stt(allpbm)
         print(f"[静区間 統合] 中央={md:.3f} p90={p9:.3f} 最大={mx:.3f}  (自前静止maxDrift=7.95)")
-    # ★方向診断: 本家 髪の FK-rest基準 変位ベクトル(refP-fkP)の符号付き平均(静区間)。
-    #   自前(静止)は dz支配(-1.7)。本家が dy支配(重力)なら自前が鏡像=Z符号逆。
+    # ★方向診断: 参照 髪の FK-rest基準 変位ベクトル(refP-fkP)の符号付き平均(静区間)。
+    #   自前(静止)は dz支配(-1.7)。参照が dy支配(重力)なら自前が鏡像=Z符号逆。
     vec=refP-fkP  # (NB,NF,3)
     qidx=[fr for s0,s1 in segs for fr in range(s0,s1+1)]
     if qidx:
         qv=vec[:,qidx,:].reshape(-1,3); mv=qv.mean(axis=0); mdv=np.median(qv,axis=0)
         dom=['dx(左右)','dy(重力)','dz(前後)'][int(np.argmax(np.abs(mv)))]
-        print(f"[本家 髪変位ベクトル(FK-rest基準,静区間)] 平均(dx,dy,dz)=({mv[0]:.3f},{mv[1]:.3f},{mv[2]:.3f}) 中央=({mdv[0]:.3f},{mdv[1]:.3f},{mdv[2]:.3f}) 支配軸={dom}")
-        print(f"   ★自前(静止)は dz支配(-1.7)。本家 dz符号={'負' if mv[2]<0 else '正'} / 自前 dz=負。符号が逆なら鏡像確定。")
+        print(f"[参照 髪変位ベクトル(FK-rest基準,静区間)] 平均(dx,dy,dz)=({mv[0]:.3f},{mv[1]:.3f},{mv[2]:.3f}) 中央=({mdv[0]:.3f},{mdv[1]:.3f},{mdv[2]:.3f}) 支配軸={dom}")
+        print(f"   ★自前(静止)は dz支配(-1.7)。参照 dz符号={'負' if mv[2]<0 else '正'} / 自前 dz=負。符号が逆なら鏡像確定。")
