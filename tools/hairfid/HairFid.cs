@@ -88,6 +88,9 @@ static class HairFid
         // 再現するときだけ WARMSTART/WARMSTART_ANG と併せて使う。bonecheck/restsim/chainbug にも同名あり。
         if (float.TryParse(Environment.GetEnvironmentVariable("WARMFAC"), out var _wf)) Joint.WarmStartFactor = _wf;
         if (int.TryParse(Environment.GetEnvironmentVariable("LEVER"), out var _lv)) Joint.LinearLeverMode = _lv; // 線形レバーアーム 0/1/2
+        // ★タスク78: 腕長ゲート (0=無効)。LEVER=1 の潜在不安定だけを止める。
+        if (float.TryParse(Environment.GetEnvironmentVariable("LEVERGATE"), out var _lg) && _lg > 0f) Joint.LeverArmGate = _lg;
+        if (Environment.GetEnvironmentVariable("LEVERPROBE") == "1") Joint.LeverArmProbe = true;
         // ★2026-08-21 追加: ジョイント位置補正係数の掃引 (既定0.2)。未設定=無変更。
         if (float.TryParse(Environment.GetEnvironmentVariable("JBETA"),
                 System.Globalization.NumberStyles.Float,
@@ -670,6 +673,13 @@ static class HairFid
             O.AppendLine(sb2.ToString());
         }
         O.AppendLine($"[全体] 位置差(u) 中央={pm:F3}/p90={pp:F3}/最大={px:F3}   角度差(°) 中央={am:F2}/p90={ap:F2}/最大={ax:F2}");
+        O.AppendLine($"[腕長ゲート] LeverArmGate={Joint.LeverArmGate} 発動行数={Joint.LeverArmGateHits}");
+        if (Joint.LeverArmProbe)
+        {
+            var ov = Joint.LeverArmRatioOver; double nAll = Math.Max(1, Joint.LeverArmRatioN);
+            O.AppendLine($"[腕長比の分布] n={Joint.LeverArmRatioN} 最大={Joint.LeverArmRatioMax:F3}  " +
+                $">0.25:{ov[0] / nAll:P3} >0.5:{ov[1] / nAll:P3} >1:{ov[2] / nAll:P3} >2:{ov[3] / nAll:P3} >5:{ov[4] / nAll:P4} >10:{ov[5] / nAll:P4}");
+        }
         // ★タスク76: 位置差の最大が桁違いに跳ねる (発散) ときに、どのボーンのどのフレームかを出す。
         //   中央値/p90 が正常でも最大だけ 7000 を超えることがあり、犯人が特定できないと追えない。
         {
