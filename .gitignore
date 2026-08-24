@@ -46,8 +46,10 @@ tools/diagnostics/bulletref/*
 !tools/diagnostics/bulletref/*.cpp
 !tools/diagnostics/bulletref/*.py
 !tools/diagnostics/bulletref/*.bat
-!tools/diagnostics/bulletref/lib.rsp
 !tools/diagnostics/bulletref/README_bulletref.md
+# lib.rsp は build.bat が生成する (Bullet ソースの絶対パス一覧) ので追跡しない。
+# t*.py は一回限りの分析スクリプト。出力ディレクトリ名にモデル名が埋まるので追跡しない。
+tools/diagnostics/bulletref/t[0-9]*.py
 
 # 静止3つ組のランナーはローカルのモデル置き場を直書きするので追跡しない
 # (t70/t71/t72 と同じ扱い)。
