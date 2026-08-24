@@ -327,6 +327,11 @@ static class HairFid
                 if (int.TryParse(pp2[0], out rwFrom)) rwTo = (pp2.Length > 1 && int.TryParse(pp2[1], out var t3)) ? t3 : rwFrom + 20;
             }
         }
+        // ★タスク76: 「無接触で飛んでいる間に当エンジンだけ速いのか」を全区間で数える。
+        //   f4130 の1件が単発か系統的かを分けるため、接触あり/なしで分けて速さ比を集める。
+        //   分母が小さいと比が暴れるので、MMD 側が 1.0 u/s 以上動いているフレームだけ採る。
+        var gainFree = new List<float>(); var gainTouch = new List<float>();
+        var gainFreeByFusa = new Dictionary<string, List<float>>();
         Quat prevLow = Quat.Identity; bool havePrev = false;
         for (int f = 0; f < F; f++)
         {
@@ -336,6 +341,36 @@ static class HairFid
             // ★タスク76: 発散の起点を見る。RUNAWAY=<開始f>[,<終了f>] で窓を切り、
             //   RUNAWAY_BONE の前置きに合う剛体の 速度/角速度/接触/法線力積 を毎フレーム出す。
             //   位置差の最大値だけでは「いつ何が起きたか」が分からないため。
+            if (f > 0)
+                foreach (var (link, bn, _) in hairLinks)
+                {
+                    if (!csv.TryGet(f, model.BoneNames[link.BoneIndex], out var g1) ||
+                        !csv.TryGet(f - 1, model.BoneNames[link.BoneIndex], out var g0)) continue;
+                    float vr = (g1.Origin - g0.Origin).Length / DT;
+                    if (vr < 1.0f) continue;                       // 分母が小さいと比が暴れる
+                    float vo = link.Body.LinearVelocity.Length;
+                    bool touching = false;
+                    foreach (var c in dbg) if (c.a == link.Body.Name || c.b == link.Body.Name) { touching = true; break; }
+                    float g = vo / vr;
+                    if (touching) gainTouch.Add(g);
+                    else
+                    {
+                        gainFree.Add(g);
+                        string fusa = bn.TrimEnd('0','1','2','3','4','5','6','7','8','9');
+                        if (!gainFreeByFusa.TryGetValue(fusa, out var lf)) { lf = new(); gainFreeByFusa[fusa] = lf; }
+                        lf.Add(g);
+                    }
+                }
+            // ★タスク76: 窓のあいだ、対象剛体につながるジョイントのアンカー誤差を出す。
+            //   房が根元から離れていくのに鎖の内部は保たれているので、
+            //   「どのジョイントが効いていないか」を直接見る。
+            if (rwFrom >= 0 && f >= rwFrom && f <= rwTo)
+                foreach (var jj in world.Joints)
+                {
+                    string na = jj.BodyA?.Name ?? "?", nb2 = jj.BodyB?.Name ?? "?";
+                    if (rwBone.Length > 0 && !na.StartsWith(rwBone) && !nb2.StartsWith(rwBone)) continue;
+                    Console.WriteLine($"[RWJ],{f},{na},{nb2},{JErr(jj):F4},{jj.BodyA?.IsActive},{jj.BodyB?.IsActive},{jj.LinearLowerLimit.x:F3};{jj.LinearLowerLimit.y:F3};{jj.LinearLowerLimit.z:F3},{jj.LinearUpperLimit.x:F3};{jj.LinearUpperLimit.y:F3};{jj.LinearUpperLimit.z:F3}");
+                }
             if (rwFrom >= 0 && f >= rwFrom && f <= rwTo)
             {
                 foreach (var (link, bn, _) in hairLinks)
@@ -605,6 +640,17 @@ static class HairFid
             for (int k = 0; k < oursDev[b].Count; k++) { signSum += oursDev[b][k] - refDev[b][k]; signN++; }
         }
         var (pm, pp, px) = Stat(allPos); var (am, ap, ax) = Stat(allAng);
+        {
+            // ★タスク76: 速さ比 = 自前の速さ / MMD の速さ。1.0 が一致。
+            var (fm2, fp2, _fx2) = Stat(gainFree); var (tm2, tp2, _tx2) = Stat(gainTouch);
+            O.AppendLine($"[速さ比 自前/MMD] 無接触 中央={fm2:F3}/p90={fp2:F3} (n={gainFree.Count})   接触あり 中央={tm2:F3}/p90={tp2:F3} (n={gainTouch.Count})");
+            var top = new List<(float med, string fusa, int n)>();
+            foreach (var kv in gainFreeByFusa) { if (kv.Value.Count < 200) continue; var (mm, _pp3, _xx) = Stat(kv.Value); top.Add((mm, kv.Key, kv.Value.Count)); }
+            top.Sort((x, y) => y.med.CompareTo(x.med));
+            var sb2 = new System.Text.StringBuilder("   [速さ比 無接触・房別 中央値] ");
+            for (int k = 0; k < Math.Min(8, top.Count); k++) sb2.Append($"{top[k].fusa}={top[k].med:F2} ");
+            O.AppendLine(sb2.ToString());
+        }
         O.AppendLine($"[全体] 位置差(u) 中央={pm:F3}/p90={pp:F3}/最大={px:F3}   角度差(°) 中央={am:F2}/p90={ap:F2}/最大={ax:F2}");
         // ★タスク76: 位置差の最大が桁違いに跳ねる (発散) ときに、どのボーンのどのフレームかを出す。
         //   中央値/p90 が正常でも最大だけ 7000 を超えることがあり、犯人が特定できないと追えない。
