@@ -52,6 +52,14 @@ LOCKED = [("B", 0.5, 0.5, 0.20, 8.0),
           ("B", 0.5, 0.5, 1.00, 140.0),
           ("B", 0.5, 0.5, 1.20, 160.0)]
 
+# ★第7ラウンド: 第6ラウンドで MMD 側の箱が坂に **埋まって** いた。
+#   沈み 0.326 / 0.438 に対し箱の半分の厚みは 0.25 — 自分の全高より深く潜っている。
+#   当エンジンは同じ PMX で沈み 0.003 なので、これは MMD 側の接触の硬さの問題。
+#   厚みを 8 倍にして、同じ 0.4 の沈みが効かないようにする。
+THICK = [("B", 0.5, 0.5, 0.30, 12.0),
+         ("B", 0.5, 0.5, 1.00, 140.0),
+         ("B", 0.5, 0.5, 1.20, 160.0)]
+
 def combos(f0, f1):
     return {
         "積":     f0 * f1,
@@ -61,7 +69,8 @@ def combos(f0, f1):
         "max":    max(f0, f1),
     }
 
-def build(tag, f0, f1, tan, out_dir, lock_rot=False, slope_hx=8.0, prefix="fric"):
+def build(tag, f0, f1, tan, out_dir, lock_rot=False, slope_hx=8.0, prefix="fric",
+          slope_hy=0.5, box_hy=0.25):
     """lock_rot=True で、箱と坂の間に **回転3軸ロック / 並進は自由** の 6DOF ジョイントを入れる。
     第4ラウンドで MMD 側の箱が転がってしまい μ の測定にならなかったため
     (回転 2〜56度・法線方向に 1.4〜3.0 浮いた)。転がりを殺せば飛距離が純粋に μ の関数になる。
@@ -69,7 +78,7 @@ def build(tag, f0, f1, tan, out_dir, lock_rot=False, slope_hx=8.0, prefix="fric"
       μ·Pn が消えて摩擦そのものが効かなくなるため。"""
     th = math.atan(tan)
     n = (-math.sin(th), math.cos(th), 0.0)      # 坂の法線 (Z 回りに th 傾けた +Y)
-    SLOPE_HY, BOX_HY = 0.5, 0.25
+    SLOPE_HY, BOX_HY = slope_hy, box_hy
     m = P.ProbeModel("%s_%s_t%03d" % (prefix, tag, int(round(tan * 100))))
     m.add_bone("全ての親", (0.0, 0.0, 0.0), -1)
     m.add_bone("box", (n[0] * (SLOPE_HY + BOX_HY),
@@ -176,6 +185,9 @@ def main():
     print("  %-24s %-13s %-6s | %s" % ("ファイル", "(坂f0,箱f1)", "tanθ",
                                        "  ".join("%-11s" % k for k in methods)))
     g = 98.0
+    for tag, f0, f1, tan, hx in THICK:
+        build(tag, f0, f1, tan, out_dir, lock_rot=True, slope_hx=hx, prefix="fricT",
+              slope_hy=2.0, box_hy=2.0)
     for tag, f0, f1, tan, hx in LOCKED:
         name, th = build(tag, f0, f1, tan, out_dir, lock_rot=True, slope_hx=hx, prefix="fricR")
         cb = combos(f0, f1)
