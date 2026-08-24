@@ -51,6 +51,9 @@ static class RestOsc
     // ★タスク78: 腕長ゲートと摩擦合成も出荷既定を控える (env 明示時だけ上書き。0 も効く)。
     static readonly float ShipLeverGate = Joint.LeverArmGate;
     static readonly bool ShipFricMul = new PhysicsWorld().FrictionCombineMultiply;
+    static readonly bool ShipFricAligned = new PhysicsWorld().FrictionVelocityAligned;
+    static readonly bool ShipPoolOrder = new PhysicsWorld().ContactPoolOrder;
+    static readonly bool ShipNormalFirst = new PhysicsWorld().ContactNormalBeforeFriction;
 
     static string Env(string k) => Environment.GetEnvironmentVariable(k);
     static int EnvI(string k, int d) { int v; return int.TryParse(Env(k), out v) ? v : d; }
@@ -119,6 +122,11 @@ static class RestOsc
         if (_baum >= 0f) world.BaumgarteFactor = _baum;
         if (Env("CRHS") != null) world.ContactRhsBullet = Env("CRHS") == "1";   // ★タスク48 (未設定=出荷既定)
         world.FrictionCombineMultiply = Env("FRICMUL") != null ? Env("FRICMUL") == "1" : ShipFricMul;   // ★タスク78 (未設定=出荷既定)
+        // ★タスク79: 摩擦セットの残り 3 つも配線する。未配線だと A/B が全モデル無変化になり、
+        //   「効かない」と誤読してしまう (計測バグ #15 と同じ)。
+        world.FrictionVelocityAligned = Env("FRICALIGN") != null ? Env("FRICALIGN") == "1" : ShipFricAligned;
+        world.ContactPoolOrder = Env("CPOOL") != null ? Env("CPOOL") == "1" : ShipPoolOrder;
+        world.ContactNormalBeforeFriction = Env("NORMFIRST") != null ? Env("NORMFIRST") == "1" : ShipNormalFirst;
         // ★2026-08-21: 単体モードで JSPLIT が黙って無視されていたのを修正 (JBETA と同じ取りこぼし)。
         //   AB モードの各条件は tweak で上書きするので影響しない。
         if (Env("JSPLIT") == "1") world.UseJointSplitImpulse = true;
