@@ -317,12 +317,47 @@ static class HairFid
         var dbg = new List<(string a, string b, float dist, float ni)>();
         world.DebugContacts = dbg;
 
+        // ★タスク76: 発散窓トレースの設定 (未設定なら完全に無効=既存挙動)。
+        int rwFrom = -1, rwTo = -1; string rwBone = Environment.GetEnvironmentVariable("RUNAWAY_BONE") ?? "";
+        {
+            var rw = Environment.GetEnvironmentVariable("RUNAWAY");
+            if (!string.IsNullOrEmpty(rw))
+            {
+                var pp2 = rw.Split(',');
+                if (int.TryParse(pp2[0], out rwFrom)) rwTo = (pp2.Length > 1 && int.TryParse(pp2[1], out var t3)) ? t3 : rwFrom + 20;
+            }
+        }
         Quat prevLow = Quat.Identity; bool havePrev = false;
         for (int f = 0; f < F; f++)
         {
             ApplyPose(f);
             dbg.Clear();
             world.StepSimulation(DT);
+            // ★タスク76: 発散の起点を見る。RUNAWAY=<開始f>[,<終了f>] で窓を切り、
+            //   RUNAWAY_BONE の前置きに合う剛体の 速度/角速度/接触/法線力積 を毎フレーム出す。
+            //   位置差の最大値だけでは「いつ何が起きたか」が分からないため。
+            if (rwFrom >= 0 && f >= rwFrom && f <= rwTo)
+            {
+                foreach (var (link, bn, _) in hairLinks)
+                {
+                    if (rwBone.Length > 0 && !bn.StartsWith(rwBone)) continue;
+                    var bd = link.Body;
+                    float ni = 0f; int npt = 0;
+                    foreach (var c in dbg) if (c.a == bd.Name || c.b == bd.Name) { ni += c.ni; npt++; }
+                    // MMD 参照との距離。剛体はボーンからオフセットしているので、参照側も同じ
+                    // オフセットを掛けてから比べる (ApplyPose/ALIGN と同じ作り)。
+                    float dref = -1f;
+                    if (csv.TryGet(f, model.BoneNames[link.BoneIndex], out var rwRef))
+                        dref = (bd.WorldTransform.Origin - (rwRef * link.BodyOffsetFromBone).Origin).Length;
+                    // MMD 側の速さ。参照ボーンの前フレーム差分 / DT。これが小さいのに自前だけ
+                    // 速いなら、射出そのものが当エンジン固有ということになる。
+                    float vref = -1f;
+                    if (f > 0 && csv.TryGet(f, model.BoneNames[link.BoneIndex], out var r1)
+                             && csv.TryGet(f - 1, model.BoneNames[link.BoneIndex], out var r0))
+                        vref = (r1.Origin - r0.Origin).Length / DT;
+                    Console.WriteLine($"   [RW] f{f} {bn,-10} |v|={bd.LinearVelocity.Length,9:F3} |w|={bd.AngularVelocity.Length,8:F3} 接触={npt} ni={ni,9:F2} MMD差={dref,8:F3} MMD速={vref,9:F3}");
+                }
+            }
             // 補正層再現 (ALIGN>0): aligned姿勢へ物理剛体を配置。mode1は計測後に復元(出力のみ)、mode2は恒久(フィードバック)。
             RigidTransform[] savedPose = null;
             if (alignMode > 0)
