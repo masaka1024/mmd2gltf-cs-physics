@@ -1,7 +1,7 @@
 ﻿Set-Location C:\mytask2\unity-bullet-physics\tools\fricprobe
 foreach ($k in @("FRICALIGN","CPOOL","NORMFIRST","OUT","CSET","SLEEP","LINDAMP","ANGDAMP")) { [Environment]::SetEnvironmentVariable($k,$null) }
 [Environment]::SetEnvironmentVariable("FRAMES","121")
-foreach ($n in @("fricT_B_tan030","fricT_B_tan100","fricT_B_tan120")) {
+foreach ($n in @("fricT_C_tan100","fricT_D_tan030")) {
   foreach ($fm in @("1","0")) {
     [Environment]::SetEnvironmentVariable("FRICMUL",$fm)
     [Environment]::SetEnvironmentVariable("MMD_TEST_PMX",("C:\mytask2\unity-bullet-physics\tools\fricprobe\" + $n + ".pmx"))
