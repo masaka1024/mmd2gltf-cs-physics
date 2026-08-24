@@ -35,6 +35,18 @@ LADDER = [0.30, 0.22, 0.15, 0.08]
 #   どちらでも止まるなら、止めているのは μ ではない。
 EXTREME = [("S", 1.0, 0.25, 1.5), ("Z", 0.05, 0.05, 0.30)]
 
+# 第5ラウンド (回転ロック)。(tag, f0, f1, tanθ, 坂の半長)
+#   tanθ=1.50 は どの候補 μ (最大 1.0) でも必ず滑る角度。飛距離が μ で決まる。
+#   L は第4ラウンドと同じ条件で、回転ロックが効いたかを見る対照。
+# ★急角度 (tanθ=1.50) は使わない。較正で当エンジン自身が理論値から外れた
+#   (回転ロックが接触に余分な抵抗を生む / ロック無しでも理論値を超える)。
+#   **浅い角度では理論値とよく合う**ので、そこに絞って μ を挟む。
+#   摩擦対は B (0.5, 0.5) 固定。積 なら μ=0.25、それ以外は全部 μ=0.5 になる。
+LOCKED = [("B", 0.5, 0.5, 0.20, 8.0),
+          ("B", 0.5, 0.5, 0.30, 12.0),
+          ("B", 0.5, 0.5, 0.40, 40.0),
+          ("B", 0.5, 0.5, 0.60, 90.0)]
+
 def combos(f0, f1):
     return {
         "積":     f0 * f1,
@@ -44,17 +56,22 @@ def combos(f0, f1):
         "max":    max(f0, f1),
     }
 
-def build(tag, f0, f1, tan, out_dir):
+def build(tag, f0, f1, tan, out_dir, lock_rot=False, slope_hx=8.0, prefix="fric"):
+    """lock_rot=True で、箱と坂の間に **回転3軸ロック / 並進は自由** の 6DOF ジョイントを入れる。
+    第4ラウンドで MMD 側の箱が転がってしまい μ の測定にならなかったため
+    (回転 2〜56度・法線方向に 1.4〜3.0 浮いた)。転がりを殺せば飛距離が純粋に μ の関数になる。
+    ★並進は3軸とも自由にする。法線方向を止めると接触が荷重を持たなくなり、
+      μ·Pn が消えて摩擦そのものが効かなくなるため。"""
     th = math.atan(tan)
     n = (-math.sin(th), math.cos(th), 0.0)      # 坂の法線 (Z 回りに th 傾けた +Y)
     SLOPE_HY, BOX_HY = 0.5, 0.25
-    m = P.ProbeModel("fric_%s_t%03d" % (tag, int(round(tan * 100))))
+    m = P.ProbeModel("%s_%s_t%03d" % (prefix, tag, int(round(tan * 100))))
     m.add_bone("全ての親", (0.0, 0.0, 0.0), -1)
     m.add_bone("box", (n[0] * (SLOPE_HY + BOX_HY),
                        n[1] * (SLOPE_HY + BOX_HY), 0.0), 0)
     # 坂: ボーン追従 (= キネマティック)。グループ 0。
     m.add_body("slope", 0, (0.0, 0.0, 0.0), 0.0, 0, shape=1,
-               size=(8.0, SLOPE_HY, 4.0), rot=(0.0, 0.0, th),
+               size=(slope_hx, SLOPE_HY, 4.0), rot=(0.0, 0.0, th),
                friction=f0, group=0, mask=0xFFFF)
     # 箱: 物理演算。グループ 1 (同一グループ同士の除外に引っかからないように分ける)。
     box_c = (n[0] * (SLOPE_HY + BOX_HY), n[1] * (SLOPE_HY + BOX_HY), 0.0)
@@ -64,7 +81,7 @@ def build(tag, f0, f1, tan, out_dir):
     # ★見えるメッシュ。MMD は物理演算中のボーンマーカーを描かないので、
     #   形状が無いと「滑ったかどうか」が目視できない。
     #   坂と出発点マーカーは親ボーン(動かない)に、箱は box ボーン(物理で動く)に付ける。
-    m.add_box_mesh(0, (0.0, 0.0, 0.0), (8.0, SLOPE_HY, 4.0), th,
+    m.add_box_mesh(0, (0.0, 0.0, 0.0), (slope_hx, SLOPE_HY, 4.0), th,
                    "坂", (0.55, 0.58, 0.62, 1.0))
     # 出発点マーカー: 箱の初期位置に薄い赤い板を置く。箱がここから離れたら「滑った」。
     m.add_box_mesh(0, (box_c[0] - n[0] * BOX_HY * 0.9,
@@ -72,7 +89,14 @@ def build(tag, f0, f1, tan, out_dir):
                    (1.15, 0.03, 1.15), th, "出発点", (0.90, 0.20, 0.20, 1.0))
     m.add_box_mesh(1, box_c, (1.0, BOX_HY, 1.0), th,
                    "箱", (0.20, 0.45, 0.90, 1.0))
-    name = "fric_%s_tan%03d.pmx" % (tag, int(round(tan * 100)))
+    if lock_rot:
+        # 坂 (静的) と 箱 の 6DOF ジョイント。フレームは坂と同じ傾き。
+        #   並進: 3軸とも十分広く取って実質自由 (接触に荷重を持たせるため)
+        #   回転: 3軸とも min=max=0 でロック
+        m.add_joint("lockrot", 0, 1, box_c, rot=(0.0, 0.0, th),
+                    lin_min=(-500.0, -500.0, -500.0), lin_max=(500.0, 500.0, 500.0),
+                    ang_min=(0.0, 0.0, 0.0), ang_max=(0.0, 0.0, 0.0))
+    name = "%s_%s_tan%03d.pmx" % (prefix, tag, int(round(tan * 100)))
     p = os.path.join(out_dir, name)
     m.save(p, "friction combine probe: slope f=%.3g / box f=%.3g / tan=%.2f" % (f0, f1, tan))
     return name, th
@@ -136,6 +160,30 @@ def main():
                  "どの方式でも滑る" if tan > worst else "★設計ミス"))
         made.append(name)
     print("  → ここで止まるなら、止めているのは摩擦係数ではない。")
+
+    # --- 第5ラウンド: 回転ロック。転がりを消して μ を距離から直に読む ---
+    print()
+    print("=" * 92)
+    print("第5ラウンド: **回転ロック**。転がりを消し、2秒の飛距離から μ を直に読む")
+    print("=" * 92)
+    print("  6DOF ジョイントで回転3軸をロック / 並進は自由。坂は長くして飛距離を受け止める。")
+    print()
+    print("  %-24s %-13s %-6s | %s" % ("ファイル", "(坂f0,箱f1)", "tanθ",
+                                       "  ".join("%-11s" % k for k in methods)))
+    g = 98.0
+    for tag, f0, f1, tan, hx in LOCKED:
+        name, th = build(tag, f0, f1, tan, out_dir, lock_rot=True, slope_hx=hx, prefix="fricR")
+        cb = combos(f0, f1)
+        dists = []
+        for k in methods:
+            a = g * (math.sin(th) - cb[k] * math.cos(th))
+            dists.append("%.1f" % (0.5 * a * 4) if a > 0 else "止まる")
+        print("  %-24s (%.2f,%.2f)   %-6.2f | %s"
+              % (name, f0, f1, tan, "  ".join("%-11s" % x for x in dists)))
+        made.append(name)
+    print()
+    print("  ★2秒後の飛距離 [PMX単位] の予測。方式ごとに離れているので、")
+    print("    ベイクした距離を読むだけで μ が決まる (二値判定が要らない)。")
     print()
     print("  生成 %d 個 -> %s" % (len(made), os.path.abspath(out_dir)))
 
