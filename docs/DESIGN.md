@@ -1500,3 +1500,53 @@ harness を書くときは「出荷既定に何が入っているか」を実効
 反復数を増やして直るかは `ITERS` env で全ハーネスから掃引できる。
 ジョイント順序は `bulletref` の `make_jointorder.py` と `JOINTORDER` env が残っている。
 ツールを復活させる必要は無い。
+
+---
+
+## UE5 移植の遅れ — 実測 (2026-08-25・調査のみ。着手はしていない)
+
+UE5 版 (`mmd2gltf-ue5-physics-importer`、C++ 1:1直訳) の物理エンジンは **v1 以前**にある。
+着手前に規模だけ測った。**13件のエンジン変更のうち 11件が入っていない。**
+
+| C# フィールド | env | 世代 | UE5 C++ |
+|---|---|---|---|
+| `AngularMixedAxes` | `AXES` | v1 | あり |
+| `LinearLeverMode` | `LEVER=1` | v1 | 変数はあるが **`= 0`** |
+| `BulletAngleConvention` | `ANGCONV` | v1 | ★無い |
+| `BulletContactThreshold` | `CTHRESH` | v1 | ★無い |
+| `BulletRotationIntegration` | `ROTEXP` | v1 | ★無い |
+| `ContactRhsBullet` | `CRHS` | v1 | ★無い |
+| `BulletManifoldPoints` | `CMAN` | v1 | ★無い |
+| `BulletLimitRowGating` | `LIMGATE` | v1 | ★無い |
+| `SymmetricBreakingDistance` | `SYMDIST` | v1 | ★無い |
+| `SpringAsMotorRow` | (既定) | v1前 | ★無い |
+| `LeverArmGate` | `LEVERGATE=5` | v2 | ★無い |
+| `FrictionCombineMultiply` | `FRICMUL` | v2 | ★無い |
+| `FrictionVelocityAligned` | `FRICALIGN` | v3 | ★無い |
+
+摩擦は `MSqrt(f0*f1)` が直書き (`MmdPhysicsWorld.cpp:531`)、接線も 2 方向を解いている。
+
+### ★検証の枠組みは既にある
+
+- `.upstream/unity` が移植元 C# の固定コピー。現在 `0fcbd57` で **6コミット遅れ** (最新は `c5cddda`)
+- `Tools/CsReference` がその C# を **コピーせずリンクして**ビルドし、基準 CSV を出す
+- `MmdPhysicsGlbParityTest` が C++ をその CSV と突き合わせる (許容差 1e-3 = 0.08mm 相当)
+
+つまり **「C++ が C# と数値一致するまで直す」というゲートが最初から用意されている。**
+移植の正否を推測で判断せずに済む。
+
+### 作業の順序 (未着手)
+
+1. `.upstream/unity` を `0fcbd57` → `c5cddda` へ進める
+2. 基準 CSV を再生成 (v3 の C# で) → **この時点でパリティテストは必ず落ちる**。
+   落ち幅が移植すべき量の実測値になる
+3. C++ を 11件ぶん移植。`MmdConstraints.cpp` はコメントごと直訳されていて
+   `LinearLeverMode == 1/2` の分岐も既にあるので、機械的に進む部分が多いはず
+4. パリティが通るまで反復
+5. UE5 ビルド + 自動テスト
+
+★**基準 CSV の生成には実モデルの `.glb` が要る** (再配布不可なので env で外から与える設計)。
+　 手元に使える `.glb` が無ければ `mmd2gltf-gui` で作るところから。
+
+★ビルド手順の注意 (エディタを閉じる / `-Compiler=VisualStudio2022` 必須 など) は
+　 UE5 側リポジトリの `docs/porting_notes.md` にある。
