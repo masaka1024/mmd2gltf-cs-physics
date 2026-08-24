@@ -545,6 +545,31 @@ static class HairFid
         }
         var (pm, pp, px) = Stat(allPos); var (am, ap, ax) = Stat(allAng);
         O.AppendLine($"[全体] 位置差(u) 中央={pm:F3}/p90={pp:F3}/最大={px:F3}   角度差(°) 中央={am:F2}/p90={ap:F2}/最大={ax:F2}");
+        // ★タスク76: 位置差の最大が桁違いに跳ねる (発散) ときに、どのボーンのどのフレームかを出す。
+        //   中央値/p90 が正常でも最大だけ 7000 を超えることがあり、犯人が特定できないと追えない。
+        {
+            var worst = new List<(float d, string bone, int frame)>();
+            foreach (var (l, b, _) in hairLinks)
+                for (int k = 0; k < posDiff[b].Count; k++) worst.Add((posDiff[b][k], b, k));
+            worst.Sort((x, y) => y.d.CompareTo(x.d));
+            var seen = new HashSet<string>(); int shown = 0;
+            foreach (var w in worst)
+            {
+                if (!seen.Add(w.bone)) continue;
+                O.AppendLine($"   [位置差 最大] {w.bone} f{w.frame} = {w.d:F3}");
+                if (++shown >= 5) break;
+            }
+            // ★タスク76: 走り出した最初のフレームを出す。最大値だけだと「いつから」が分からない。
+            //   閾値は p90 の 10倍 (通常のばらつきでは絶対に届かない値)。
+            float runaway = Math.Max(20f, pp * 10f);
+            foreach (var (l, b, _) in hairLinks)
+            {
+                var d = posDiff[b];
+                for (int k = 0; k < d.Count; k++)
+                    if (d[k] > runaway)
+                    { O.AppendLine($"   [発散開始] {b} f{k} で {d[k]:F2} (閾値{runaway:F1}) 最終f={d[d.Count - 1]:F1}"); break; }
+            }
+        }
         O.AppendLine($"[符号] 平均(自前bind偏差 - MMDbind偏差)={signSum / Math.Max(1, signN):F2}° (正=自前が動きすぎ / 負=動かなさすぎ)");
 
         // 静区間/ターン窓 別 (角度差)

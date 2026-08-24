@@ -894,7 +894,8 @@ namespace BulletPhysics
         /// 第一不一致点が「反復0の接触求解」と判ったので、その中身を見るために足した。</summary>
         public System.Collections.Generic.List<(int iter, string a, string b, int pt,
             float ni, float t1, float t2, bool nClamp, bool tClamp, float relN,
-            float fric, float maxT, float relT, float tanMass)> DebugContactIterRows;
+            float fric, float maxT, float relT, float tanMass,
+            Vec3 t1dir, Vec3 nDir)> DebugContactIterRows;
 
         /// <summary>DebugContactIterRows へ書く反復番号。求解ループが毎反復セットする。</summary>
         private int _contactIter;
@@ -1023,7 +1024,8 @@ namespace BulletPhysics
                           c.NormalImpulse, c.TangentImpulse1, c.TangentImpulse2,
                           c.NormalImpulse <= 0f,
                           maxT > 0f && Math.Abs(c.TangentImpulse1) >= maxT * 0.999999f,
-                          relN, c.Friction, maxT, relT, c.TangentMass1));
+                          relN, c.Friction, maxT, relT, c.TangentMass1,
+                          c.Tangent1, c.Normal));
             }
         }
 
