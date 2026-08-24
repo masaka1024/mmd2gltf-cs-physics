@@ -105,7 +105,7 @@ static class HairFid
         if (Environment.GetEnvironmentVariable("AXES") == "1") Joint.AngularMixedAxes = true;   // MIXAXES の別名
         if (Environment.GetEnvironmentVariable("NORMFIRST") == "1") world.ContactNormalBeforeFriction = true;
         if (Environment.GetEnvironmentVariable("CPOOL") == "1") world.ContactPoolOrder = true;
-        if (Environment.GetEnvironmentVariable("FRICALIGN") == "1") world.FrictionVelocityAligned = true;
+        if (Environment.GetEnvironmentVariable("FRICALIGN") != null) world.FrictionVelocityAligned = Environment.GetEnvironmentVariable("FRICALIGN") == "1";
         if (Environment.GetEnvironmentVariable("FRICMUL") != null) world.FrictionCombineMultiply = Environment.GetEnvironmentVariable("FRICMUL") == "1";
         if (Environment.GetEnvironmentVariable("CSET") == "1")
         { world.ContactPoolOrder = true; world.FrictionVelocityAligned = true; world.FrictionCombineMultiply = true; }

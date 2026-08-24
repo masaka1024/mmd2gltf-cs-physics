@@ -49,6 +49,8 @@ static class BoneDp
     static readonly bool ShipFricMul = new PhysicsWorld().FrictionCombineMultiply;
     // ★A 条件 (旧エンジン相当) で world の摩擦合成を旧方式 (幾何平均) へ落とすためのフラグ。
     static bool _forceOldFricMul = false;
+    static readonly bool ShipFricAligned = new PhysicsWorld().FrictionVelocityAligned;   // ★タスク81
+    static bool _forceOldFricAligned = false;
 
 
     static string Env(string k) => Environment.GetEnvironmentVariable(k);
@@ -149,7 +151,8 @@ static class BoneDp
                 // ★タスク30: 接触ソルバの Bullet 整合セット (すべて既定OFF・ビット不変)
                 if (Env("CPOOL") == "1") world.ContactPoolOrder = true;          // 法線プール→摩擦プール
                 if (Env("NORMFIRST") == "1") world.ContactNormalBeforeFriction = true;
-                if (Env("FRICALIGN") == "1") world.FrictionVelocityAligned = true; // 1方向・接線速度整列
+                world.FrictionVelocityAligned = Env("FRICALIGN") != null ? Env("FRICALIGN") == "1" : ShipFricAligned;   // 1方向・接線速度整列 (★タスク81 で既定)
+                if (_forceOldFricAligned) world.FrictionVelocityAligned = false;   // A 条件 (旧エンジン相当)
                 world.FrictionCombineMultiply = Env("FRICMUL") != null ? Env("FRICMUL") == "1" : ShipFricMul;   // 摩擦合成=積 (★タスク78 で既定)
                 if (_forceOldFricMul) world.FrictionCombineMultiply = false;   // A 条件 (旧エンジン相当)
                 // ★CSET は **3フラグ** (CPOOL + FRICALIGN + FRICMUL)。
@@ -272,9 +275,11 @@ static class BoneDp
             Joint.LeverArmGate = 0f;                                    // ★タスク78
             _forceOldContactRhs = true;   // world 生成後に world.ContactRhsBullet=false を当てる
             _forceOldFricMul = true;      // 同上 (摩擦合成=幾何平均へ)
+            _forceOldFricAligned = true;  // 同上 (摩擦の接線を軸任意の直交2方向へ)
         });
         _forceOldContactRhs = false;
         _forceOldFricMul = false;
+        _forceOldFricAligned = false;
         // B: 出荷既定 (完全セットv1)。env 上書きは Once の中で効いている。
         var newR = Once("出荷既定", null);
         Joint.SpringAsMotorRow = ShippedSpringMotor;
@@ -291,7 +296,7 @@ static class BoneDp
             if (float.TryParse(Env("CWFAC"), NumberStyles.Float, CultureInfo.InvariantCulture, out v) && v >= 0f) w2.ContactWarmStartFactor = v;
             if (Env("CPOOL") == "1") w2.ContactPoolOrder = true;
             if (Env("NORMFIRST") == "1") w2.ContactNormalBeforeFriction = true;
-            if (Env("FRICALIGN") == "1") w2.FrictionVelocityAligned = true;
+            w2.FrictionVelocityAligned = Env("FRICALIGN") != null ? Env("FRICALIGN") == "1" : ShipFricAligned;
             w2.FrictionCombineMultiply = Env("FRICMUL") != null ? Env("FRICMUL") == "1" : ShipFricMul;
             if (Env("CSET") == "1") { w2.ContactPoolOrder = true; w2.FrictionVelocityAligned = true; w2.FrictionCombineMultiply = true; }
             void FlagEcho(Res r) => L("  [実効] " + r.Label.PadRight(10)

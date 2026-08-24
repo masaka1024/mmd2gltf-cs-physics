@@ -91,7 +91,7 @@ static class NetDump
         //   タスク46〜48 の行レベル照合はこれ抜きで走っていた (最大整合構成のつもりが違った)。
         if (Env("CPOOL") == "1") world.ContactPoolOrder = true;
         if (Env("NORMFIRST") == "1") world.ContactNormalBeforeFriction = true;
-        if (Env("FRICALIGN") == "1") world.FrictionVelocityAligned = true;
+        if (Env("FRICALIGN") != null) world.FrictionVelocityAligned = Env("FRICALIGN") == "1";
         if (Env("FRICMUL") != null) world.FrictionCombineMultiply = Env("FRICMUL") == "1";
         if (Env("CSET") == "1")
         { world.ContactPoolOrder = true; world.FrictionVelocityAligned = true; world.FrictionCombineMultiply = true; }

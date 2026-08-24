@@ -911,10 +911,37 @@ env 未設定だと入ったままになる)。
 | `LEVERGATE=5` | `Joint.LeverArmGate = 5` | `LEVER=1` の腕長フィードバックを止める (★Bullet に無い機構) |
 | `FRICMUL` | `PhysicsWorld.FrictionCombineMultiply = true` | 摩擦合成 = 積 (Bullet / MMD/PMXe の実測と一致) |
 
-**入れないもの**: `CSET` / `NORMFIRST` / `CPOOL` / `FRICALIGN` (下の台帳②)、
+### ★v3 追加 (2026-08-25・タスク81)
+
+| env | フィールド | 由来 |
+|---|---|---|
+| `FRICALIGN` | `PhysicsWorld.FrictionVelocityAligned = true` | 摩擦の接線を **1方向・接線速度整列** に (Bullet 2.75 の実経路) |
+
+既定は軸任意の直交2方向で、bulletref 比で接線が **45.9°/51.0° ずれ**、`|t|` が μ·N の
+**最大 √2 倍** (箱型の角) まで出ていた。`FRICALIGN` で **ずれ 0.00°・円錐の内側** になる。
+
+★これを入れると摩擦行の warm-start が恒久的に切れる (タスク73 の `if (!FrictionVelocityAligned)` 門)。
+　 Bullet 2.75 の既定 solverMode に `SOLVER_USE_FRICTION_WARMSTARTING` が無いのと同じ状態で、狙いどおり。
+
+| ゲート | v2 | **v3** |
+|---|---|---|
+| hairfid 位置差 中央 / p90 | 0.140 / 1.240 | **0.139 / 1.234** |
+| hairfid 角度 中央 / p90 | 10.85 / 62.90 | **10.62 / 62.45** |
+| hairfid 深貫入>0.5 | 0件 | **0件** |
+| 静止3つ組 | 収束 4/4 | **収束 4/4** |
+| drivedp 平均乖離 中央 | 0.0647 | **0.0627** |
+| drivedp 平均乖離 p90 | **0.0660** | 0.0667 |
+| 35モデルスイープ | NaN・発散 0件 | **NaN・発散 0件** |
+
+p90 の +0.0007 だけが微悪化。他はすべて改善か同値。
+静止スカートのフロアは 0.07x → 0.19x と上がるが、**微揺れは参照側が人工物**なので不問
+(NORTH_STAR 0 の例外)。
+
+**入れないもの**: `NORMFIRST` / `CPOOL` (下の台帳②)、
 `JOINTS_FIRST` (下の台帳③)、`CMARGIN`、`BAUM` の変更。
-※ `FRICMUL` は 2026-08-24 に **採用済み** なので「入れないもの」から外れた。
-　 `CSET` は 3 フラグ束 (`CPOOL`+`FRICALIGN`+`FRICMUL`) なので、残る 2 つはまだ入っていない。
+※ `CSET` (3フラグ束 = `CPOOL`+`FRICALIGN`+`FRICMUL`) は **束としては解体済み**。
+　 `FRICMUL` は v2 (2026-08-24)、`FRICALIGN` は v3 (2026-08-25) で個別に採用した。
+　 残る `CPOOL` は深貫入が戻るので入れない (タスク79)。
 
 ---
 

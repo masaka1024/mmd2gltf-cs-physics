@@ -57,6 +57,7 @@ namespace BoneCheck
         // ★タスク78: 出荷既定を静的初期化時に控え、env 明示時だけ上書きする (FRICMUL=0 も効くように)。
         static readonly float ShipLeverGate = Joint.LeverArmGate;
         static readonly bool ShipFricMul = new PhysicsWorld().FrictionCombineMultiply;
+        static readonly bool ShipFricAligned = new PhysicsWorld().FrictionVelocityAligned;   // ★タスク81
 
 
         static string Env(string k) { return Environment.GetEnvironmentVariable(k); }
@@ -186,7 +187,7 @@ namespace BoneCheck
                 { world.ContactPoolOrder = true; world.FrictionVelocityAligned = true; world.FrictionCombineMultiply = true; }
                 if (Env("CPOOL") == "1") world.ContactPoolOrder = true;
                 if (Env("NORMFIRST") == "1") world.ContactNormalBeforeFriction = true;
-                if (Env("FRICALIGN") == "1") world.FrictionVelocityAligned = true;
+                world.FrictionVelocityAligned = Env("FRICALIGN") != null ? Env("FRICALIGN") == "1" : ShipFricAligned;
                 world.FrictionCombineMultiply = Env("FRICMUL") != null ? Env("FRICMUL") == "1" : ShipFricMul;
                 if (Env("JOINTS_FIRST") == "1") world.SolveJointsFirst = true;
                 {
