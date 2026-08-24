@@ -319,6 +319,7 @@ static class HairFid
 
         // ★タスク76: 発散窓トレースの設定 (未設定なら完全に無効=既存挙動)。
         int rwFrom = -1, rwTo = -1; string rwBone = Environment.GetEnvironmentVariable("RUNAWAY_BONE") ?? "";
+        string rwJoint = Environment.GetEnvironmentVariable("RUNAWAY_JOINT") ?? "";
         {
             var rw = Environment.GetEnvironmentVariable("RUNAWAY");
             if (!string.IsNullOrEmpty(rw))
@@ -337,7 +338,24 @@ static class HairFid
         {
             ApplyPose(f);
             dbg.Clear();
+            // ★タスク76: 窓のあいだだけ、対象ジョイントの解いた行を記録する。
+            //   レバーアーム |relA| が誤差とともに伸びて実効質量を潰す、という筋を直接見る。
+            List<(string joint, int dof, bool angular, Vec3 axis, Vec3 relA, Vec3 relB,
+                  string bodyA, string bodyB, float accumulated, float targetVel, float relVelAfter)> rwRows = null;
+            if (rwFrom >= 0 && f >= rwFrom && f <= rwTo && rwJoint.Length > 0)
+            { rwRows = new(); Joint.DebugRowsSolved = rwRows; Joint.DebugRowsSolvedJoint = rwJoint; }
             world.StepSimulation(DT);
+            if (rwRows != null)
+            {
+                Joint.DebugRowsSolved = null; Joint.DebugRowsSolvedJoint = null;
+                // 最終反復ぶんだけ読む (反復ごとに積まれる)。線形行のみ。
+                for (int k = Math.Max(0, rwRows.Count - 6); k < rwRows.Count; k++)
+                {
+                    var r = rwRows[k];
+                    if (r.angular) continue;
+                    Console.WriteLine($"[RWR],{f},{r.bodyA},{r.bodyB},{r.dof},{r.relA.Length:F4},{r.relB.Length:F4},{r.accumulated:F5},{r.relVelAfter:F5}");
+                }
+            }
             // ★タスク76: 発散の起点を見る。RUNAWAY=<開始f>[,<終了f>] で窓を切り、
             //   RUNAWAY_BONE の前置きに合う剛体の 速度/角速度/接触/法線力積 を毎フレーム出す。
             //   位置差の最大値だけでは「いつ何が起きたか」が分からないため。

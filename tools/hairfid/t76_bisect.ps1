@@ -20,6 +20,6 @@ foreach ($c in $cases) {
   [Environment]::SetEnvironmentVariable("MMD_TEST_PMX","C:\mytask2\unity-bullet-physics\Assets\testdata\IA.pmx")
   [Environment]::SetEnvironmentVariable("MMD_TEST_HAIRCSV","C:\mytask2\_mmd_ref\modelA_bone_world_pose_hair.csv")
   $o = & ".\bin\Release\net9.0\HairFid.exe" 2>&1
-  $m = ($o | Select-String "\[全体\] 位置差") -replace ".*最大=([0-9.]+).*",'$1'
+  $m = [regex]::Match((($o | Select-String "位置差\(u\)") -join " "), "位置差\(u\)[^/]*/p90=[0-9.]+/最大=([0-9.]+)").Groups[1].Value
   Write-Output ("  {0,-22} 位置差 最大 = {1}" -f $c.n, $m)
 }
