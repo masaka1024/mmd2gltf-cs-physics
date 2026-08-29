@@ -1,7 +1,9 @@
 ﻿// ===========================================================================
 // (2) 髪のフレーム単位 MMD突合 (スカートと同じ土俵)。
-//   MMDVMD由来の hair CSV(108ボーン)で BoneFollow(体)を駆動し、髪(dynamic)を自前物理で動かす。
-//   髪ボーン姿勢(ボーン空間 = body.WorldTransform * BodyOffsetFromBone.Inverse())をMMDと突合。
+//   参照 (PMXエディタの Fix ベイク) 由来の hair CSV(108ボーン)で BoneFollow(体)を駆動し、髪(dynamic)を自前物理で動かす。
+//   髪ボーン姿勢(ボーン空間 = body.WorldTransform * BodyOffsetFromBone.Inverse())を参照と突合。
+//   ★2026-08-26 文言訂正: この参照は **MMD ではなく PMXエディタの Fix ベイク**。
+//     MMD 本体に物理ベイク機能は無いので「MMDベイク」はあり得ない (2026-08-20 に出自確定済み)。
 //   位置(ワールド)と角度差(閾値3e-3rad, acos不使用)を 房別/段別/静区間・ターン窓で集計。
 //   髪×体の貫入も同時計測(元症状の第一候補)。
 // warm-start(0.85)は既定ON。A/Bは env WARM_OFF=1。
@@ -96,6 +98,11 @@ static class HairFid
                 System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var _jb) && _jb >= 0f)
             foreach (var j in world.Joints) j.Beta = _jb;
+        if (float.TryParse(Environment.GetEnvironmentVariable("DAMPCLAMP"), out var _dc) && _dc > 0f) PhysicsWorld.DampingClampMax = _dc;
+        // ↑減衰クランプ上限 (既定 0.999)。Bullet は [0,1]。タスク82 の A/B 用。
+        if (float.TryParse(Environment.GetEnvironmentVariable("IMPBND"), out var _ib) && _ib > 0f) Joint.LockedRowImpulseBound = _ib;
+        // ↑ロック行のインパルス上下限。既定 1e18 は Bullet の SIMD_INFINITY の有限代用。
+        //   質量が極端なモデルでは張り付きうるので A/B できるようにする (2026-08-26)。
         if (float.TryParse(Environment.GetEnvironmentVariable("MAXCORR"), out var _mc)) Joint.MaxCorrectionVel = _mc; // 位置補正速度上限(既定10, Bulletは無制限)
         if (Environment.GetEnvironmentVariable("MIXAXES") == "1") Joint.AngularMixedAxes = true; // 角度リミット行=Bullet混合軸
         if (Environment.GetEnvironmentVariable("CNBF") == "1") world.ContactNormalBeforeFriction = true; // 法線→摩擦順(Bullet)
@@ -175,13 +182,29 @@ static class HairFid
         Console.WriteLine($"[構成] 比較剛体={hairLinks.Count}(髪{nHair}+スカート{hairLinks.Count - nHair}) 体コライダー={bodyLinks.Count} 駆動BoneFollow={driven.Count}");
 
         // ===== 補正層の相関分析モード (CORR=1): OFF(=MMD_TEST_HAIRCSV)→ON 差分の説明変数相関 =====
+        // ★2026-08-29 停止ゲート: この 108ボーンペアは **ON/OFF のラベルが逆** だった。
+        //   スカート36本の値がバイト単位で一致することで確定 (|Δp| max = 0.000000):
+        //     modelA_bone_world_pose_hair.csv     (65805999B) = 【補正OFF + Fix前の整え込み】
+        //     modelA_bone_world_pose_hair_OFF.csv (65617640B) = 【補正ON】
+        //   よって従来の CORR は「ON→OFF」を逆向きに、しかも開始状態 (整え) が交絡した
+        //   ペアで測っていた。2026-08-09 の70万サンプル相関分析はこれに依拠しており失効済み。
+        //   正しい統制ペアは 43ボーンにしかない (補正層プローブ側の「統制ペア台帳」・本リポジトリ外)。
+        //   108ボーンの健全な OFF ベイクが焼けるまで、このモードは走らせない。
         if (Environment.GetEnvironmentVariable("CORR") == "1")
         {
+            if (Environment.GetEnvironmentVariable("CORR_ALLOW_SWAPPED") != "1")
+            {
+                Console.WriteLine("[FAIL] CORR モードは停止中。108ボーンの ON/OFF ペアはラベルが逆で、かつ開始状態が交絡している。");
+                Console.WriteLine("       _hair.csv=補正OFF+整え込み / _hair_OFF.csv=補正ON (スカート36本がバイト一致で確定)。");
+                Console.WriteLine("       健全な108ボーンOFFベイクを用意するまで結果は無意味。承知の上なら CORR_ALLOW_SWAPPED=1。");
+                return 1;
+            }
             string onCsvPath = TestData.Resolve("CORR_ON_CSV", "modelA_bone_world_pose_hair.csv");
             if (onCsvPath == null || new FileInfo(onCsvPath).Length != 65805999L) { Console.WriteLine($"[FAIL] ON CSV バイト数不一致: {onCsvPath}"); return 1; }
-            if (bytes != 65617640L) { Console.WriteLine("[FAIL] CORR モードは MMD_TEST_HAIRCSV に OFF版(65617640B) を指定すること。"); return 1; }
+            if (bytes != 65617640L) { Console.WriteLine("[FAIL] CORR モードは MMD_TEST_HAIRCSV に 65617640B の版を指定すること。"); return 1; }
             var onCsv = BoneCsv.Load(onCsvPath);
-            Console.WriteLine($"[CORR] OFF(補正前)={Path.GetFileName(csvp)}  ON(補正後)={Path.GetFileName(onCsvPath)}");
+            Console.WriteLine($"[CORR] ★ラベル逆・交絡ありのまま実行中 (CORR_ALLOW_SWAPPED=1)。");
+            Console.WriteLine($"[CORR] 「OFF」欄={Path.GetFileName(csvp)} (実体=補正ON)  「ON」欄={Path.GetFileName(onCsvPath)} (実体=補正OFF+整え)");
             return OffOnCorr.Run(model, builder, hairLinks, bodyLinks, driven, csv, onCsv);
         }
 

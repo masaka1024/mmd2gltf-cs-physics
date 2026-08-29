@@ -1,4 +1,4 @@
-// タスク2(測定): 物理開始時の剛体をボーン姿勢へ整合させる(ResetBodiesToBonePose)効果を測る。
+﻿// タスク2(測定): 物理開始時の剛体をボーン姿勢へ整合させる(ResetBodiesToBonePose)効果を測る。
 //   初期貫入(F0-120)が解消したか / 定常・全編・傾き統計への影響 / warmup必要数 / ノイズフロア。
 // 反復10・実効1/60(Sub2)固定。本体無改変(Resetは本体の公開API)。
 using System;
@@ -14,7 +14,8 @@ static class PhysReset
 {
     static readonly string Pmx1 = TestData.PmxPath();
     static readonly string Pmx2 = TestData.PmxPath();
-    const float FRAME = 1f / 30f; const float RefCalmMed = 11.39f; const string Leg = "左太もも";
+    // ★2026-08-29: RefCalmMed を「真OFF (純ソルバ)」基準へ。旧既定参照 (補正OFF+整え込み) では 11.39。
+    const float FRAME = 1f / 30f; const float RefCalmMed = 10.87f; const string Leg = "左太もも";
     static readonly string[] Pairs = { "スカート_0_5", "スカート_1_5", "スカート_2_5" };
     static StringBuilder O = new StringBuilder(); static void L(string s = "") { O.Append(s); O.Append('\n'); }
     static List<ContactPoint> buf = new();
@@ -106,7 +107,7 @@ static class PhysReset
         for (int t = 0; t < Pairs.Length; t++)
             L($"  {Pairs[t]}: 平均 {m0.pairDepth[t].Average():F4}|{m1.pairDepth[t].Average():F4}|{m2.pairDepth[t].Average():F4}  最大 {m0.pairDepth[t].Max():F3}|{m1.pairDepth[t].Max():F3}|{m2.pairDepth[t].Max():F3}  >0.5 {m0.pairDepth[t].Count(x => x > 0.5f)}|{m1.pairDepth[t].Count(x => x > 0.5f)}|{m2.pairDepth[t].Count(x => x > 0.5f)}F");
 
-        L("\n[傾き統計] ([0]無 | [1]CSV | [2]FK-rest, MMD 平時中央=11.39, 12窓比目標1.0)");
+        L("\n[傾き統計] ([0]無 | [1]CSV | [2]FK-rest, 参照(真OFF) 平時中央=10.87, 12窓比目標1.0)");
         L($"  平時 中央 {m0.calmMed:F3}|{m1.calmMed:F3}|{m2.calmMed:F3}  p90 {m0.calmP90:F2}|{m1.calmP90:F2}|{m2.calmP90:F2}  max {m0.calmMax:F2}|{m1.calmMax:F2}|{m2.calmMax:F2}");
         L($"  12窓比 中央 {m0.ratioMed:F3}|{m1.ratioMed:F3}|{m2.ratioMed:F3}");
 

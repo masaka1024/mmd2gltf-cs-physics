@@ -1,4 +1,4 @@
-// 診断のみ(実装・既定値変更なし): 時間刻み仮説の検証。FixedTimeStep/SubSteps の設定値だけを
+﻿// 診断のみ(実装・既定値変更なし): 時間刻み仮説の検証。FixedTimeStep/SubSteps の設定値だけを
 // 変えて測る。反復数は10固定。CSV駆動は毎フレーム 1/30 秒を StepSimulation に渡し、内部で
 // FixedTimeStep 刻みに分割させる(=MMDの stepSimulation(dt,maxSub,fixedTimeStep) 相当)。
 // 併せて (a)同一実効刻みでの分割方法差、(b)キネマティック補間の効き、(c)減衰の刻み不変性 を検算。
@@ -16,7 +16,7 @@ static class TimeStep
 {
     static readonly string PmxPath = TestData.PmxPath();
     const float FRAME = 1f / 30f;   // CSVフレーム間隔(30fps)。毎フレームこの dt を渡す。
-    const float RefCalmMed = 11.39f;
+    const float RefCalmMed = 10.87f;   // ★2026-08-29 真OFF(純ソルバ)基準。旧既定参照では 11.39
     static StringBuilder O = new StringBuilder(); static void L(string s = "") { O.Append(s); O.Append('\n'); }
 
     static BoneCsv csv; static PmxPhysicsModel model; static int F;
@@ -78,7 +78,7 @@ static class TimeStep
             if (f >= wins[w].StartFrame && f <= Math.Min(F - 1, wins[w].EndFrame + 30))
             { float m = 0; foreach (var sj in skirt) if (csv.TryGet(f, sj.ParentBone, out var pb) && csv.TryGet(f, sj.ChildBone, out var cb)) { float t = SkirtMeasure.TiltDeg(pb.Rotation, cb.Rotation); if (t > m) m = t; } if (m > refWinMax[w]) refWinMax[w] = m; }
 
-        L("==================== 時間刻み仮説の検証 (反復10固定, MMD平時11.39/比目標1.0) ====================");
+        L("==================== 時間刻み仮説の検証 (反復10固定, 参照(真OFF)平時10.87/比目標1.0) ====================");
         var cfgs = new (string label, float fts, int sub)[]
         {
             ("1/30  (FTS=1/30, Sub=1) 現行", 1f/30f, 1),

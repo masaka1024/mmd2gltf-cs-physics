@@ -632,6 +632,27 @@ static bool argFlag(int argc, char** argv, const char* k)
     return false;
 }
 
+
+// --- task 81: slerp identical to the engine's Quat.Slerp (guards the sin(omega)->0 case,
+//     which Bullet 2.75's own slerp does not: a stationary anchor makes dot==1 and yields NaN). ---
+static btQuaternion t81Slerp(const btQuaternion& a, const btQuaternion& b, btScalar t)
+{
+    btScalar c = a.x()*b.x() + a.y()*b.y() + a.z()*b.z() + a.w()*b.w();
+    bool wrap = false;
+    if (c < 0) { c = -c; wrap = true; }
+    btScalar s0, s1;
+    if ((btScalar(1) - c) > btScalar(0.001)) {
+        btScalar omega = btAcos(c);
+        btScalar sn = btSin(omega);
+        s0 = btSin((btScalar(1) - t) * omega) / sn;
+        s1 = btSin(t * omega) / sn;
+    } else { s0 = btScalar(1) - t; s1 = t; }
+    if (wrap) s1 = -s1;
+    btQuaternion r(a.x()*s0 + b.x()*s1, a.y()*s0 + b.y()*s1,
+                   a.z()*s0 + b.z()*s1, a.w()*s0 + b.w()*s1);
+    return r.normalized();
+}
+
 int main(int argc, char** argv)
 {
     const char* netPath = argStr(argc, argv, "--net", "net.txt");
@@ -645,6 +666,11 @@ int main(int argc, char** argv)
     bool keepMargin = argFlag(argc, argv, "--keepmargin");  // do NOT override with the engine margin
     int dumpStateAt = argInt(argc, argv, "--dumpstate", -1);
     const char* initState = argStr(argc, argv, "--initstate", 0);
+    // --- task 81: per-frame kinematic driving (drive.csv from divhunt NETDUMP) ---
+    // Reproduces the engine's ApplyKinematicTargets + per-substep interpolation exactly:
+    //   frac = (s+1)/substeps ; interp between the frame-start pose and this frame's target ;
+    //   velocity = (interp - current)/subDt ; after the substep, snap the transform to interp.
+    const char* drivePath = argStr(argc, argv, "--drive", 0);
 
     NetSpec net;
     if (!loadNet(netPath, net)) return 1;
@@ -900,6 +926,28 @@ int main(int argc, char** argv)
         fprintf(fang, "frame,joint,dof,state,cur,err,linCur,linErr,linState\n");
         printf("  -> %s\n", ap2.c_str());
     }
+    // --- task 81: load the drive track ---
+    std::map<int, std::vector<std::pair<int, btTransform> > > driveTrack;
+    if (drivePath) {
+        FILE* fdr = fopen(drivePath, "r");
+        if (!fdr) { printf("  !! cannot open drive csv: %s\n", drivePath); return 2; }
+        char line[512];
+        if (!fgets(line, sizeof(line), fdr)) { fclose(fdr); return 2; }   // header
+        long nrow = 0;
+        while (fgets(line, sizeof(line), fdr)) {
+            int fr = 0, bi = 0; double px,py,pz,qx,qy,qz,qw;
+            if (sscanf(line, "%d,%d,%lf,%lf,%lf,%lf,%lf,%lf,%lf",
+                       &fr,&bi,&px,&py,&pz,&qx,&qy,&qz,&qw) != 9) continue;
+            btTransform tr;
+            tr.setOrigin(btVector3(btScalar(px),btScalar(py),btScalar(pz)));
+            tr.setRotation(btQuaternion(btScalar(qx),btScalar(qy),btScalar(qz),btScalar(qw)));
+            driveTrack[fr].push_back(std::make_pair(bi, tr));
+            ++nrow;
+        }
+        fclose(fdr);
+        printf("  [drive] %ld rows / %d frames from %s\n", nrow, (int)driveTrack.size(), drivePath);
+    }
+
     const btScalar subDt = btScalar(net.dt / substeps);
     int lateFrom = frames - frames / 3;
     long contactSeen = 0;
@@ -925,13 +973,47 @@ int main(int argc, char** argv)
             fclose(fd);
             printf("  -> %s  (frame %d)\n", dp.c_str(), f);
         }
+        // --- task 81: snapshot the frame-start pose of every driven body ---
+        std::vector<btTransform> kinStart;
+        std::vector<std::pair<int, btTransform> >* tgts = 0;
+        if (drivePath) {
+            std::map<int, std::vector<std::pair<int, btTransform> > >::iterator it = driveTrack.find(f);
+            if (it != driveTrack.end()) {
+                tgts = &it->second;
+                kinStart.resize(tgts->size());
+                for (size_t t = 0; t < tgts->size(); ++t)
+                    kinStart[t] = bodies[(*tgts)[t].first]->getWorldTransform();
+            }
+        }
         bool wantRows = (f < rowFrames) || (f >= lateFrom);
         for (int s = 0; s < substeps; ++s) {
             world->sampling = wantRows;
             world->rows.clear();
             solver->frame = f; solver->substep = s;
             solver->capture = rowTrace && wantRows;
+            if (tgts) {
+                // ★Bullet の作法: キネマ剛体は **ステップ前に** worldTransform を置く。
+                //   btDiscreteDynamicsWorld::saveKinematicState が
+                //   (worldTransform - interpolationWorldTransform)/dt から速度を算出し、
+                //   そのあと interpolation を world へ同期する。手で速度を入れると二重になる。
+                btScalar frac = btScalar(s + 1) / btScalar(substeps);
+                for (size_t t = 0; t < tgts->size(); ++t) {
+                    btRigidBody* kb = bodies[(*tgts)[t].first];
+                    const btTransform& a0 = kinStart[t];
+                    const btTransform& a1t = (*tgts)[t].second;
+                    btTransform interp;
+                    interp.setOrigin(a0.getOrigin().lerp(a1t.getOrigin(), frac));
+                    interp.setRotation(t81Slerp(a0.getRotation(), a1t.getRotation(), frac));
+                    // ★btRigidBody::saveKinematicState は motionState から m_worldTransform を
+                    //   引き直す (btRigidBody.cpp)。剛体側だけ書いても毎ステップ巻き戻される。
+                    //   キネマ剛体の駆動は **motionState を更新するのが Bullet の作法**。
+                    kb->getMotionState()->setWorldTransform(interp);
+                    kb->setWorldTransform(interp);
+                    kb->activate(true);
+                }
+            }
             world->stepSimulation(subDt, 1, subDt);
+
             solver->capture = false;
             if (fang && wantRows && s == 0) {
                 for (size_t ci = 0; ci < cons.size(); ++ci) {

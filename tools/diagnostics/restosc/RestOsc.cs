@@ -947,6 +947,14 @@ static class RestOsc
     // 毎回既定へ戻してから適用する (スモークが条件を跨いで汚染しないため)。
     static void ApplyGlobalEnv()
     {
+        // ★タスク94 A/B: 動的質量の上限 (PMX異常値への耐性)。未指定なら出荷既定のまま。
+        if (Env("MAXMASS") != null) PmxPhysicsBuilder.MaxDynamicMass = EnvF("MAXMASS", 1e6f);
+
+        // ★DAMPCLAMP=<x> (2026-08-30 タスク142): 減衰クランプ上限の A/B。divhunt/NetDump と同じ仕組み。
+        //   既定を 0.999 → 1.0 (Bullet 準拠) にした変更を 31モデルスイープで A/B するために要る。
+        //   ★env 未設定なら一切触らない = 既存出力はビット不変。
+        if (Env("DAMPCLAMP") != null) PhysicsWorld.DampingClampMax = EnvF("DAMPCLAMP", 1.0f);
+
         Joint.AngularMixedAxes = Env("AXES") != null ? Env("AXES") == "1" : ShipAxes;
         // タスク22: 角度抽出を Bullet 2.75 実挙動 (R_B⁻¹R_A のオイラー + 角度行の軸反転) へ。
         Joint.BulletAngleConvention = Env("ANGCONV") != null ? Env("ANGCONV") == "1" : ShipAngConv;
@@ -1372,6 +1380,7 @@ static class RestOsc
 
     static int Main()
     {
+        SyncGuard.RequireInSync();   // ★エンジン3複製の同期を先に確かめる (不一致なら実行しない)
         ApplyGlobalEnv();
 
         if (Env("MINNET") == "1")

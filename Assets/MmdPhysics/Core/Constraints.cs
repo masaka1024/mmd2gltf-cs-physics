@@ -404,6 +404,19 @@ namespace BulletPhysics
         private static bool IsLocked(float lo, float hi) => lo == hi;
         private static bool IsFree(float lo, float hi) => lo > hi;
 
+        /// <summary>ロック行/リミット行のインパルス上下限。**Bullet と同じ SIMD_INFINITY (=FLT_MAX)**。
+        /// 出典: btGeneric6DofConstraint.cpp:827-842 — lo==hi のロック行は
+        ///   `info->m_lowerLimit[srow] = -SIMD_INFINITY; info->m_upperLimit[srow] = SIMD_INFINITY;`
+        ///   btScalar.h:280 `#define SIMD_INFINITY FLT_MAX`。同ファイル 195/287 の BT_LARGE_FLOAT は
+        ///   testLimitValue 側のローカル初期値であって行の上下限ではない。
+        /// ★2026-08-26 タスク80②: 従来の有限代用 1e18 から FLT_MAX へ訂正した。
+        ///   **演算結果は不変**: 1e17/1e18/1e19/1e20/1e24/1e30/3e38 で出力がビット一致し、
+        ///   1e16 で初めて動く = 実インパルスの最大は 1e16〜1e17 で 1e18 は張り付いていなかった。
+        ///   3例 (質量5.56e14を持つモデルの鎖のみ / 同 全身接触あり / hairfid 参照モデル) で確認。
+        ///   1e14 以下へ下げると鎖を保持できず位置誤差 133〜180 単位へ破綻する (この行が効いている裏取り)。
+        ///   1e18 のままだと余裕が 10〜100倍しか無く、さらに重いモデルで黙ってクランプが効き始める。</summary>
+        public static float LockedRowImpulseBound = float.MaxValue;
+
         // --- 準備: フレーム/アンカー/行を構築 ---
         public void Prepare(float dt, bool splitBias = false, bool warmStart = false, bool warmStartAng = false)
         {
@@ -518,9 +531,24 @@ namespace BulletPhysics
                     if (SpringAsMotorRow) AddSpringMotorRow(false, i, axis, cur, lo, hi, rA, rB, invDt);
                     continue;
                 }
-                if (IsLocked(lo, hi)) { err = lo - cur; lower = -1e18f; upper = 1e18f; }
-                else if (cur < lo) { err = lo - cur; lower = 0f; upper = 1e18f; }
-                else if (cur > hi) { err = hi - cur; lower = -1e18f; upper = 0f; }
+                // ★ロック行/リミット行のインパルス上下限。Bullet は SIMD_INFINITY を使う。
+                //   ここが **質量次元の絶対定数** なので、質量が極端なモデルでは
+                //   「実効質量 x 速度誤差」が上限に張り付き、補正が勝手に頭打ちになる。
+                //   A/B 用に外出しした (既定 1e18 = 従来値でビット不変)。
+                //
+                //   ★2026-08-26 実測: 既定 1e18 は **どのモデルでも張り付いていない**。
+                //     IMPBND を 1e17/1e19/1e20/1e24/1e30/3e38 と振っても出力がビット一致し、
+                //     1e16 で初めてハッシュが動く = 実インパルスの最大は **1e16〜1e17**。
+                //     測ったのは 質量 5.56e14 を持つ最も極端なモデル (鎖のみ/全身の両方) と
+                //     hairfid の参照モデル。3例とも 3e38 でビット不変。
+                //     1e14 以下まで下げると鎖が保持できず 位置誤差 133〜180 単位へ破綻する。
+                //   → 2026-08-26 タスク80② で **既定を FLT_MAX へ訂正済み** (演算結果は不変)。
+                //     Bullet の該当行は SIMD_INFINITY (btGeneric6DofConstraint.cpp:827-842)。
+                //     1e18 のままだと余裕 10〜100倍しか無く、さらに重いモデルで黙って効き始める。
+                float BND = LockedRowImpulseBound;
+                if (IsLocked(lo, hi)) { err = lo - cur; lower = -BND; upper = BND; }
+                else if (cur < lo) { err = lo - cur; lower = 0f; upper = BND; }
+                else if (cur > hi) { err = hi - cur; lower = -BND; upper = 0f; }
                 else
                 {
                     // 制限内 → Bullet は limit=0。モーター行だけが立つ (既定では後段の陽的ばね)。

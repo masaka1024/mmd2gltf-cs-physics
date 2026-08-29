@@ -26,6 +26,11 @@
 //    FRAMES     既定 1800 (30秒 @60)   SUBSTEPS 既定 2   ITERS 既定 10
 //    BODIES     対象剛体フィルタ ('*' で全部)
 //    WARMUP     計測前に捨てるフレーム 既定 120
+//    HOLD       ★駆動目標を N フレームに1回しか更新しない (間は保持)。既定 1 = 毎フレーム更新。
+//               Unity で描画が重くなったときの再現: Animator はレンダフレームに1回しかボーンを
+//               書かないが FixedUpdate は 60Hz で回るので、ボーンは「N-1 フレーム静止 → 1 フレームで
+//               N フレーム分ジャンプ」になる。キネマティック速度は (目標-現在)/dt なので
+//               **その1フレームだけ実速度の N 倍のキックが入る**。60fps で N=1、10fps で N=6。
 // ===========================================================================
 using System;
 using System.Collections.Generic;
@@ -87,13 +92,15 @@ static class SynDrive
         float ampDeg = EnvF("AMPDEG", 40f);
         float ampPos = EnvF("AMPPOS", 3f);
         float period = EnvF("PERIOD", 2f);
+        int hold = Math.Max(1, EnvI("HOLD", 1));
         float dt = 1f / 60f;
         var O = new StringBuilder();
         void L(string s = "") { Console.WriteLine(s); O.Append(s); O.Append('\n'); }
 
         L("=".PadRight(104, '='));
         L("syndrive : 合成駆動での揺れ幅 A/B (既定 vs 3点構成)  " + frames + "F  駆動=" + mode +
-          "  振幅 " + ampDeg.ToString("G4") + "deg / " + ampPos.ToString("G4") + "単位  周期 " + period.ToString("G4") + "s");
+          "  振幅 " + ampDeg.ToString("G4") + "deg / " + ampPos.ToString("G4") + "単位  周期 " + period.ToString("G4") + "s" +
+          (hold > 1 ? "  ★HOLD=" + hold + " (駆動更新 " + (60f / hold).ToString("G3") + "Hz 相当 = 描画コマ落ちの再現)" : ""));
         L("  ★相対比較専用。合成駆動は参照の動きではないので忠実度の絶対判定には使わない。");
         L("  ★指標は駆動系から見た相対姿勢 (local = M(t)⁻¹ * bodyWorld)。体の回転そのものは含まない。");
         L("=".PadRight(104, '='));
@@ -154,7 +161,8 @@ static class SynDrive
 
             for (int f = 0; f < frames; f++)
             {
-                float t = f * dt;
+                // HOLD>1 のときは駆動時刻を保持境界へ量子化する (レンダフレームでしか更新されない状況)。
+                float t = (f / hold) * hold * dt;
                 var m = M(t);
                 foreach (var (b, bind) in kin) b.KinematicTarget = m * bind;
                 world.StepSimulation(dt);

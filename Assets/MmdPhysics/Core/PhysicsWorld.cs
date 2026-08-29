@@ -516,11 +516,18 @@ namespace BulletPhysics
             }
         }
 
+        /// <summary>将来の検証用に外出ししたつまみ。**既定 0.999 は未検証につき維持** (ビット不変)。
+        /// Bullet 2.75 の受け口は `[0,1]` (btRigidBody.cpp:139) なので 1.0 が Bullet 準拠ではある。
+        /// ★2026-08-27 タスク84: 「1.0 のほうが良い」という数値主張は **撤回済み**。
+        ///   根拠にしていた参照データが無効だったため (docs/investigations の モデルZ 参照の件)。
+        ///   健全な参照が用意できるまで、既定を動かす根拠は無い。</summary>
+        public static float DampingClampMax = 0.999f;
+
         // Bullet 2.75 の秒単位減衰係数。(1 - d)^dt。
         // d=1.0 は 0 除算・完全停止を避けるためクランプする。
         private static float DampingFactor(float damping, float dt)
         {
-            float d = Math.Clamp(damping, 0f, 0.999f);
+            float d = Math.Clamp(damping, 0f, DampingClampMax);
             return (float)Math.Pow(1f - d, dt);
         }
 

@@ -40,12 +40,35 @@ namespace UnityEngine
 
     public class Component
     {
+        public string name;
         public Transform[] GetComponentsInChildren<T>() => new Transform[0];
+        // 単体取得は「見つからない」を返すだけでよい (ヘッドレスにはシーンが無い)。
+        public T GetComponentInParent<T>() where T : class => null;
+        public T GetComponentInChildren<T>() where T : class => null;
+        // includeInactive 付きオーバーロード (非アクティブな GameObject も探索対象にする)。
+        public T GetComponentInParent<T>(bool includeInactive) where T : class => null;
+        public T GetComponentInChildren<T>(bool includeInactive) where T : class => null;
+    }
+
+    // Animator.updateMode の切り替え (MmdPhysicsBehaviour.AlignAnimatorUpdateMode) が参照する。
+    // ★Unity 2023.1 で AnimatePhysics → Fixed へ改名された。当プロジェクトは Unity 6 なので Fixed。
+    public enum AnimatorUpdateMode { Normal, Fixed, UnscaledTime }
+
+    public class Animator : Component
+    {
+        public AnimatorUpdateMode updateMode;
+    }
+
+    // レガシー Animation コンポーネント。★列挙型も値の名前も Animator 側とは別物。
+    public enum AnimationUpdateMode { Normal, Fixed }   // ★実DLLのメタデータ準拠。Animator 側とは別物
+
+    public class Animation : Component
+    {
+        public AnimationUpdateMode updateMode;
     }
 
     public class Transform : Component
     {
-        public string name;
         public Vector3 position;
         public Quaternion rotation;
         // 診断(DumpZHistory)がシーン配置の確認に使う。ヘッドレスでは実体が無いので既定値を返すだけ。
@@ -72,6 +95,8 @@ namespace UnityEngine
     {
         public static float fixedDeltaTime = 1f / 60f;
         public static float deltaTime = 1f / 60f;
+        // 重いフレームでの FixedUpdate 追いつき上限 (MmdPhysicsBehaviour.LimitCatchUp が下げる)。
+        public static float maximumDeltaTime = 1f / 3f;
         public static int frameCount = 0;
     }
 

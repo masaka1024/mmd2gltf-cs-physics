@@ -6,15 +6,14 @@
     <LangVersion>9.0</LangVersion>
     <OutputType>Exe</OutputType>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <AssemblyName>Perf</AssemblyName>
-    <StartupObject>Perf</StartupObject>
-    <Optimize>true</Optimize>
+    <AssemblyName>PmxExtreme</AssemblyName>
+    <StartupObject>PmxExtreme</StartupObject>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\compilecheck\UnityShim.cs" />
-    <Compile Include="..\compilecheck\SyncGuard.cs" />
-    <Compile Include="..\compilecheck\TestData.cs" />
-    <Compile Include="Perf.cs" />
-    <Compile Include="..\..\Assets\MmdPhysics\**\*.cs" />
+    <Compile Include="../../compilecheck/UnityShim.cs" />
+    <Compile Include="../../compilecheck/SyncGuard.cs" />
+    <Compile Include="../../compilecheck/TestData.cs" />
+    <Compile Include="Extreme.cs" />
+    <Compile Include="../../../Assets/MmdPhysics/**/*.cs" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,4 @@
-// ===========================================================================
+﻿// ===========================================================================
 // テストデータ(モデル/CSV)のパス解決。公開リポジトリに絶対パスを残さないための共通ヘルパ。
 // 解決順 (最初に見つかったものを使う):
 //   1) 環境変数 (MMD_TEST_PMX / MMD_TEST_BONECSV / MMD_TEST_PMXCSV)
@@ -12,7 +12,12 @@ using System.IO;
 internal static class TestData
 {
     public const string DefaultPmx = "modelA.pmx";
-    public const string DefaultBoneCsv = "modelA_bone_world_pose.csv";
+    // ★2026-08-29 昇格: 既定参照を「真OFF (統制ペア・補正層OFF = 純ソルバ)」へ切替。
+    //   旧既定 modelA_bone_world_pose.csv は実体が【補正OFF + Fix前の整え込み】で、
+    //   整え作業ぶんの開始状態が交絡していた (忠実度指標は 1e-4 しか動かないが、
+    //   交絡の無い方を北極星にする / NORTH_STAR §5-a)。旧参照も検証は通るので併用可。
+    public const string DefaultBoneCsv = "modelA_bone_world_pose_detoff.csv";
+    public const string LegacyBoneCsv  = "modelA_bone_world_pose.csv";   // 旧既定 (撤回せず残す)
     public const string DefaultStructureCsv = "ia.csv";
     public const string DefaultGlb = "modelA.glb";
 

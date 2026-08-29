@@ -14,7 +14,7 @@ static class TsBase
 {
     static readonly string PmxPath = TestData.PmxPath();
     const float FRAME = 1f / 30f;
-    const float RefCalmMed = 11.39f;
+    const float RefCalmMed = 10.87f;   // ★2026-08-29 真OFF(純ソルバ)基準。旧既定参照では 11.39
     static StringBuilder O = new StringBuilder(); static void L(string s = "") { O.Append(s); O.Append('\n'); }
     static BoneCsv csv; static PmxPhysicsModel model; static int F;
     static List<SkirtMeasure.TurnWindow> wins; static bool[] inWin; static List<SkirtJoint> skirt; static float[] refWinMax;

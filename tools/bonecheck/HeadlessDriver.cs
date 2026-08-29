@@ -1,4 +1,4 @@
-﻿// ===========================================================================
+// ===========================================================================
 // ヘッドレス再生ドライバ (タスク2)。
 // CSVの入力ボーン(7本)を BoneFollow 剛体に与え、スカート(dynamic)を物理で動かす。
 // 座標はPMXネイティブなので変換・スケールは不要。既定=30Hz・1サブ。
@@ -63,6 +63,10 @@ namespace BoneCheck
             if (int.TryParse(System.Environment.GetEnvironmentVariable("LEVER"), out var _lv)) Joint.LinearLeverMode = _lv; // 線形レバーアーム 0/1/2
             // ★2026-08-21 追加: ジョイント位置補正係数の掃引 (既定0.2)。未設定=無変更。
             //   LEVER=1 の下で翻り量(ゲイン)がどう動くかを測るため。
+        if (float.TryParse(Environment.GetEnvironmentVariable("DAMPCLAMP"), out var _dc) && _dc > 0f) PhysicsWorld.DampingClampMax = _dc;
+        // ↑減衰クランプ上限 (既定 0.999)。Bullet は [0,1]。タスク82 の A/B 用。
+        if (float.TryParse(Environment.GetEnvironmentVariable("IMPBND"), out var _ib) && _ib > 0f) Joint.LockedRowImpulseBound = _ib;
+        // ↑ロック行のインパルス上下限 (既定 1e18 = Bullet SIMD_INFINITY の有限代用)。2026-08-26 A/B 用。
             if (float.TryParse(System.Environment.GetEnvironmentVariable("JBETA"),
                     System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var _jb) && _jb >= 0f)

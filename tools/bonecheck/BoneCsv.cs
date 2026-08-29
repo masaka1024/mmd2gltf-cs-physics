@@ -1,4 +1,4 @@
-// ===========================================================================
+﻿// ===========================================================================
 // ボーン姿勢CSVローダ (Unity 非依存・計測専用。本体は変更しない)。
 // MMDでベイクしたVMDから書き出した「ワールド絶対姿勢」CSVを読む。
 //   列: frame,boneName,posX,posY,posZ,quatX,quatY,quatZ,quatW (ヘッダ行あり, UTF-8)
@@ -43,8 +43,15 @@ namespace BoneCheck
         // ★取り違え検出 (2026-08-09): 提供された CSV が想定の modelA_bone_world_pose.csv か検証する。
         //   バイト数/行数/列名/ボーン構成(43=追従7+スカート36) を確認し、1つでも外れたら
         //   合成ターンへフォールバックせず明示的に失敗させる (誤ったCSVでMMD比較すると無意味なため)。
-        public const long ExpectedBytes = 27556907;   // 仕様値 (補正ON版, 完全一致)
-        public const long ExpectedBytesOff = 27397107; // 補正OFF版 (純Bullet正解, 構造同一・値のみ差)
+        // ★2026-08-29 ラベル訂正: 下2つの「ON/OFF」は取り違えだった (統制ペアで確定)。
+        //   27556907 … 実体は【補正OFF + Fix前の整え込み】。長らく既定参照として使ってきたもの。
+        //   27397107 … 実体は【補正ON】。同日焼き直した ON ベイクと md5 完全一致で確定。
+        //   27568182 … 【真の補正OFF】= 統制ペアの OFF (整え無し・トグルだけ変更)。純ソルバの正解データ。
+        //   駆動7ボーンは3本とも一致 (|Δp| max 0 / 角度 max 3.8e-6°) なので対照として比較可能。
+        //   詳細: 補正層プローブ側の「統制ペア台帳」(本リポジトリ外) を参照。
+        public const long ExpectedBytes = 27556907;    // 補正OFF + 整え込み (旧「ON」ラベル)
+        public const long ExpectedBytesOff = 27397107; // 補正ON (旧「OFF」ラベル・名前は互換のため据え置き)
+        public const long ExpectedBytesDetOff = 27568182; // ★真の補正OFF (統制ペア・純ソルバ正解)
         public const int ExpectedDataRows = 301043;    // 43ボーン × 7001フレーム
         public const int ExpectedBones = 43;           // 追従7 + スカート36
         public const int ExpectedSkirtBones = 36;
@@ -55,7 +62,7 @@ namespace BoneCheck
         {
             if (!File.Exists(path)) return $"ファイルが存在しない: {path}";
             long bytes = new FileInfo(path).Length;
-            if (bytes != ExpectedBytes && bytes != ExpectedBytesOff) return $"バイト数不一致: {bytes} (期待 {ExpectedBytes} or OFF版 {ExpectedBytesOff})";
+            if (bytes != ExpectedBytes && bytes != ExpectedBytesOff && bytes != ExpectedBytesDetOff) return $"バイト数不一致: {bytes} (期待 {ExpectedBytes} / {ExpectedBytesOff} / 統制ペアOFF {ExpectedBytesDetOff})";
 
             long dataRows = 0; var bones = new System.Collections.Generic.HashSet<string>();
             bool first = true;

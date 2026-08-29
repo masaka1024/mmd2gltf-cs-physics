@@ -1,5 +1,7 @@
-// タスク2+3: MMD(CSV)と自作物理(ヘッドレス再生)を同じ物差しで比較する。
-// まずMMD参照値の再現を検証し、続いて物理を7001フレーム回して並記する。
+﻿// タスク2+3: 参照(CSV)と自作物理(ヘッドレス再生)を同じ物差しで比較する。
+// ★「参照」= PMXエディタの **補正OFF (真OFF) ベイク** = ソルバの答えそのもの (NORTH_STAR §5-a)。
+//   補正ON ベイクは別レイヤーであり、ここでの比較相手ではない。
+// まず参照参照値の再現を検証し、続いて物理を7001フレーム回して並記する。
 // 数字を合わせにいく調整は行わない。合っていなくてもそのまま出す。
 using System;
 using System.IO;
@@ -31,7 +33,7 @@ namespace BoneCheck
             }
             if (csvPath == null)
             {
-                // CSV が「未提供」の環境のみ合成ターン (環境確認用・MMD比較不可) にフォールバック。
+                // CSV が「未提供」の環境のみ合成ターン (環境確認用・参照比較不可) にフォールバック。
                 Console.WriteLine("[INFO] ボーンCSV 未検出 → 合成ターンで環境確認 (タスク4)。");
                 return SyntheticTurn.Run(PmxReader.LoadFile(PmxPath)) ? 0 : 1;
             }
@@ -42,10 +44,10 @@ namespace BoneCheck
             {
                 Console.WriteLine($"[FAIL] ボーンCSV 取り違え検出: {verr}");
                 Console.WriteLine($"       path={csvPath}");
-                Console.WriteLine("       誤ったCSVでのMMD比較は無意味なため合成ターンへフォールバックしません。");
+                Console.WriteLine("       誤ったCSVでの参照比較は無意味なため合成ターンへフォールバックしません。");
                 return 1;
             }
-            Console.WriteLine($"[OK] ボーンCSV 検証通過 (bytes={BoneCsv.ExpectedBytes}/rows={BoneCsv.ExpectedDataRows}/columns/bones43): {csvPath}");
+            Console.WriteLine($"[OK] ボーンCSV 検証通過 (bytes={new FileInfo(csvPath).Length}/rows={BoneCsv.ExpectedDataRows}/columns/bones43): {csvPath}");
 
             // 先に swing-twist 分解の単体テスト (ヨー遅れ計測の土台)。
             bool stOk = SwingTwistTest.Run();
@@ -57,7 +59,7 @@ namespace BoneCheck
             int F = csv.FrameCount, nj = joints.Count;
             float dt = 1f / 30f;
 
-            // ---- MMD参照 傾き & rel-yaw ----
+            // ---- 参照参照 傾き & rel-yaw ----
             var refTilt = new float[F][];
             var refRelYaw = new float[F][];
             var refFrameMax = new float[F];
@@ -86,16 +88,25 @@ namespace BoneCheck
             var wins = SkirtMeasure.DetectTurnWindows(yaw, 360f);
             float maxYaw = yaw.Max(v => Math.Abs(v));
 
-            // ---- 検証: MMD参照値が Python と一致するか (物理へ進む前の門番) ----
-            L("========== 検証: MMD参照値の再現 (Python対決) ==========");
+            // ---- 検証: 参照参照値が Python と一致するか (物理へ進む前の門番) ----
+            // ★2026-08-29: 期待値 (P…) を「真OFF (純ソルバ)」で取り直した。
+            //   数値は refgate.py で **Python 側から独立に再計算**したもので、本ツールの出力を
+            //   写したものではない (自己参照ゲート化の防止)。同じ Python 実装が旧既定参照に対して
+            //   旧定数 11.39 / 25.66 / 10.06・12.78・11.81 / 12窓 / 57.3 / 59.1 を完全再現することを
+            //   確認済み = 物差しの実装が等価であることの裏取り。
+            //   旧既定参照 (補正OFF+整え込み) の期待値 (撤回せず記録):
+            //     中央 11.39 / p90 25.66 / ring 10.06・12.78・11.81 / 窓@847 57.3 / 窓@1962 59.1
+            //   参考: 補正ON ベイクを渡すと 中央 28.32 / p90 93.86 / 窓@847 144.1 になる (別レイヤー)。
+            //   ※ 旧コードのヨー最大 P671.7 は実測と 0.6 ずれた古い定数だった。実測は 3参照とも 671.1。
+            L("========== 検証: 参照値の再現 (Python対決) ==========");
             var refAll = Flatten(refTilt);
             var refRing = RingSplit(refTilt, joints);
             var sAll = SkirtMeasure.Stats(refAll);
-            L($"  中央値={sAll.med:F2}(P11.39)  p90={sAll.p90:F2}(P25.66)");
-            L($"  ring別中央値: ring0={SkirtMeasure.Stats(refRing[0]).med:F2}(P10.06) ring1={SkirtMeasure.Stats(refRing[1]).med:F2}(P12.78) ring2={SkirtMeasure.Stats(refRing[2]).med:F2}(P11.81)");
-            L($"  ターン窓={wins.Count}(P12)  ヨー最大={maxYaw:F1}(P671.7)");
-            L($"  窓@~847 傾きmax={WinMax(FindWin(wins, 847), refFrameMax, F):F1}(P57.3)  窓@~1962 傾きmax={WinMax(FindWin(wins, 1962), refFrameMax, F):F1}(P59.1)");
-            bool gateOk = Math.Abs(sAll.med - 11.39f) < 0.2f && wins.Count == 12;
+            L($"  中央値={sAll.med:F2}(P10.87)  p90={sAll.p90:F2}(P22.91)");
+            L($"  ring別中央値: ring0={SkirtMeasure.Stats(refRing[0]).med:F2}(P9.67) ring1={SkirtMeasure.Stats(refRing[1]).med:F2}(P12.28) ring2={SkirtMeasure.Stats(refRing[2]).med:F2}(P11.38)");
+            L($"  ターン窓={wins.Count}(P12)  ヨー最大={maxYaw:F1}(P671.1)");
+            L($"  窓@~847 傾きmax={WinMax(FindWin(wins, 847), refFrameMax, F):F1}(P55.6)  窓@~1962 傾きmax={WinMax(FindWin(wins, 1962), refFrameMax, F):F1}(P58.4)");
+            bool gateOk = Math.Abs(sAll.med - 10.87f) < 0.2f && wins.Count == 12;
             L($"  => 物差し健全性: {(gateOk ? "OK (物理比較へ進む)" : "NG (要調査)")}");
 
             // ---- 物理を回す ----
@@ -126,18 +137,18 @@ namespace BoneCheck
             L($"  BoneFollowだがCSV欠損: {(drv.MissingDrivenBones.Count == 0 ? "なし" : string.Join(",", drv.MissingDrivenBones))}");
             L($"  ウォームアップ={drv.WarmupSteps}step  7001フレーム再生時間={drv.RunSeconds:F1}s");
 
-            // ---- 1) 平時統計 (全フレーム, 自前 vs MMD) ----
+            // ---- 1) 平時統計 (全フレーム, 自前 vs 参照) ----
             L();
-            L("========== 1) 平時統計 (傾き, 全フレーム)  自前物理 / MMD ==========");
+            L("========== 1) 平時統計 (傾き, 全フレーム)  自前物理 / 参照 ==========");
             L("  対象  |  med(自/本)  |  p90(自/本)  |  max(自/本)");
             PrintPair("全体", Flatten(physTilt), refAll);
             var physRing = RingSplit(physTilt, joints);
             for (int r = 0; r < 3; r++) PrintPair($"ring{r}", physRing[r], refRing[r]);
 
-            // ---- 2) ターンイベント (窓ごと 自前/MMD) ----
+            // ---- 2) ターンイベント (窓ごと 自前/参照) ----
             L();
             L("========== 2) ターンイベント (瞬間ヨー角速度>360°/s の窓) ==========");
-            L("  #  開始F  時刻s  ヨーpeak  傾きmax:自前  傾きmax:MMD (窓+30F)");
+            L("  #  開始F  時刻s  ヨーpeak  傾きmax:自前  傾きmax:参照 (窓+30F)");
             var winRatios = new List<float>();
             for (int i = 0; i < wins.Count; i++)
             {
@@ -146,33 +157,33 @@ namespace BoneCheck
                 if (mr > 1e-3f) winRatios.Add(mp / mr);
                 L($"  {i + 1,2}  {w.StartFrame,5} {w.StartFrame / 30.0,6:F2} {w.PeakYaw,8:F1}   {mp,10:F1}   {mr,10:F1}");
             }
-            // 12窓比サマリ (自前/MMD の窓ごとピーク比。1.0=MMD一致)。既定ベースライン=中央1.0588。
+            // 12窓比サマリ (自前/参照 の窓ごとピーク比。1.0=参照一致)。既定ベースライン=中央1.0588。
             if (winRatios.Count > 0)
             {
                 winRatios.Sort();
                 float rmed = winRatios[winRatios.Count / 2], rmin = winRatios[0], rmax = winRatios[winRatios.Count - 1];
-                L($"  [12窓比 自前/MMD] 中央={rmed:F4} 最小={rmin:F4} 最大={rmax:F4} (1.0=MMD一致, ベースライン中央: 2026-08-20実測 0.9867 / 旧記録 1.0588)");
+                L($"  [12窓比 自前/参照] 中央={rmed:F4} 最小={rmin:F4} 最大={rmax:F4} (1.0=参照一致, ベースライン中央: 真OFF基準 0.9096 [2026-08-29実測] / 旧既定参照 0.9095・0.9867 / 旧記録 1.0588)");
             }
 
             // ---- 3) 窓1・窓4 対決 ----
             L();
-            L("========== 3) 窓1・窓4 のMMD対決 ==========");
+            L("========== 3) 窓1・窓4 の参照対決 ==========");
             var W1 = FindWin(wins, 847); var W4 = FindWin(wins, 1962);
-            L($"  窓1(開始~847): 自前={WinMax(W1, physFrameMax, F):F1}  MMD={WinMax(W1, refFrameMax, F):F1}  (PythonMMD=57.3)");
-            L($"  窓4(開始~1962): 自前={WinMax(W4, physFrameMax, F):F1}  MMD={WinMax(W4, refFrameMax, F):F1}  (PythonMMD=59.1)");
+            L($"  窓1(開始~847): 自前={WinMax(W1, physFrameMax, F):F1}  参照={WinMax(W1, refFrameMax, F):F1}  (Python参照=55.6)");
+            L($"  窓4(開始~1962): 自前={WinMax(W4, physFrameMax, F):F1}  参照={WinMax(W4, refFrameMax, F):F1}  (Python参照=58.4)");
 
             // ---- 4) ヨー遅れ (取付相対ヨー, ターン窓中の最大|ヨー|) ----
             L();
             L("========== 4) ヨー遅れ (取付相対ヨー角, ターン窓中の最大|deg|) ==========");
-            L("  MMDはターン中もヨー遅れ1〜3°の完全共回転(との事前情報)。大きければ共回転できていない。");
+            L("  参照はターン中もヨー遅れ1〜3°の完全共回転(との事前情報)。大きければ共回転できていない。");
             L($"  swing-twist単体テスト: {(stOk ? "PASS" : "FAIL")}");
-            L($"  全体最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, -1):F1}°  MMD={MaxRelYawInWindows(refRelYaw, wins, F, joints, -1):F1}°");
+            L($"  全体最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, -1):F1}°  参照={MaxRelYawInWindows(refRelYaw, wins, F, joints, -1):F1}°");
             for (int r = 0; r < 3; r++)
-                L($"  ring{r} 最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, r):F1}°  MMD={MaxRelYawInWindows(refRelYaw, wins, F, joints, r):F1}°");
+                L($"  ring{r} 最大|取付相対ヨー|(窓中): 自前={MaxRelYawInWindows(physRelYaw, wins, F, joints, r):F1}°  参照={MaxRelYawInWindows(refRelYaw, wins, F, joints, r):F1}°");
 
             // 仮説検証: 「1〜3°」は取付相対ツイストではなく「世界ヨー差(子の世界ヨー-親の世界ヨー)」では?
-            // MMD(CSV)の世界ヨー差をリング別に算出。
-            L("  [仮説] 世界ヨー差(子-親, 世界Y twist) 最大(窓中) MMD:");
+            // 参照(CSV)の世界ヨー差をリング別に算出。
+            L("  [仮説] 世界ヨー差(子-親, 世界Y twist) 最大(窓中) 参照:");
             for (int r = 0; r < 3; r++)
             {
                 float mx = 0;
@@ -189,7 +200,7 @@ namespace BoneCheck
                 L($"    ring{r}: {mx:F1}°");
             }
 
-            // 「1〜3°」は最大でなく中央値/平時では? MMD 取付相対ヨーの中央値を全フレーム/平時で。
+            // 「1〜3°」は最大でなく中央値/平時では? 参照 取付相対ヨーの中央値を全フレーム/平時で。
             var inWin = new bool[F];
             foreach (var w in wins) for (int f = w.StartFrame; f <= Math.Min(F - 1, w.EndFrame + 30); f++) inWin[f] = true;
             var refYawAll = new List<float>(); var refYawCalm = new List<float>();
@@ -201,9 +212,9 @@ namespace BoneCheck
                     refYawAll.Add(ra); physYawAll.Add(pa);
                     if (!inWin[f]) { refYawCalm.Add(ra); physYawCalm.Add(pa); }
                 }
-            L($"  [中央値] 取付相対|ヨー| 全フレーム: 自前={SkirtMeasure.Stats(physYawAll).med:F2}° / MMD={SkirtMeasure.Stats(refYawAll).med:F2}°");
-            L($"  [中央値] 取付相対|ヨー| 平時(窓外): 自前={SkirtMeasure.Stats(physYawCalm).med:F2}° / MMD={SkirtMeasure.Stats(refYawCalm).med:F2}°");
-            L("  => swing-twistは単体テストで検証済み。MMDの取付相対ヨーは中央値~4.7°(平時ほぼ共回転)だが、");
+            L($"  [中央値] 取付相対|ヨー| 全フレーム: 自前={SkirtMeasure.Stats(physYawAll).med:F2}° / 参照={SkirtMeasure.Stats(refYawAll).med:F2}°");
+            L($"  [中央値] 取付相対|ヨー| 平時(窓外): 自前={SkirtMeasure.Stats(physYawCalm).med:F2}° / 参照={SkirtMeasure.Stats(refYawCalm).med:F2}°");
+            L("  => swing-twistは単体テストで検証済み。参照の取付相対ヨーは中央値~4.7°(平時ほぼ共回転)だが、");
             L("     最速671°/s ターンの瞬間ピークで最大~55°まで遅れる。事前情報の『1〜3°』は平時(中央値)相当で、");
             L("     ピーク時は共回転しきれない。物差しの誤りではなく『最大 vs 中央値』の違い。");
 

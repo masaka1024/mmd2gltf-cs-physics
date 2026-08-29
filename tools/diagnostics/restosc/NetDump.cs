@@ -1,4 +1,4 @@
-// ===========================================================================
+﻿// ===========================================================================
 // NetDump: タスク20 (Bullet 2.75 行レベル突き合わせ) のための最小網エクスポータ。
 //
 //  タスク15 で「症状が出る最小の網 = 1房の鎖4本 + 横渡し1本 (Joint 5本 / 剛体5個+アンカー)」
@@ -101,6 +101,10 @@ static class NetDump
         else if (Env("JWARM") == "both") { world.UseJointWarmStart = true; world.UseJointWarmStartAngular = true; }
         float jbeta = EnvF("JBETA", -1f);
         if (jbeta >= 0f) foreach (var j in world.Joints) j.Beta = jbeta;
+        // ★DAMPCLAMP=<x> (2026-08-30 タスク137): 減衰クランプ上限の A/B。divhunt の同名 env と同じ仕組み。
+        //   PMX の減衰 1.0 の剛体で当エンジンだけ 0.999 に丸められる件 (タスク136 で発散の主因と確定) を
+        //   行レベルで突き合わせるために要る。★env 未設定なら一切触らない = 既存出力はビット不変。
+        if (Env("DAMPCLAMP") != null) PhysicsWorld.DampingClampMax = EnvF("DAMPCLAMP", 0.999f);
 
         // ─ 網の間引き ─
         //  既定: MinNet の「1房 + 横渡し」と同じく Joint 名の接頭辞で選ぶ
@@ -639,11 +643,16 @@ static class NetDump
                 var jj = jointByName[pr.joint];
                 float lo = pr.angular ? jj.AngularLowerLimit[pr.dof] : jj.LinearLowerLimit[pr.dof];
                 float hi = pr.angular ? jj.AngularUpperLimit[pr.dof] : jj.LinearUpperLimit[pr.dof];
-                // 力積の上下限は Constraints.cs と同じ規則: ロック=±1e18 / 下限側=[0,+1e18] / 上限側=[-1e18,0]
+                // 力積の上下限は Constraints.cs と同じ規則: ロック=±BND / 下限側=[0,+BND] / 上限側=[-BND,0]
+                // ★2026-08-29 タスク105-C の修正: ここは **±1e18 をハードコード**していた。
+                //   エンジンは 2026-08-26 タスク80② で `LockedRowImpulseBound` を FLT_MAX へ訂正済みで、
+                //   **トレースの lower/upper 欄だけが古い定数を表示し続けていた** (計測欄が実物と違う値を出す
+                //   = 計測バグ族)。実際 V2 の判定材料に使いかけた。実値を読んで出す。
+                float BND = Joint.LockedRowImpulseBound;
                 float rl, rh;
-                if (lo == hi) { rl = -1e18f; rh = 1e18f; }
-                else if (pr.err > 0f) { rl = 0f; rh = 1e18f; }     // err = lo-cur > 0 → 下限を割っている
-                else { rl = -1e18f; rh = 0f; }
+                if (lo == hi) { rl = -BND; rh = BND; }
+                else if (pr.err > 0f) { rl = 0f; rh = BND; }     // err = lo-cur > 0 → 下限を割っている
+                else { rl = -BND; rh = 0f; }
                 // 実効質量: AddLinearRow / AddAngularRow と同じ式を、ステップ前の逆慣性で再現する。
                 float kk;
                 if (pr.angular)

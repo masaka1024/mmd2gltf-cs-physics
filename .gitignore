@@ -59,3 +59,9 @@ tools/diagnostics/restosc/t77_lever2.ps1
 # 計測ランナー (.ps1) はローカルのモデル実ファイル名を直書きするので追跡しない。
 # 実行条件は docs/DESIGN.md 側に env 名で残すこと。
 tools/**/t[0-9][0-9]_*.ps1
+
+# 診断ツールが吐く生ダンプ (hairfid の掃引結果など)
+tools/hairfid/hf_*.raw
+
+# SyncGuard の複製パス (各自のローカル配置。絶対パスをリポジトリに置かない)
+syncguard.local.txt

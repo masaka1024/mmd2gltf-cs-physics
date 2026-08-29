@@ -6,19 +6,15 @@
     <LangVersion>9.0</LangVersion>
     <OutputType>Exe</OutputType>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <AssemblyName>RestOsc</AssemblyName>
-    <StartupObject>RestOsc</StartupObject>
+    <AssemblyName>DivHunt</AssemblyName>
+    <StartupObject>DivHunt</StartupObject>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../compilecheck/UnityShim.cs" />
     <Compile Include="../../compilecheck/SyncGuard.cs" />
     <Compile Include="../../compilecheck/TestData.cs" />
     <Compile Include="../../bonecheck/BoneCsv.cs" />
-    <Compile Include="RestOsc.cs" />
-    <Compile Include="NetDump.cs" />
-    <Compile Include="SynDrive.cs" />
-    <Compile Include="BoneDp.cs" />
-    <Compile Include="ContactTrace.cs" />
+    <Compile Include="Div.cs" />
     <Compile Include="../../../Assets/MmdPhysics/**/*.cs" />
   </ItemGroup>
 </Project>

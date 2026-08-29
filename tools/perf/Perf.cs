@@ -16,6 +16,7 @@ static class Perf
 
     static int Main()
     {
+        SyncGuard.RequireInSync();   // ★エンジン3複製の同期を先に確かめる (不一致なら実行しない)
         string pmx = TestData.PmxPath();
         if (pmx == null) { Console.WriteLine("[SKIP] no pmx"); return 0; }
         var model = PmxReader.LoadFile(pmx);
