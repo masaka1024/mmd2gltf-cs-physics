@@ -10,7 +10,8 @@
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "PmxEditor_0273", "physics_probe"))
-sys.path.insert(0, r"C:\mytask2\PmxEditor_0273\physics_probe")
+# 既定の相対探索で足りない場合だけ env で指す (絶対パスを書かない)
+if os.environ.get("PHYSICS_PROBE_DIR"): sys.path.insert(0, os.environ["PHYSICS_PROBE_DIR"])
 import make_static_vmd as M
 
 out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "fric_slide_static.vmd")

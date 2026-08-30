@@ -1,6 +1,8 @@
-﻿Set-Location C:\mytask2\unity-bullet-physics\tools\fricprobe
+﻿# リポジトリ直下を自分の位置から導出する (絶対パスを書かない)
+$REPO = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+Set-Location $REPO\tools\fricprobe
 foreach ($k in @("FRICALIGN","CPOOL","NORMFIRST","OUT","CSET","SLEEP_LIN","SLEEP_ANG","SLEEP_T")) { [Environment]::SetEnvironmentVariable($k,$null) }
-[Environment]::SetEnvironmentVariable("MMD_TEST_PMX","C:\mytask2\unity-bullet-physics\tools\fricprobe\fric_L_tan030.pmx")
+[Environment]::SetEnvironmentVariable("MMD_TEST_PMX","$REPO\tools\fricprobe\fric_L_tan030.pmx")
 [Environment]::SetEnvironmentVariable("FRICMUL","1"); [Environment]::SetEnvironmentVariable("FRAMES","121")
 foreach ($s in @("0","1")) {
   [Environment]::SetEnvironmentVariable("SLEEP",$s)

@@ -1,4 +1,6 @@
-﻿Set-Location C:\mytask2\unity-bullet-physics\tools\fricprobe
+﻿# リポジトリ直下を自分の位置から導出する (絶対パスを書かない)
+$REPO = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+Set-Location $REPO\tools\fricprobe
 Write-Output "  == 第2ラウンドの較正 (対B: f0=f1=0.5) =="
 foreach ($fm in @("1","0")) {
   Write-Output ("  -- FRICMUL=" + $fm + "  (1=積 μ=0.25 / 0=幾何平均 μ=0.5)")

@@ -7,14 +7,19 @@ REM  cmake refuses. Only the 3 core libs are needed, so cl.exe is fed directly.
 REM  113 sources exceed the 8191-char command line, so a response file is used.
 REM  Gotcha: cl does NOT accept quotes around a response file. @"path" -> D8003. Use @path.
 setlocal
-set VCVARS="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+REM  Override with VCVARS_PATH if Visual Studio lives elsewhere.
+if not defined VCVARS_PATH set VCVARS_PATH=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat
+set VCVARS="%VCVARS_PATH%"
 if not exist %VCVARS% (echo [build] vcvars64.bat not found & exit /b 1)
 call %VCVARS% >nul
 if errorlevel 1 (echo [build] vcvars64 failed & exit /b 1)
 
 set HERE=%~dp0
 set HERE=%HERE:~0,-1%
-set BULLET=C:\mytask2\bullet-reference\bullet-2.75\src
+REM  Bullet 2.75 sources. Override with BULLET_SRC; default assumes a sibling of the repo.
+if not defined BULLET_SRC set BULLET_SRC=%HERE%\..\..\..\..\bullet-reference\bullet-2.75\src
+set BULLET=%BULLET_SRC%
+if not exist "%BULLET%" (echo [build] bullet sources not found: %BULLET% ^(set BULLET_SRC^) & exit /b 1)
 set OBJDIR=%HERE%\obj
 if not exist "%OBJDIR%" mkdir "%OBJDIR%"
 

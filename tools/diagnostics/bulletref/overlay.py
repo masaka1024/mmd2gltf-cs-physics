@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PMX = os.environ.get("MMD_TEST_PMX") or sys.exit("MMD_TEST_PMX を指定してください (最小網の PMX)")
 # ★ベイク VMD もローカルにしか無いので env から取る。
 VMD = os.environ.get("MMD_TEST_VMD") or sys.exit("MMD_TEST_VMD を指定してください (ベイク済み VMD)")
-COMPOSE = r"C:\mytask2\unity-bullet-physics\reference\vmd_pose_dump\compose.py"
+COMPOSE = os.path.join(HERE, "..", "..", "..", "reference", "vmd_pose_dump", "compose.py")
 TARGET_BONES = ["髪BR1", "髪BR2", "髪BR3", "髪BR4", "髪BCR3"]
 
 
