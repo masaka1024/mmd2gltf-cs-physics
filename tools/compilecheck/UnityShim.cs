@@ -81,6 +81,13 @@ namespace UnityEngine
 
     public class MonoBehaviour : Component { }
 
+    // ビルド同梱の物理データ (.mmdphys.bytes) を読む経路が参照する。
+    public class TextAsset
+    {
+        public string name;
+        public byte[] bytes;
+    }
+
     public static class Gizmos
     {
         public static Color color;
