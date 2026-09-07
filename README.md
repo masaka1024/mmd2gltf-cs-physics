@@ -1,5 +1,34 @@
 # Unity Bullet 互換 物理エンジン (MMD/PMX 物理)
 
+<!-- mmd2gltf-ecosystem:start -->
+> **mmd2gltf エコシステム** — MMD モデル(PMX/VMD)を一度 `.glb` に変換すれば、**Unity・Unreal Engine 5・Blender** のどれにも、物理(揺れ物)と材質(トゥーン/スフィア)つきでそのまま持ち込めます。glTF で表現できない MMD 固有データは `extras.mmd` に元の値のまま残り、各インポーターがそれを読んでエンジン側で再構築します。
+>
+> ```
+> PMX / VMD
+>    │  変換 (mmd2gltf-gui または mmd2gltf-cs)
+>    ▼
+> .glb + extras.mmd   ← 変換はこの 1 回だけ
+>    │
+>    ├─▶ Unity   … mmd2gltf-unity-physics-importer
+>    ├─▶ UE5     … mmd2gltf-ue5-physics-importer
+>    └─▶ Blender … mmd2gltf-blender-physics-importer
+> ```
+>
+> | 目的 | 使うもの |
+> |---|---|
+> | まず変換する(Windows EXE あり) | [mmd2gltf-gui](https://github.com/masaka1024/mmd2gltf-gui) — Python 版。GUI / CLI |
+> | 変換する(C# 版、物理ベイク内蔵) | [mmd2gltf-cs](https://github.com/masaka1024/mmd2gltf-cs) — 出力形式は gui と同一。揺れ物を自作エンジンでベイク |
+> | Unity で動かす | [mmd2gltf-unity-physics-importer](https://github.com/masaka1024/mmd2gltf-unity-physics-importer) — Editor 拡張。Bullet 互換エンジン同梱(PhysX 不使用) |
+> | Unreal Engine 5 で動かす | [mmd2gltf-ue5-physics-importer](https://github.com/masaka1024/mmd2gltf-ue5-physics-importer) — C++ プラグイン。同じエンジンの C++ 移植(Chaos 不使用) |
+> | Blender で動かす | `mmd2gltf-blender-physics-importer`(準備中) — アドオン。Blender 内蔵の Bullet に配線 |
+> | (ライブラリ)物理エンジン本体 | [mmd2gltf-cs-physics](https://github.com/masaka1024/mmd2gltf-cs-physics) — cs / Unity / UE5 が使う Bullet 2.75 互換エンジン。直接は使いません |
+> | (別ルート)Blender の mmd_tools から glTF/FBX を出す | [mmd-to-gltf-exporter](https://github.com/masaka1024/mmd-to-gltf-exporter) — `extras.mmd` は付きません(物理の再構築は対象外) |
+>
+> 揺れ物の挙動は、Unity と UE5 が同じエンジンを使うため一致します。Blender 版は Blender 内蔵の Bullet で動かすため、動きは近いものの完全には一致しません。
+>
+> **このリポジトリ**: **物理エンジン本体(ライブラリ)**。mmd2gltf-cs / Unity / UE5 インポーターの内部で使われ、利用者が直接触る必要はありません。
+<!-- mmd2gltf-ecosystem:end -->
+
 PmxEditor (極北P) の **PMX 2.1 仕様** に記述された物理演算を、**Bullet 2.75** の
 挙動に合わせて Unity C# で再実装したものです。MMD モデルの剛体・Joint・SoftBody を
 外部ネイティブライブラリ (BulletSharp 等) 無しで動かすことを目的にしています。
