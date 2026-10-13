@@ -204,6 +204,21 @@ builder.World.StepSimulation(Time.fixedDeltaTime);
 
 ## 1 フレームの処理順 (Unity)
 
+**既定 (`StepInLateUpdate = true`, 2026-10-13〜)**: 物理ステップはアニメ確定後の `LateUpdate` で行います。
+
+```
+FixedUpdate : このフレームの呼び出し回数を数えるだけ
+Update      : (Animator がこの後で姿勢を書く)
+LateUpdate  : ボーン → kinematic 剛体へ目標姿勢を渡す → 物理ステップ → ボーンへ書き戻し
+```
+
+物理が「1 ステップ古い脚」を見る遅れが消え、速い動きでスカートが脚を通り抜けにくくなります
+(importer repo の Issue #8。表示姿勢での最深貫入が中央値で約 1/2〜1/3、1.6cm 超のフレームが 0)。
+ソルバの刻みと演算順は変わりません。ボーンが Fixed 更新なら `FixedUpdate` の回数 × 固定刻みだけ進め、
+Normal 更新なら `Time.deltaTime` を渡してエンジンの固定刻みアキュムレータに任せます。
+
+`StepInLateUpdate = false` で従来の順序 (`FixedUpdate` でステップ) に戻せます:
+
 ```
 FixedUpdate : ボーン → kinematic 剛体へ目標姿勢を渡す → 物理ステップ
 Update      : (Animator がこの後で姿勢を書く)

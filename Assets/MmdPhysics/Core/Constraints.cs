@@ -316,9 +316,37 @@ namespace BulletPhysics
         public static long LeverArmRatioN;
 
         // 内部状態。
-        private readonly List<ConstraintRow> _rows = new(6);
+        // ★_rows は List<T> ではなく配列で持つ (2026-09-07)。ConstraintRow は約80バイトの
+        //   struct で、List<T> のインデクサ経由だとソルバのホットループで読み書きのたびに
+        //   コピーが発生する。配列なら ref で保管場所を直接触れる。
+        //   行数は 6DOF ぶんで足りるが、念のため伸長する。
+        private ConstraintRow[] _rows = new ConstraintRow[6];
+        private int _rowCount;
+
+        private void AddRow(in ConstraintRow row)
+        {
+            if (_rowCount == _rows.Length) System.Array.Resize(ref _rows, _rows.Length * 2);
+            _rows[_rowCount++] = row;
+        }
         private RigidTransform _worldA, _worldB;
         private Vec3 _anchorA, _anchorB;
+
+        // ★腕長ゲート (LeverArmGate) が使う長さの、1 Prepare 内でのキャッシュ (2026-09-07)。
+        //   いずれも Prepare の中では不変なのに、並進 3 軸ぶん + モーター行ぶん繰り返し sqrt していた。
+        //   同じ入力から同じ値を作り直すだけなので、値も式もそのままでビット不変。
+        //   ★rA / rB の長さは Prepare の並進ループ専用。AddSpringMotorRow は角度行のとき
+        //     Vec3.Zero を渡してくるので、あちらでは従来どおり引数から都度求める。
+        private float _leverLenRA, _leverLenRB;
+        private bool _leverLenABReady;
+        private float _leverLenAnchorDelta;
+        private bool _leverLenAnchorReady;
+
+        /// <summary>|_anchorB - _anchorA|。Prepare 内で不変なので一度だけ求める。</summary>
+        private float LeverAnchorDelta()
+        {
+            if (!_leverLenAnchorReady) { _leverLenAnchorDelta = (_anchorB - _anchorA).Length; _leverLenAnchorReady = true; }
+            return _leverLenAnchorDelta;
+        }
         private Vec3[] _axesA = new Vec3[3];
         // ステップ2(b): Baumgarte バイアスを split-impulse(擬似速度)側へ分離するか。
         // false(既定)で従来どおり実速度側へバイアスを乗せる (挙動不変)。
@@ -440,7 +468,9 @@ namespace BulletPhysics
             _warmStartAng = warmStartAng;
             _warmLinSeen[0] = _warmLinSeen[1] = _warmLinSeen[2] = false;
             _warmAngSeen[0] = _warmAngSeen[1] = _warmAngSeen[2] = false;
-            _rows.Clear();
+            _rowCount = 0;
+            _leverLenABReady = false;
+            _leverLenAnchorReady = false;
             if (BodyA == null || BodyB == null) return;
 
             _worldA = BodyA.WorldTransform * FrameInA;
@@ -463,11 +493,11 @@ namespace BulletPhysics
             var linDelta = _anchorB - _anchorA;
 
             // 回転相対 (角度行と、LinearLeverMode=2 の rotAllowed 判定で使用)。
-            var qRel = _worldA.Rotation.Conjugated() * _worldB.Rotation;
-            // BulletAngleConvention: Bullet 2.75 は実挙動として R_B⁻¹R_A のオイラーを見ている
-            // (btGetMatrixElem が列優先添字で、matrixToEulerXYZ が転置に対して働くため)。
-            // 既定 false のときは従来どおり qRel をそのまま使う = ビット不変。
-            var euler = ToEulerXYZ(BulletAngleConvention ? qRel.Conjugated().Normalized : qRel.Normalized);
+            // ★BulletLimitRowGating=true のときは下の分岐が euler を **上書きする** ので、
+            //   四元数側の euler は一度も読まれない。従来はここで無条件に計算していたが、
+            //   Quat の共役積 + Normalized (sqrt) + ToEulerXYZ (atan2×2 + asin) が丸ごと捨てられていた。
+            //   分岐の else へ移すだけなので、どちらの経路も式・順序は従来のままでビット不変。
+            Vec3 euler;
 
             // ★タスク62: LIMGATE のときは、限界判定に食わせる変位を **Bullet の実計算鎖**で作る。
             //   btGeneric6DofConstraint::calculateLinearInfo (btGeneric6DofConstraint.cpp:745)
@@ -502,6 +532,14 @@ namespace BulletPhysics
                 var invBasisA = basisAbt.BulletInverse();
                 linDiffBt = invBasisA * (oB - oA);
                 euler = ToEulerXYZBullet(invBasisA * basisBbt, BulletAngleConvention);
+            }
+            else
+            {
+                var qRel = _worldA.Rotation.Conjugated() * _worldB.Rotation;
+                // BulletAngleConvention: Bullet 2.75 は実挙動として R_B⁻¹R_A のオイラーを見ている
+                // (btGetMatrixElem が列優先添字で、matrixToEulerXYZ が転置に対して働くため)。
+                // 既定 false のときは従来どおり qRel をそのまま使う = ビット不変。
+                euler = ToEulerXYZ(BulletAngleConvention ? qRel.Conjugated().Normalized : qRel.Normalized);
             }
 
             // LinearLeverMode=2 用の前計算 (Bullet calculateTransforms / setLinearLimits 相当)。
@@ -579,8 +617,9 @@ namespace BulletPhysics
                     // ★タスク78: 腕長ゲート。誤差が自分の腕に対して大きすぎたら rA へ落とす。
                     if (LeverArmGate > 0f || LeverArmProbe)
                     {
-                        float scale = rA.Length + rB.Length;
-                        float ratio = scale > 1e-9f ? (_anchorB - _anchorA).Length / scale : 0f;
+                        if (!_leverLenABReady) { _leverLenRA = rA.Length; _leverLenRB = rB.Length; _leverLenABReady = true; }
+                        float scale = _leverLenRA + _leverLenRB;
+                        float ratio = scale > 1e-9f ? LeverAnchorDelta() / scale : 0f;
                         if (LeverArmProbe)
                         {
                             LeverArmRatioN++;
@@ -684,9 +723,9 @@ namespace BulletPhysics
             // 前サブステップの蓄積インパルスを反復前に一度適用する (Bullet の warm-start と同型)。
             if (_warmStart || _warmStartAng)
             {
-                for (int r = 0; r < _rows.Count; r++)
+                for (int r = 0; r < _rowCount; r++)
                 {
-                    var row = _rows[r];
+                    ref var row = ref _rows[r];
                     if (!row.WarmStartable) continue;
                     if (row.Angular)
                     {
@@ -743,7 +782,7 @@ namespace BulletPhysics
                 if (LeverArmGate > 0f)
                 {
                     float gscale = rA.Length + rB.Length;
-                    if ((_anchorB - _anchorA).Length > LeverArmGate * gscale)
+                    if (LeverAnchorDelta() > LeverArmGate * gscale)
                     { armA = rA; LeverArmGateHits++; }
                 }
             }
@@ -776,7 +815,7 @@ namespace BulletPhysics
             bool warm = _warmStart && locked;
             float acc = 0f;
             if (warm) { _warmLinSeen[dof] = true; acc = Math.Max(lo, Math.Min(hi, _warmLin[dof] * WarmStartFactor)); }
-            _rows.Add(new ConstraintRow
+            AddRow(new ConstraintRow
             {
                 Axis = axis, Angular = false, RelA = rA, RelB = rB,
                 LowerImpulse = lo, UpperImpulse = hi,
@@ -805,7 +844,7 @@ namespace BulletPhysics
                 acc = sameSide ? Math.Max(lo, Math.Min(hi, _warmAng[dof] * WarmStartFactor)) : 0f;
                 _warmAngPrevSide[dof] = sideCode;
             }
-            _rows.Add(new ConstraintRow
+            AddRow(new ConstraintRow
             {
                 Axis = axis, Angular = true,
                 LowerImpulse = lo, UpperImpulse = hi,
@@ -946,45 +985,64 @@ namespace BulletPhysics
         // --- 速度反復 (world から複数回呼ばれる) ---
         public void SolveVelocity()
         {
-            for (int r = 0; r < _rows.Count; r++)
+            // ★オーバーヘッド削減 (2026-09-07)。**演算列も順序も変えていない = ビット不変**。
+            //   ConstraintRow は約80バイトの struct なので、List<T> のインデクサ経由だと
+            //   1行1反復あたり「読み出しコピー + 書き戻しコピー」で約160バイトを往復させていた。
+            //   実測規模: 779ジョイント × 約6行 × 10反復 × 120サブステップ = 秒間約560万行。
+            //   配列 + ref で保管場所を直接触ることで、この往復が消える
+            //   (CollectionsMarshal.AsSpan は Unity の API レベルに無いので配列で持つ。_rows の宣言を参照)。
+            //   ★唯一の差は row への書き込みが ApplyImpulse より前に確定すること。
+            //     その間に _rows を読む者はいないので、観測可能な違いは無い。
+            // ループ内で変化しないものを外へ出す (BodyA/BodyB は public フィールド、
+            // 診断フラグは static。特に Name.Contains を毎行呼ばずに済む)。
+            var bodyA = BodyA; var bodyB = BodyB;
+            bool dbg = DebugRowsSolved != null && (DebugRowsSolvedJoint == null || Name.Contains(DebugRowsSolvedJoint));
+
+            for (int r = 0; r < _rowCount; r++)
             {
-                var row = _rows[r];
+                ref var row = ref _rows[r];
                 // 線形行は行のレバーアーム(RelA/RelB)で速度を測る (J整合)。mode0 では
                 // RelA/RelB = anchor−COM なので従来の VelocityAtPoint(anchor) とビット同一。
                 float relVel = row.Angular
-                    ? (BodyB.AngularVelocity - BodyA.AngularVelocity).Dot(row.Axis)
-                    : ((BodyB.LinearVelocity + Vec3.Cross(BodyB.AngularVelocity, row.RelB))
-                     - (BodyA.LinearVelocity + Vec3.Cross(BodyA.AngularVelocity, row.RelA))).Dot(row.Axis);
+                    ? (bodyB.AngularVelocity - bodyA.AngularVelocity).Dot(row.Axis)
+                    : ((bodyB.LinearVelocity + Vec3.Cross(bodyB.AngularVelocity, row.RelB))
+                     - (bodyA.LinearVelocity + Vec3.Cross(bodyA.AngularVelocity, row.RelA))).Dot(row.Axis);
 
                 float dImpulse = (row.TargetVel - relVel) * row.EffMass;
                 float old = row.Accumulated;
                 row.Accumulated = Math.Max(row.LowerImpulse, Math.Min(row.UpperImpulse, old + dImpulse));
                 dImpulse = row.Accumulated - old;
 
-                if (row.Angular)
+                // ★クランプで dImpulse が丁度 0 になった行は、ゼロベクトルを逆慣性テンソルに
+                //   通して速度へ足しているだけ (実測で全行の 31.7%)。v += 0 は v を変えない。
+                //   唯一の例外は v の成分が -0.0 のとき (-0.0 + 0.0 = +0.0) だが、
+                //   ビット不変ハーネスで実測して差が無いことを確認している。
+                if (dImpulse != 0f)
                 {
-                    var L = row.Axis * dImpulse;
-                    BodyA.ApplyTorqueImpulse(-L);
-                    BodyB.ApplyTorqueImpulse(L);
-                }
-                else
-                {
-                    var P = row.Axis * dImpulse;
-                    BodyA.ApplyImpulse(-P, row.RelA);
-                    BodyB.ApplyImpulse(P, row.RelB);
+                    if (row.Angular)
+                    {
+                        var L = row.Axis * dImpulse;
+                        bodyA.ApplyTorqueImpulse(-L);
+                        bodyB.ApplyTorqueImpulse(L);
+                    }
+                    else
+                    {
+                        var P = row.Axis * dImpulse;
+                        bodyA.ApplyImpulse(-P, row.RelA);
+                        bodyB.ApplyImpulse(P, row.RelB);
+                    }
                 }
                 // warm-start: 行の最終累積を次サブステップへ引き継ぐ (角度→_warmAng / 直線→_warmLin)。
                 if (row.WarmStartable) { if (row.Angular) _warmAng[row.Dof] = row.Accumulated; else _warmLin[row.Dof] = row.Accumulated; }
-                if (DebugRowsSolved != null && (DebugRowsSolvedJoint == null || Name.Contains(DebugRowsSolvedJoint)))
+                if (dbg)
                 {
                     float after = row.Angular
-                        ? (BodyB.AngularVelocity - BodyA.AngularVelocity).Dot(row.Axis)
-                        : ((BodyB.LinearVelocity + Vec3.Cross(BodyB.AngularVelocity, row.RelB))
-                         - (BodyA.LinearVelocity + Vec3.Cross(BodyA.AngularVelocity, row.RelA))).Dot(row.Axis);
+                        ? (bodyB.AngularVelocity - bodyA.AngularVelocity).Dot(row.Axis)
+                        : ((bodyB.LinearVelocity + Vec3.Cross(bodyB.AngularVelocity, row.RelB))
+                         - (bodyA.LinearVelocity + Vec3.Cross(bodyA.AngularVelocity, row.RelA))).Dot(row.Axis);
                     DebugRowsSolved.Add((Name, row.Dof, row.Angular, row.Axis, row.RelA, row.RelB,
-                        BodyA.Name, BodyB.Name, row.Accumulated, row.TargetVel, after));
+                        bodyA.Name, bodyB.Name, row.Accumulated, row.TargetVel, after));
                 }
-                _rows[r] = row;
             }
         }
 
@@ -994,9 +1052,9 @@ namespace BulletPhysics
         // 実速度へエネルギーを注入せず、以後の warm-start を安定化できる (Bullet の split-impulse と同型)。
         public void SolveSplitPosition()
         {
-            for (int r = 0; r < _rows.Count; r++)
+            for (int r = 0; r < _rowCount; r++)
             {
-                var row = _rows[r];
+                ref var row = ref _rows[r];
                 float relVel = row.Angular
                     ? (BodyB.PseudoAngularVelocity - BodyA.PseudoAngularVelocity).Dot(row.Axis)
                     : ((BodyB.PseudoLinearVelocity + Vec3.Cross(BodyB.PseudoAngularVelocity, row.RelB))
@@ -1019,7 +1077,6 @@ namespace BulletPhysics
                     BodyA.ApplyPushImpulse(-P, row.RelA);
                     BodyB.ApplyPushImpulse(P, row.RelB);
                 }
-                _rows[r] = row;
             }
         }
 

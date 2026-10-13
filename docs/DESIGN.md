@@ -7157,3 +7157,26 @@ public static なので**エンジンは非改変**)。
 | 4 | **後片付け**: バックスラッシュ取りこぼしで生まれた誤パスのディレクトリを削除し、`hf_*.raw` を `.gitignore` へ |
 | 5 | ★**公開規約の是正 (push 前)**: 実モデル名 **171 箇所**を別名へ、実ボーン名を中立表記へ (`鎖L` / `鎖R` / `帯` / `髪L-A`)、ローカル絶対パスを **env / `syncguard.local.txt` (gitignore 済み)** 経由へ。**規約違反ゼロを機械検査で確認してから push した** |
 | 6 | ★**教訓**: **公開リポジトリに書く文章は、書いた時点で別名に落とす。** 今回はタスク140〜143 の仕分け表を実名のまま台帳へ入れ、push 直前に 171 箇所の是正が必要になった |
+
+---
+
+## 逆移植: importer repo で先行した 5 PR を正本へ取り込む (2026-10-14)
+
+> 3 複製の同期義務が**逆方向**に破れていた。2026-09-06〜10-13 に importer repo 側で main に入った
+> 変更が、正本 (本リポジトリ) にも Unity プロジェクトにも無かった (正本の最終更新は 09-08 の README のみ)。
+> importer の PR 直前の時点で 6 ファイルは正本と完全一致していたため、**ファイル単位**で取り込んだ
+> (BOM/CRLF は各複製の既存状態を維持)。取り込み後、全 17 `.cs` の突合で残差 0、`compilecheck` 全 PASS。
+
+| importer PR | 内容 | 触れたファイル |
+|---|---|---|
+| #3 | ブロードフェーズ早期棄却 (境界球判定・空マニフォールド省略)。結果ビット不変 | `Core/Collision.cs` `Core/PhysicsWorld.cs` `Core/Transform.cs` `Core/MathTypes.cs` |
+| #5 | ジョイント行を配列 + `ref` で持ち struct の往復コピーを消す。solveJoint −33%。ビット不変 | `Core/Constraints.cs` |
+| #6 | `Joint.Prepare` の死んだ計算を除去。prepare −23%。ビット不変 | `Core/Constraints.cs` |
+| #7 | ゼロインパルス行の適用を飛ばす。solveJoint −19%。ビット不変 | `Core/Constraints.cs` |
+| #9 | `StepInLateUpdate` (既定 ON): 物理ステップをアニメ確定後の `LateUpdate` へ。1 ステップ古い脚を見る遅れが消え、表示姿勢での貫入が減る (importer Issue #8)。ソルバの刻み・演算順は不変 | `Unity/MmdPhysicsBehaviour.cs` |
+
+- 性能数値は importer 側の `Tools/BroadphaseHarness` と Quest 実機での実測 (本リポジトリでは再計測していない)。
+- 同時に Unity プロジェクトの `Assets/Editor/MmdPhysicsImporterWindow.cs` も importer と一致させた
+  (テクスチャ抽出先を `.glb` ごとに分ける修正など)。
+- ★教訓: **SyncGuard は正本から複製を見る向き**なので、複製側で先行した変更は検出しない。
+  importer repo で直接コードを変えたら、その場で正本へも入れること。
