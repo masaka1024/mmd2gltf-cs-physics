@@ -42,6 +42,8 @@ namespace UnityEngine
     {
         public string name;
         public Transform[] GetComponentsInChildren<T>() => new Transform[0];
+        // includeInactive 付き (MmdImportAxis のボーン解決が Transform / SkinnedMeshRenderer で使う)。
+        public T[] GetComponentsInChildren<T>(bool includeInactive) => new T[0];
         // 単体取得は「見つからない」を返すだけでよい (ヘッドレスにはシーンが無い)。
         public T GetComponentInParent<T>() where T : class => null;
         public T GetComponentInChildren<T>() where T : class => null;
@@ -80,6 +82,12 @@ namespace UnityEngine
     }
 
     public class MonoBehaviour : Component { }
+
+    // ボーン解決 (MmdImportAxis.ResolveBones) が skin 順 = skins[0].joints 順の並びとして参照する。
+    public class SkinnedMeshRenderer : Component
+    {
+        public Transform[] bones;
+    }
 
     // ビルド同梱の物理データ (.mmdphys.bytes) を読む経路が参照する。
     public class TextAsset
