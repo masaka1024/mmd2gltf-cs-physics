@@ -209,7 +209,7 @@ warmup 0/10/60 いずれでも初期貫入~0・平時中央~10.41 (開始状態�
 それでも入力は 1/30 境界でしか更新されないため、忠実な細分は SubSteps 経路を使う。
 
 ## 座標系
-エンジンはPMXネイティブ座標で計算。Unity境界(MmdPhysicsBehaviour)の変換は
+エンジンはPMXネイティブ座標で計算。Unity境界(MmdPhysicsBehaviour)の変換は、UniGLTF で取り込んだ場合
 **単位スケールのみで、軸反転は無い**(真の等長変換)。重力はMMDスケールで約 -98 (= -9.8 * 10)。
 
     MmdToUnityPos(v) = (v.x, v.y, v.z) * UnitScale
@@ -218,6 +218,16 @@ warmup 0/10/60 いずれでも初期貫入~0・平時中央~10.41 (開始状態�
 mmd2gltf(PMX→glTF) と UniGLTF(glTF→Unity) の ReverseZ が二重に掛かって相殺するため、
 Unity側のボーンは既にPMXネイティブ座標値になっている。かつてここに3回目のZ反転があり
 鏡映(det=-1)になっていた(髪が正面へ反転して体を貫通する症状)。2026-08-09 に除去 (9e90801)。
+
+### 取り込み経路の軸規約 (2026-10-20, importer repo Issue #10 / PR #13 から逆移植)
+glTFast は Z でなく X を反転するので、スケルトンが PMX に対して Y軸180° 回った状態で入る。
+境界を恒等に固定していたため UniGLTF 必須だった。境界の 4 関数を軸規約 (`ImportAxis`) による
+共役変換で切り替えるよう変更 (`Unity/MmdImportAxis.cs`)。4 候補 (一致 / Y180 / Z鏡映 / X鏡映) は
+すべて Y 軸を保つので PMX 空間の物理は不変。ボーン解決は skin 順優先・名前照合はフォールバック。
+- 検証 (importer 側): 単体 40,022 件、Unity 6000.3 実機で `.glb` のコピーを Reverse Axis = X で取り込み
+  (= glTFast と同じ Y180 状態) → 配線時判定 Y180 (残差 0.0000)、ヒットボックス 117 個が共役一致
+  (4.8e-7 m)、物理 30 秒の UniGLTF vs X反転の差は対照 (同じ取り込み同士) と同程度。
+- `tools/compilecheck/UnityShim.cs` に `SkinnedMeshRenderer` と `GetComponentsInChildren<T>(bool)` を追加。
 
 ### オイラー角の順序 (2026-08-10 修正)
 PMX の剛体/Joint 回転は **YXZ 順 (R = Ry·Rx·Rz)**。Bullet の `btQuaternion(yaw,pitch,roll)` と同型。

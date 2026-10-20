@@ -247,7 +247,7 @@ LateUpdate  : 起動直後の FK-rest リセット → 物理 → ボーンへ�
 ## 座標系
 
 エンジンは PMX ネイティブ座標で計算し、境界 (`MmdPhysicsBehaviour`) で Unity へ変換します。
-**変換は単位スケールのみで、軸反転はありません**（真の等長変換）。
+UniGLTF で取り込んだ場合（既定の想定）、**変換は単位スケールのみで、軸反転はありません**（真の等長変換）。
 
 ```
 MmdToUnityPos(v) = (v.x, v.y, v.z) * UnitScale
@@ -260,13 +260,31 @@ Unity 側のボーンは既に PMX ネイティブ座標値になっています
 
 `UnitScale` は GLB 読込時に `extras.mmd` の値（既定 0.08）で自動上書きされます。
 
-> ★**この相殺は取り込みに UniGLTF を使うことが前提**です。Unity 標準の glTF インポーター（glTFast）は
-> Z ではなく **X を反転**するため相殺せず、スケルトンだけが PMX に対して Y 軸 180° 回った状態になります。
-> 剛体は `extras.mmd` の raw PMX 座標のまま構築されるので基準が食い違い、髪やスカートが体の正面へ出ます。
-> **Unity も UniGLTF もこの食い違いにエラーを出しません。**
-> `MmdPhysicsBehaviour.CheckImportConvention`（既定 ON）が起動時にボーン配置と PMX バインド位置を
-> 突き合わせ、検出したら対処法つきで `LogError` します。判定はモデルのシーン配置（並進・回転・スケール）に
-> 依存しません（`ModelRoot` のローカルへ落とし、重心を引いてから比較するため）。
+### 取り込み経路の軸規約（UniGLTF 以外のインポーター）
+
+上の相殺は UniGLTF の場合です。Unity 標準の glTF インポーター（glTFast）は Z ではなく **X を反転**するため
+相殺せず、スケルトンは PMX に対して Y 軸 180° 回った状態になります。以前は境界が恒等に固定されていたため、
+glTFast では髪やスカートが体の正面へ出ていました（Unity もインポーターもエラーを出しません）。
+
+現在は境界の変換を軸規約 `MmdPhysicsBehaviour.ImportAxis`（`ImportAxisConvention`）で切り替えます
+（実装は `Unity/MmdImportAxis.cs`）。
+
+| 規約 | 位置 (x,y,z) | 回転 (x,y,z,w) |
+|---|---|---|
+| 一致 `Identity`（UniGLTF） | そのまま | そのまま |
+| Y軸180° `RotateY180`（glTFast） | (−x, y, −z) | (−x, y, −z, w) |
+| Z鏡映 `MirrorZ` | (x, y, −z) | (−x, −y, z, w) |
+| X鏡映 `MirrorX` | (−x, y, z) | (x, −y, −z, w) |
+
+- 取り込み時の軸変換 S は姿勢に S·T·S（共役）の形で掛かるので、境界でも同じ S による共役変換を掛ける。
+  いずれも自己逆なので往復とも同じ式。
+- 4 候補はすべて Y 軸を保つので、重力もシミュレーションも PMX 空間内では変わらず、**物理結果は不変**。
+- 規約はインポーター（importer repo）の【1】物理を配線 がボーン配置から判定して保存する。
+  `Auto` のままなら起動時に判定する。`CheckImportConvention`（既定 ON）は保存値と食い違えば警告する番人。
+  判定はモデルのシーン配置（並進・回転・スケール）に依存しない（`ModelRoot` のローカルへ落とし、
+  重心を引いてから比較するため）。
+- ボーンは `SkinnedMeshRenderer.bones`（= `skins[0].joints` 順）で解決し、名前照合はフォールバック
+  （glTFast は重複ノード名に連番を付けるため）。
 
 ### オイラー角の順序
 
